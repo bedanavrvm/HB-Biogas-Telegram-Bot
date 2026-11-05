@@ -2,6 +2,13 @@
   'use strict';
   const mounts = new WeakMap();
   const escape = value => String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+  function changesHtml(row) {
+    if (!row.comparison_basis) return '';
+    const render = change => `<div class="recovery-change"><strong>${escape(change.field)}</strong><span><span class="recovery-before">${escape(change.before === null ? 'Not recorded' : change.before === '' ? '(Blank)' : change.before)}</span> <span aria-label="changes to">→</span> <span class="recovery-after">${escape(change.after === '' ? '(Blank)' : change.after)}</span></span></div>`;
+    const changes=(row.changes||[]).filter(change=>change.before!==null).map(render);
+    const unknown=(row.changes||[]).filter(change=>change.before===null).map(render);
+    return `<div class="recovery-changes"><small>${escape(row.comparison_basis)}</small>${changes.slice(0,3).join('')}${changes.length > 3 ? `<details><summary>${changes.length-3} more changes</summary>${changes.slice(3).join('')}</details>` : ''}${unknown.length?`<details><summary>${unknown.length} saved values without a recorded Sheet comparison</summary>${unknown.join('')}</details>`:''}${!changes.length&&!unknown.length ? '<p>No retained field differences. Retry checks the current saved row.</p>' : ''}</div>`;
+  }
   function dialog(title, body, confirmLabel) {
     return new Promise(resolve => {
       const node = document.createElement('dialog');
@@ -23,8 +30,8 @@
   function mount(host, options) {
     if (!host) return null;
     if (mounts.has(host)) { const current = mounts.get(host); current.refresh(); return current; }
-    let page = 1, busy = false, rows = [], sequence = 0;
-    const keys = new Map();
+    let page = 1, busy = false, rows = [], sequence = 0, progress = '';
+    const keys = new Map(), selected = new Map();
     host.classList.add('miniapp-recovery');
     host.innerHTML = '<header><h2>App status</h2><button type="button" data-check aria-label="Check app status" title="Check status">↻</button></header><div data-recovery-content aria-live="polite"></div>';
     if (options.variant === 'portal') host.classList.add('portal-recovery');
@@ -33,6 +40,7 @@
     async function refresh() {
       if (busy) return;
       const version = ++sequence;
+      host.querySelectorAll('button,input').forEach(node=>{node.disabled=true;});
       host.querySelector('[data-check]').disabled = true;
       content.setAttribute('aria-busy', 'true');
       try {
@@ -43,13 +51,18 @@
         rows = payload.items;
         const paging = payload.pagination || {};
         page = Number(paging.page || 1);
-        content.innerHTML = rows.length ? `<div class="recovery-list">${rows.map((row, index) => `<article class="recovery-row"><div class="recovery-copy"><strong>${escape(row.title)}</strong><span>${escape(row.detail)}</span><small class="recovery-state">${escape(row.status)}</small></div><div class="recovery-actions">${row.action ? `<button type="button" data-repair="${index}">${escape(row.action.label)}</button>` : ''}<button type="button" data-guide="${index}" aria-label="Help with ${escape(row.title)}" title="What to do">?</button></div></article>`).join('')}</div>` : '<p class="recovery-empty">No updates need attention.</p>';
+        rows.forEach(row => { if (selected.has(row.key)) { if (row.batch_retry) selected.set(row.key,row); else selected.delete(row.key); } });
+        content.innerHTML = rows.length ? `<div class="recovery-list">${rows.map((row, index) => `<article class="recovery-row"><div class="recovery-copy"><strong>${row.batch_retry ? `<label class="recovery-select"><input type="checkbox" data-select="${index}" aria-label="Select ${escape(row.title)}" ${selected.has(row.key)?'checked':''}>${escape(row.title)}</label>` : escape(row.title)}</strong><span>${escape(row.detail)}</span><small class="recovery-state">${escape(row.status)}${row.destination?' · '+escape(row.destination):''}</small>${row.waiting_reason?`<small>${escape(row.waiting_reason)}</small>`:''}${changesHtml(row)}</div><div class="recovery-actions">${row.action ? `<button type="button" data-repair="${index}">${escape(row.action.label)}</button>` : ''}<button type="button" data-guide="${index}" aria-label="Help with ${escape(row.title)}" title="What to do">?</button></div></article>`).join('')}</div>` : '<p class="recovery-empty">No updates need attention.</p>';
         if (options.variant === 'portal') {
           const counts = payload.summary || {};
-          content.insertAdjacentHTML('afterbegin', `<p class="recovery-explanation">Your work is saved in Portal. This shows updates to Sheets, files and report delivery.</p><div class="portal-recovery-summary">${[['waiting','Waiting'],['processing','Processing'],['needs_attention','Needs attention']].map(([key,label]) => `<span><strong>${Number(counts[key] || 0)}</strong>${label}</span>`).join('')}</div><small class="recovery-checked">Checked just now</small>`);
+          content.insertAdjacentHTML('afterbegin', `<div class="portal-recovery-summary">${[['waiting','Waiting'],['processing','Processing'],['needs_attention','Needs attention']].map(([key,label]) => `<span><strong>${Number(counts[key] || 0)}</strong>${label}</span>`).join('')}</div><small class="recovery-checked">Checked just now</small>`);
           content.querySelectorAll('.recovery-row').forEach((node, index) => {
             const row = rows[index];
             node.dataset.status = row.status_code || 'needs_attention';
+            if (row.comparison_basis) {
+              node.querySelector('[data-guide]')?.remove();
+              return;
+            }
             const details = document.createElement('details');
             details.className = 'recovery-details';
             details.innerHTML = `<summary>What to do</summary><ol>${(row.steps || []).map(step => `<li>${escape(step)}</li>`).join('')}</ol><small>Support reference: ${escape(row.reference)}</small>`;
@@ -57,6 +70,10 @@
             node.querySelector('[data-guide]')?.remove();
           });
         }
+        if (rows.some(row=>row.batch_retry) || selected.size) {
+          content.insertAdjacentHTML('afterbegin', `<div class="recovery-batch"><label class="recovery-select"><input type="checkbox" data-select-page aria-label="Select displayed Sheet updates">Select displayed</label><button type="button" data-retry-selected ${selected.size?'':'disabled'}>Retry selected (${selected.size})</button><small data-batch-progress role="status">${escape(progress)}</small></div>`);
+          updateSelection();
+        } else if (progress) content.insertAdjacentHTML('afterbegin',`<p data-batch-progress role="status">${escape(progress)}</p>`);
         if (paging.pages > 1) content.insertAdjacentHTML('beforeend', `<nav aria-label="App status pages"><button type="button" data-page="${page-1}" aria-label="Previous status page" ${page === 1 ? 'disabled' : ''}>‹</button><span>${page} / ${escape(paging.pages)} · ${escape(paging.total)} updates</span><button type="button" data-page="${page+1}" aria-label="Next status page" ${page >= paging.pages ? 'disabled' : ''}>›</button></nav>`);
       } catch (error) {
         content.innerHTML = `<p role="alert">${escape(error.message || 'App status could not be checked. Try again.')}</p><button type="button" data-check>Try again</button>`;
@@ -65,9 +82,70 @@
         host.querySelector('[data-check]').disabled = false;
       }
     }
+    function updateSelection() {
+      const available = rows.filter(row=>row.batch_retry);
+      const checked = available.filter(row=>selected.has(row.key)).length;
+      const all = host.querySelector('[data-select-page]');
+      if (all) { all.checked=available.length>0&&checked===available.length; all.indeterminate=checked>0&&checked<available.length; all.disabled=!available.length; }
+      const button=host.querySelector('[data-retry-selected]');
+      if (button) { button.disabled=!selected.size; button.textContent=`Retry selected (${selected.size})`; }
+    }
+    host.addEventListener('change',event=>{
+      if (busy) return;
+      const input=event.target;
+      if (input.hasAttribute('data-select-page')) {
+        rows.filter(row=>row.batch_retry).forEach(row=>input.checked?selected.set(row.key,row):selected.delete(row.key));
+        host.querySelectorAll('[data-select]').forEach(node=>{node.checked=selected.has(rows[Number(node.dataset.select)].key);});
+      } else if (input.dataset.select!==undefined) {
+        const row=rows[Number(input.dataset.select)];
+        if (row?.batch_retry) { if(input.checked)selected.set(row.key,row);else selected.delete(row.key); }
+      } else return;
+      updateSelection();
+    });
+    async function retry(row) {
+      const action=row.action;
+      if (!action || !action.endpoint.startsWith(options.prefix) || action.endpoint.includes('..')) throw new Error('This retry is unavailable. Refresh status.');
+      if (!keys.has(row.key)) keys.set(row.key,window.MiniAppUtils?.createRequestId?.('recovery')||window.crypto.randomUUID());
+      try {
+        const result=await options.request(action.endpoint,{...action.payload,client_request_id:keys.get(row.key)});
+        const data=result?.data||result;
+        if ((result?.ok===false||data?.ok===false)&&!data?.pending_retry) {
+          const error=new Error(data?.error||data?.message||'The update could not be retried.');error.status=result.status;throw error;
+        }
+        keys.delete(row.key);
+        if (data?.operation_id&&data.operation_id!==row.key&&selected.has(row.key)) {
+          selected.delete(row.key);selected.set(data.operation_id,{...row,key:data.operation_id,action:{...action,payload:{...action.payload,operation_id:data.operation_id}}});
+        }
+        if(data?.case?.sync_status==='failed'||data?.needs_attention||data?.attempt_failed)throw new Error('The Sheet update still needs attention. Its latest failure is shown below.');
+        if(data?.publication ? data.publication.status==='synced' : data?.case?.sync_status==='success'||data?.status==='succeeded') { selected.delete(row.key);selected.delete(data?.operation_id);return 'synced'; }
+        return 'waiting';
+      } catch(error) {
+        if(error.status>=400&&error.status<500) keys.delete(row.key);
+        throw error;
+      }
+    }
+    async function retrySelected() {
+      if(busy||!selected.size)return;
+      busy=true;const batch=[...selected.values()].sort((a,b)=>Number(a.retry_replacement)-Number(b.retry_replacement)||String(a.queued_at||'').localeCompare(String(b.queued_at||''))||a.key.localeCompare(b.key));
+      let completed=0,waiting=0,failed=0;
+      host.querySelectorAll('button,input').forEach(node=>{node.disabled=true;});
+      try {
+        for (const [index,row] of batch.entries()) {
+          try { (await retry(row))==='synced'?completed++:waiting++; } catch (_) { failed++; }
+          progress=`${index+1}/${batch.length} checked · ${completed} synced · ${waiting} waiting · ${failed} failed`;
+          const status=host.querySelector('[data-batch-progress]');if(status)status.textContent=progress;
+        }
+        notify(progress,failed?'warning':'info');
+      } finally {
+        busy=false;host.querySelectorAll('button,input').forEach(node=>{node.disabled=false;});
+        options.afterRetry?.();await refresh();
+      }
+    }
     host.addEventListener('click', async event => {
       const button = event.target.closest('button');
       if (!button || button.disabled) return;
+      if (busy) return;
+      if (button.hasAttribute('data-retry-selected')) return retrySelected();
       if (button.hasAttribute('data-check')) return refresh();
       if (button.hasAttribute('data-page')) { page = Number(button.dataset.page); return refresh(); }
       const guide = button.dataset.guide;
@@ -87,7 +165,12 @@
       if (!action || !action.endpoint.startsWith(options.prefix) || action.endpoint.includes('..')) return;
       busy = true;
       try {
-        if (!await dialog(action.label, `<p>${escape(action.confirmation)}</p>`, action.label)) return;
+        if (!row.batch_retry && !await dialog(action.label, `<p>${escape(action.confirmation)}</p>`, action.label)) return;
+        if (row.batch_retry) {
+          const outcome=await retry(row);
+          notify(outcome==='synced'?'Sheet updated.':'Still queued: check the waiting reason below.');
+          return;
+        }
         button.disabled = true;
         button.setAttribute('aria-busy', 'true');
         if (!keys.has(row.key)) keys.set(row.key, window.MiniAppUtils?.createRequestId?.('recovery')
@@ -107,8 +190,9 @@
         if (error.status >= 400 && error.status < 500) keys.delete(row.key);
         notify(error.message || 'The update could not be retried.', 'error');
       }
-      finally { busy = false; button.disabled = false; button.removeAttribute('aria-busy'); await refresh(); }
+      finally { busy = false; button.disabled = false; button.removeAttribute('aria-busy'); options.afterRetry?.(); await refresh(); }
     });
+    if (options.variant==='portal') window.addEventListener('portal:publication-updated',refresh);
     const api = {refresh}; mounts.set(host, api); refresh(); return api;
   }
   window.MiniAppRecovery = {mount, confirm: (title, message) => dialog(title, `<p>${escape(message)}</p>`, title),

@@ -2954,6 +2954,68 @@ def _datetime_text(value) -> str:
     return value.strftime('%d-%m-%Y %H:%M') if value else ''
 
 
+def internal_order_projection_fields(farmer, *, record_id='', now_text=''):
+    """One field plan for internal-order publication and its recovery preview."""
+    from core.services.sheet_publication import aliases_for
+    fields = {}
+
+    def candidates(field_name, *fallback):
+        return list(dict.fromkeys((*aliases_for('internal_order', field_name), *fallback)))
+
+    def put(headers, value):
+        if headers:
+            fields[headers[0]] = (headers, _sheet_cell_value(value))
+
+    put(candidates('order_record_id'), record_id)
+    put(candidates('order_number'), farmer.order_number)
+    put(candidates('requisition_date'), _date_text(farmer.requisition_date))
+    put(candidates('hbg_visit_date'), _date_text(farmer.hbg_visit_date))
+    put(candidates('jbl_visit_date'), _date_text(farmer.jbl_visit_date))
+    put(candidates('customer_name'), _smart_sheet_label(farmer.customer_name))
+    put(candidates('branch'), _smart_sheet_label(farmer.branch))
+    put(candidates('system_branch'), _smart_sheet_label(farmer.system_branch))
+    put(candidates('national_id'), farmer.national_id)
+    put(candidates('primary_phone'), farmer.primary_phone)
+    put(candidates('secondary_phone'), farmer.secondary_phone)
+    put(candidates('county'), _smart_sheet_label(farmer.county))
+    put(candidates('sub_county'), _smart_sheet_label(farmer.sub_county))
+    put(candidates('ward'), _smart_sheet_label(farmer.ward))
+    put(candidates('village'), _smart_sheet_label(farmer.village))
+    put(candidates('landmark'), _smart_sheet_label(farmer.landmark or farmer.village))
+    put(candidates('gps_link'), farmer.gps_link)
+    put(candidates('latitude'), farmer.latitude)
+    put(candidates('longitude'), farmer.longitude)
+    put(candidates('jbl_officer'), _smart_sheet_label(farmer.jbl_officer))
+    put(candidates('system_loan_officer'), _smart_sheet_label(farmer.system_loan_officer))
+    put(candidates('hb_sales_person'), _smart_sheet_label(farmer.hb_sales_person))
+    put(
+        candidates('deposit_paid_hbg'),
+        _canonical_hbg_deposit_for_sheet(farmer),
+    )
+    # LGF Balance from SysUp is not a Deposit / JBL receipt. Do not
+    # overwrite a value maintained independently in the order Sheet.
+    put(candidates('hbg_visit_comment'), farmer.comments)
+    put(candidates('jbl_visit_comment'), _attributed_sheet_comment(farmer.jbl_visit_comment, farmer.jbl_visit_date, farmer.jbl_officer, 'JBL Officer'))
+    put(candidates('current_pipeline_state'), _smart_sheet_label(current_pipeline_state_label(farmer)))
+    put(candidates('credit_decision'), _smart_sheet_label(credit_decision_label(farmer)))
+    put(candidates('imab_created'), _smart_sheet_label(farmer.imab_created))
+    put(candidates('customer_no'), farmer.customer_no)
+    put(candidates('repayment_date'), farmer.repayment_date)
+    put(candidates('repayment_tenor'), _smart_sheet_label(farmer.repayment_tenor))
+    put(candidates('payment_product'), _smart_sheet_label(farmer.payment_product))
+    put(candidates('payment_call_up_comment'), _attributed_sheet_comment(farmer.final_decision_comment, farmer.final_decided_at, farmer.final_decided_by, 'Head of Rural'))
+    put(candidates('final_decision'), _smart_sheet_label(farmer.final_decision))
+    put(candidates('jbl_media_urls'), farmer.jbl_media_urls)
+    put(candidates('deferred_stage'), _smart_sheet_label(farmer.deferred_stage))
+    put(candidates('deferred_until'), _date_text(farmer.deferred_until))
+    put(candidates('final_decided_by'), _smart_sheet_label(farmer.final_decided_by))
+    put(candidates('final_decided_at'), _datetime_text(farmer.final_decided_at))
+    put(['Duplicate Key'], farmer.duplicate_key)
+    put(['Last Updated At'], now_text)
+
+    return fields
+
+
 @guarded_publication
 def sync_farmer_to_internal_order_sheet(farmer: JawabuFarmerMaster) -> bool:
     """
@@ -2982,7 +3044,6 @@ def sync_farmer_to_internal_order_sheet(farmer: JawabuFarmerMaster) -> bool:
         update_master_sheet_row,
         write_master_typed_cells,
     )
-    from core.services.sheet_publication import aliases_for
 
     group_config = _jawabu_group_config(farmer)
     if not group_config:
@@ -3063,9 +3124,6 @@ def sync_farmer_to_internal_order_sheet(farmer: JawabuFarmerMaster) -> bool:
         now_text = timezone.localtime().strftime('%d-%m-%Y %H:%M')
         changes = {}
 
-        def candidates(field_name, *fallback):
-            return list(dict.fromkeys((*aliases_for('internal_order', field_name), *fallback)))
-
         def put(candidates: list[str], value):
             header = first_existing_header(header_lookup, candidates)
             if not header:
@@ -3077,52 +3135,8 @@ def sync_farmer_to_internal_order_sheet(farmer: JawabuFarmerMaster) -> bool:
                 set_header_value(row_values, header_lookup, header, value)
                 changes[header] = {'before': current, 'after': value}
 
-        put(candidates('order_record_id'), record_id)
-        put(candidates('order_number'), farmer.order_number)
-        put(candidates('requisition_date'), _date_text(farmer.requisition_date))
-        put(candidates('hbg_visit_date'), _date_text(farmer.hbg_visit_date))
-        put(candidates('jbl_visit_date'), _date_text(farmer.jbl_visit_date))
-        put(candidates('customer_name'), _smart_sheet_label(farmer.customer_name))
-        put(candidates('branch'), _smart_sheet_label(farmer.branch))
-        put(candidates('system_branch'), _smart_sheet_label(farmer.system_branch))
-        put(candidates('national_id'), farmer.national_id)
-        put(candidates('primary_phone'), farmer.primary_phone)
-        put(candidates('secondary_phone'), farmer.secondary_phone)
-        put(candidates('county'), _smart_sheet_label(farmer.county))
-        put(candidates('sub_county'), _smart_sheet_label(farmer.sub_county))
-        put(candidates('ward'), _smart_sheet_label(farmer.ward))
-        put(candidates('village'), _smart_sheet_label(farmer.village))
-        put(candidates('landmark'), _smart_sheet_label(farmer.landmark or farmer.village))
-        put(candidates('gps_link'), farmer.gps_link)
-        put(candidates('latitude'), farmer.latitude)
-        put(candidates('longitude'), farmer.longitude)
-        put(candidates('jbl_officer'), _smart_sheet_label(farmer.jbl_officer))
-        put(candidates('system_loan_officer'), _smart_sheet_label(farmer.system_loan_officer))
-        put(candidates('hb_sales_person'), _smart_sheet_label(farmer.hb_sales_person))
-        put(
-            candidates('deposit_paid_hbg'),
-            _canonical_hbg_deposit_for_sheet(farmer),
-        )
-        # LGF Balance from SysUp is not a Deposit / JBL receipt. Do not
-        # overwrite a value maintained independently in the order Sheet.
-        put(candidates('hbg_visit_comment'), farmer.comments)
-        put(candidates('jbl_visit_comment'), _attributed_sheet_comment(farmer.jbl_visit_comment, farmer.jbl_visit_date, farmer.jbl_officer, 'JBL Officer'))
-        put(candidates('current_pipeline_state'), _smart_sheet_label(current_pipeline_state_label(farmer)))
-        put(candidates('credit_decision'), _smart_sheet_label(credit_decision_label(farmer)))
-        put(candidates('imab_created'), _smart_sheet_label(farmer.imab_created))
-        put(candidates('customer_no'), farmer.customer_no)
-        put(candidates('repayment_date'), farmer.repayment_date)
-        put(candidates('repayment_tenor'), _smart_sheet_label(farmer.repayment_tenor))
-        put(candidates('payment_product'), _smart_sheet_label(farmer.payment_product))
-        put(candidates('payment_call_up_comment'), _attributed_sheet_comment(farmer.final_decision_comment, farmer.final_decided_at, farmer.final_decided_by, 'Head of Rural'))
-        put(candidates('final_decision'), _smart_sheet_label(farmer.final_decision))
-        put(candidates('jbl_media_urls'), farmer.jbl_media_urls)
-        put(candidates('deferred_stage'), _smart_sheet_label(farmer.deferred_stage))
-        put(candidates('deferred_until'), _date_text(farmer.deferred_until))
-        put(candidates('final_decided_by'), _smart_sheet_label(farmer.final_decided_by))
-        put(candidates('final_decided_at'), _datetime_text(farmer.final_decided_at))
-        put(['Duplicate Key'], farmer.duplicate_key)
-        put(['Last Updated At'], now_text)
+        for field_headers, value in internal_order_projection_fields(farmer, record_id=record_id, now_text=now_text).values():
+            put(field_headers, value)
 
         if changes:
             update_master_sheet_row(

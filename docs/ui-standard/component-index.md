@@ -1,5 +1,9 @@
 # Component index and migration hold
 
+Portal App status now reuses compact field-change rows and checkboxes for
+one-click sequential Sheet retry, with selections across pages and explicit
+waiting causes. See the [source and browser record](reviews/2026-11-05-portal-sheet-retry-batch.md).
+
 Complaints IT edits reuse the existing compact correction forms without a manual
 reason field. Automatic actor/time and before/after audit remain. See the
 [source and Playwright record](reviews/2026-11-05-complaints-note-free-corrections.md).

@@ -318,6 +318,8 @@ def requeue_publication_after_review(
     current = next((row for row in _current_operations(farmer)
                     if row.operation_type == operation.operation_type), None)
     if current is not None and current.pk != operation.pk:
+        if (current.metadata or {}).get('retry_of_operation_id') == str(operation.pk):
+            return current, False
         raise ValueError('A newer sync attempt exists for this case. Refresh its current status.')
     replacements = reserve_farmer_publication(
         farmer,
@@ -368,7 +370,7 @@ def _save_master_failure_context(operation, farmer, context, metadata):
     operation.save(update_fields=['metadata', 'updated_at'])
 
 
-def attempt_publication(operation: IntegrationOperation) -> dict[str, Any]:
+def attempt_publication(operation: IntegrationOperation, *, max_seconds=20) -> dict[str, Any]:
     """Perform exactly one bounded Google publication attempt for one record."""
     from core.models import JawabuFarmerMaster
     from core.services.jawabu_pipeline import (
@@ -431,12 +433,12 @@ def attempt_publication(operation: IntegrationOperation) -> dict[str, Any]:
             raise PortalPublicationError('Portal owner is held for legacy cutover.')
         if operation.operation_type == MASTER_OPERATION:
             failure_context: dict[str, Any] = {}
-            with external_call_budget(20):
+            with external_call_budget(max_seconds):
                 completed = sync_farmer_to_master_sheet(farmer, failure_context=failure_context)
             if not completed:
                 _record_master_failure_context(operation, farmer, failure_context)
         else:
-            with external_call_budget(20):
+            with external_call_budget(max_seconds):
                 completed = sync_farmer_to_internal_order_sheet(farmer)
         if not completed:
             if operation.operation_type == MASTER_OPERATION and failure_context.get('phase') == 'identity':

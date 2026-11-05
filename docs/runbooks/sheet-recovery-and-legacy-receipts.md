@@ -17,6 +17,41 @@ projected without inventing an order. Conflicting references are flagged and
 must not overwrite the Sheet's order field. Existing rows adopt the display
 format on their next normal publication; no live bulk rewrite was performed.
 
+## Portal Sheet retries (5 November 2026)
+
+In Portal **Settings → App status**, Sheet rows show the readable case reference,
+customer, destination and field values: **last recorded Sheet value → current
+saved value**. Unknown previous values remain explicitly unrecorded; they are
+grouped separately instead of being presented as confirmed differences. These
+comparisons use retained write evidence, not a live read of manual Sheet edits.
+
+Select individual rows or **Select displayed**, including across pages, then
+click **Retry selected** once. The page processes one bounded request at a time
+and reports synced, waiting and failed counts. Individual **Retry sync** also
+runs directly. No repeated per-row confirmation or business resubmission occurs.
+Saved canonical work and its publication queue survive closing the page; the
+foreground batch selection itself is not a separate persistent job.
+
+Waiting rows can now be retried, rather than only exhausted/failed operations.
+Each authorized manual request performs a Sheet attempt (15-second provider
+budget) instead of merely returning the same pending status. The normal pump is
+also awakened and its completion events refresh the panel. Completed exhausted
+retries replay their existing successor, retaining the original failed record.
+
+FIFO, Google cooldowns, active leases, current workflow scope and legacy holds
+still apply. The row explains these waits; retries do not override them. Stale
+leases can be reclaimed. Identity conflicts and disabled projection require the
+named repair first. Failures remain unresolved, and superseded work does not
+count as a synced current case. For unattended progress, keep the scheduled
+`drain_portal_publications --apply` runner configured; the foreground control
+does not install or replace that scheduler.
+
+Local Playwright evidence: `test-results/portal-recovery-browser/`. The actual
+signed Django/PostgreSQL journey includes a 12-case batch across two pages,
+Sheet row readback, exhausted retry replay, scope denial, FIFO/cooldown/lease
+states, legacy holds, provider failure/recovery and internal-order publication.
+Google transport is simulated; no production case or Sheet was modified.
+
 ## Complaints recovery
 
 Open Settings → App status in Telegram or Settings → Sheet publication status

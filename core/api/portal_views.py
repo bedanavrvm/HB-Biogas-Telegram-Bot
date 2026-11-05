@@ -4270,7 +4270,7 @@ def portal_recovery_status(request):
 @csrf_exempt
 @require_http_methods(['POST'])
 def portal_publication_attempt(request):
-    """Read a scoped status or queue a reviewed retry without contacting Google."""
+    """Read scoped status or perform one bounded, explicitly requested retry."""
     from core.models import IntegrationOperation, JawabuFarmerMaster
     from core.services.portal_publication import (
         SOURCE_MODEL,
@@ -4318,7 +4318,13 @@ def portal_publication_attempt(request):
             if support_error:
                 return access_error
     requeued = False
+    attempt_result = None
     if manual_retry:
+        from core.services.portal_publication import _targets_for_farmer
+        if operation.operation_type not in _targets_for_farmer(farmer):
+            return JsonResponse({'ok': False, 'error': 'Enable this register\'s Sheet sync before retrying.'}, status=400)
+        if operation.last_error_code == 'identity_conflict':
+            return JsonResponse({'ok': False, 'error': 'Correct the conflicting Sheet row ownership before retrying.'}, status=400)
         try:
             operation, requeued = requeue_publication_after_review(
                 operation,
@@ -4329,16 +4335,27 @@ def portal_publication_attempt(request):
         except ValueError as exc:
             return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
 
+        from core.services.portal_publication import attempt_publication
+        from core.services.external_resilience import ExternalCircuitOpen
+        try:
+            attempt_result = attempt_publication(operation, max_seconds=15)
+        except ExternalCircuitOpen:
+            attempt_result = {'deferred': True}
+
     operation.refresh_from_db()
+    farmer.refresh_from_db()
     payload = publication_payload(farmer)
     return JsonResponse({
         'ok': True,
         'operation_id': str(operation.pk),
+        'status': operation.status,
         'publication': payload,
         'retryable': operation.status == IntegrationOperation.STATUS_RETRYABLE,
         'needs_attention': operation.status == IntegrationOperation.STATUS_DEAD_LETTER,
         'requeued': requeued,
-        'deferred': False,
+        'deferred': bool(attempt_result and attempt_result.get('deferred')),
+        'attempt_failed': bool(attempt_result and attempt_result.get('error')),
+        'superseded': bool(attempt_result and attempt_result.get('superseded')),
         'circuit_retry_at': None,
     }, status=202 if operation.status in {
         IntegrationOperation.STATUS_PENDING,

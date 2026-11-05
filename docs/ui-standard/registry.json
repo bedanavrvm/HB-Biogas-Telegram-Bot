@@ -443,9 +443,9 @@
     },
     {
       "path": "core/static/miniapp/portal.js",
-      "sha256": "0517321b290454fb0f5c786814746e6d8a822c56c0da409ed44fdbbf2cf27704",
-      "review_reference": "docs/ui-standard/reviews/2026-11-05-portal-live-legacy-cases-multiselect-reports.md",
-      "reason": "User-authorized compact report multiselect and verified-case continuation during partial legacy import. Real signed Django/PostgreSQL Playwright journeys cover persistence, workflow actions, desktop/mobile and local Sheet readback. Existing shell and patterns retained; no approved baseline, candidate-token or Phase 6 migration changes."
+      "sha256": "138b110ee073a20eed0ee8ade0e1f3cfbbc18b1c859633feeefc948bdbd1cea6",
+      "review_reference": "docs/ui-standard/reviews/2026-11-05-portal-sheet-retry-batch.md",
+      "reason": "User-requested concrete Portal Sheet before/after values and one-click selection across pages. Existing compact controls and owning publication scopes, FIFO, cooldown and leases retained. Real signed-Django/PostgreSQL Playwright and local Sheet readback; no approved baseline or Phase 6 change."
     },
     {
       "path": "core/static/miniapp/portal_farmer_sheet.js",
@@ -725,15 +725,15 @@
     },
     {
       "path": "core/static/miniapp/miniapp_recovery.css",
-      "sha256": "c7fc95a3141dd546a8607c9272980e7dfa807d56e846728aea5c169b253c5357",
-      "review_reference": "docs/ui-standard/reviews/2026-10-26-portal-improvements.md",
-      "reason": "User-requested Portal corrections using existing settings, recovery, chart, HB form/history and secure-media patterns. Source-bound synthetic light/dark and workflow evidence is recorded; no approved baseline, candidate tokens or Phase 6 migration changes. Cache-version updates bind the revised assets."
+      "sha256": "67cffc8114cb37ce8e19de3d9975966a1aab4a1c86fa38e2de588a7c65195e1f",
+      "review_reference": "docs/ui-standard/reviews/2026-11-05-portal-sheet-retry-batch.md",
+      "reason": "User-requested concrete Portal Sheet before/after values and one-click selection across pages. Existing compact controls and owning publication scopes, FIFO, cooldown and leases retained. Real signed-Django/PostgreSQL Playwright and local Sheet readback; no approved baseline or Phase 6 change."
     },
     {
       "path": "core/static/miniapp/miniapp_recovery.js",
-      "sha256": "1b75437da910343172bbad2542df3b87189561ef0eb4d94f482f6fdae8b23dc9",
-      "review_reference": "docs/ui-standard/reviews/2026-10-26-portal-improvements.md",
-      "reason": "User-requested Portal corrections using existing settings, recovery, chart, HB form/history and secure-media patterns. Source-bound synthetic light/dark and workflow evidence is recorded; no approved baseline, candidate tokens or Phase 6 migration changes. Cache-version updates bind the revised assets."
+      "sha256": "0251966b3840e45fe2b1e1817a2cdcf127996108355ad51a6e2bdc5b8d3a4713",
+      "review_reference": "docs/ui-standard/reviews/2026-11-05-portal-sheet-retry-batch.md",
+      "reason": "User-requested concrete Portal Sheet before/after values and one-click selection across pages. Existing compact controls and owning publication scopes, FIFO, cooldown and leases retained. Real signed-Django/PostgreSQL Playwright and local Sheet readback; no approved baseline or Phase 6 change."
     },
     {
       "path": "core/static/miniapp/portal_curated_reports.js",
@@ -1019,9 +1019,9 @@
     },
     {
       "path": "core/templates/base_shell.html",
-      "sha256": "654d3a8c3605141a6ae3e4b44c7277a9308c586eca1c042583bbb4c1b408ca3d",
-      "review_reference": "docs/ui-standard/reviews/2026-11-05-portal-continuation-selection-only.md",
-      "reason": "User-requested selection-only legacy continuation removes duplicate source summary and explanation input. Existing compact dropdown, confirmation and automatic refresh retained. Real signed Django/PostgreSQL Playwright verifies note-free saves, source audit, empty selection, replay and interrupted-network recovery. No approved baseline or Phase 6 changes."
+      "sha256": "b63259c03d5ecfa18537057f3bf02a808e6576330e4f5cef157fec62a1957707",
+      "review_reference": "docs/ui-standard/reviews/2026-11-05-portal-sheet-retry-batch.md",
+      "reason": "User-requested concrete Portal Sheet before/after values and one-click selection across pages. Existing compact controls and owning publication scopes, FIFO, cooldown and leases retained. Real signed-Django/PostgreSQL Playwright and local Sheet readback; no approved baseline or Phase 6 change."
     },
     {
       "path": "core/templates/portal/partials/legacy_import.html",

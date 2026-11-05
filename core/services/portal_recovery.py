@@ -1,5 +1,7 @@
 """Current Portal publication problems, never another Mini App's operations."""
 from django.db.models import OuterRef, Subquery, F
+from django.utils import timezone
+from datetime import timedelta
 
 from core.models import IntegrationOperation, JawabuFarmerUploadBatch, RequisitionBatch
 from core.services.miniapp_recovery import issue, page_payload, request_action, configuration_failure
@@ -70,34 +72,99 @@ def storage_rows(actor, access):
 
 
 def publication_issue(operation, case, *, actor, access):
+    from core.services.external_resilience import operation_lease_seconds
+    from core.services.portal_publication import _targets_for_farmer, _master_claim_in_order
+    from core.services.jawabu_case_reference import display_case_reference
+    from portal_legacy.fence import case_blocked
     setup = configuration_failure(operation.last_error_code)
     decision = workflow_access_decision(actor, 'jawabu_portal', 'portal.publication.retry', access=access, resource=case)
+    blocked = case_blocked(case)
+    enabled = operation.operation_type in _targets_for_farmer(case)
+    stale = operation.status == 'running' and operation.last_attempt_at and operation.last_attempt_at <= timezone.now() - timedelta(seconds=operation_lease_seconds())
     action = None
-    if decision.allowed and operation.last_error_code != 'identity_conflict' and operation.status in {'dead_letter', 'retryable_failure'}:
+    if decision.allowed and enabled and not blocked and operation.last_error_code != 'identity_conflict' and (operation.status in {'pending', 'dead_letter', 'retryable_failure'} or stale):
         action = request_action('Retry sync', '/api/portal/publication/attempt/',
             {'operation_id': str(operation.pk), 'manual_retry': True},
             ('Repair the Sheet access or named-column configuration first, then retry this update. ' if setup else '')
             + 'Retry this Sheet update? The saved case will not be submitted again.')
-    return issue(operation.pk, 'Case Sheet update', detail=f'{case.customer_name or "Case"} · Case changes are saved.',
-        status='Configuration required' if setup else 'Retrying' if operation.status == 'running' else 'Waiting' if operation.status == 'pending' else 'Needs review',
+    if not enabled:
+        waiting = 'Sheet sync is disabled for this register. Enable it in the group configuration.'
+    elif blocked:
+        waiting = 'This case is held by an unfinished legacy changeover. Resume its import step first.'
+    elif operation.last_error_code == 'identity_conflict':
+        waiting = 'The matching Sheet row belongs to a different case. Correct its ownership before retrying.'
+    elif stale:
+        waiting = 'The previous worker stopped reporting. Retry can safely reclaim this update.'
+    elif operation.status == 'running':
+        waiting = 'A worker is updating this row now.'
+    elif operation.next_retry_at and operation.next_retry_at > timezone.now():
+        waiting = 'Retry cooldown until ' + timezone.localtime(operation.next_retry_at).strftime('%d-%b %H:%M:%S EAT') + '.'
+    elif not _master_claim_in_order(operation):
+        waiting = 'Waiting behind earlier updates to this register (FIFO).'
+    elif operation.status == 'dead_letter':
+        waiting = 'Automatic attempts stopped. Retry starts a new attempt and retains the failed history.'
+    else:
+        waiting = 'No Sheet attempt has started. Retry runs it now.' if not operation.attempts else 'Ready to sync. Retry runs a Sheet attempt now.'
+    row = issue(operation.pk, display_case_reference(case.pk), detail=case.customer_name or 'Unnamed case',
+        status='Configuration required' if setup else 'Retrying' if operation.status == 'running' else 'Waiting' if operation.status in {'pending', 'retryable_failure'} else 'Needs review',
         action=action, steps=(['Ask Portal IT to check Sheet access and the named columns for this case.',
                               'For an identity conflict, review the customer details in All cases before retrying.'] if setup else None))
+    row.update(batch_retry=bool(action), waiting_reason=waiting, queued_at=operation.created_at.isoformat(),
+               attempts=operation.attempts, retry_replacement=operation.status == 'dead_letter', changes=[], steps=[])
+    context = (operation.metadata or {}).get('failure_context') or {}
+    if context.get('detail'):
+        row['waiting_reason'] += ' ' + context['detail']
+    return row
+
+
+def publication_changes(operation, case):
+    """Compare the canonical field plan with retained Sheet-write evidence, never a live Google read."""
+    from core.models import LiveSheetRecordChange
+    from core.services.portal_publication import _destination_for_farmer
+    from core.services.jawabu_pipeline import master_projection_fields, internal_order_projection_fields, MASTER_UPPERCASE_TEXT_FIELDS, _smart_sheet_label, _sheet_cell_value
+    from core.services.jawabu_master import normalize_header
+    destination = _destination_for_farmer(case, operation.operation_type) or {}
+    keys = [str(case.pk)] if operation.operation_type == MASTER_OPERATION else [str(value) for value in (case.duplicate_key, case.national_id, case.primary_phone) if value]
+    evidence = LiveSheetRecordChange.objects.filter(group_id=destination.get('group_id', ''), sheet_id=destination.get('spreadsheet', ''),
+        sheet_tab=destination.get('tab', ''), record_key__in=keys, status='success').order_by('-created_at', '-pk')
+    previous = {}
+    for changes in evidence.values_list('changes', flat=True):
+        for header, change in (changes or {}).items():
+            if isinstance(change, dict) and 'after' in change:
+                previous.setdefault(normalize_header(header), (header, change['after']))
+    fields = master_projection_fields(case) if operation.operation_type == MASTER_OPERATION else internal_order_projection_fields(case)
+    result = []
+    for field, (headers, value) in fields.items():
+        if not headers:
+            continue
+        if operation.operation_type == MASTER_OPERATION and field in MASTER_UPPERCASE_TEXT_FIELDS:
+            value = _smart_sheet_label(value)
+        if field in {'Order Record ID', 'Last Updated At', 'Duplicate Key'}:
+            continue
+        value = _sheet_cell_value(value)
+        match = next((previous[normalize_header(header)] for header in headers if normalize_header(header) in previous), None)
+        if match and str(match[1] if match[1] is not None else '').strip() == str(value if value is not None else '').strip():
+            continue
+        if not match and value in ('', None):
+            continue
+        result.append({'field':match[0] if match else headers[0], 'before':match[1] if match else None, 'after':value})
+    return {'changes':result, 'destination':destination.get('tab', ''), 'comparison_basis':'Last recorded Sheet values → Current saved values'}
 
 
 def status_payload(actor, access, *, page=1):
     cases = _scoped_cases(actor, 'portal.case.read', access)
+    revisions = {str(pk):int(revision or 0) for pk, revision in cases.values_list('pk', 'workflow_revision')}
     # Only the latest publication for the current canonical revision survives.
     current = IntegrationOperation.objects.filter(
         source_model=SOURCE_MODEL, source_id=OuterRef('source_id'), operation_type=OuterRef('operation_type'),
     ).order_by('-created_at', '-pk').values('pk')[:1]
     operations = IntegrationOperation.objects.filter(source_model=SOURCE_MODEL,
-        source_id__in=[str(pk) for pk in cases.values_list('pk', flat=True)],
+        source_id__in=revisions,
         operation_type__in=[MASTER_OPERATION, INTERNAL_ORDER_OPERATION],
-    ).annotate(latest=Subquery(current)).filter(pk=F('latest')).exclude(status='succeeded').order_by('-updated_at')
-    case_map = {str(case.pk): case for case in cases.filter(pk__in=list(operations.values_list('source_id', flat=True)))}
-    rows = [publication_issue(op, case_map[op.source_id], actor=actor, access=access)
-            for op in operations if op.source_id in case_map
-            and int((op.metadata or {}).get('workflow_revision', -1)) == int(case_map[op.source_id].workflow_revision or 0)]
+    ).annotate(latest=Subquery(current)).filter(pk=F('latest')).exclude(status='succeeded').order_by('created_at', 'pk')
+    rows = [{'key':str(op.pk), 'status':'Configuration required' if configuration_failure(op.last_error_code) else
+             'Retrying' if op.status == 'running' else 'Waiting' if op.status in {'pending', 'retryable_failure'} else 'Needs review'}
+            for op in operations if int((op.metadata or {}).get('workflow_revision', -1)) == revisions.get(op.source_id)]
     rows.extend(storage_rows(actor, access))
     from report_delivery.recovery import recovery_rows
     rows.extend(recovery_rows(actor, 'jawabu_portal'))
@@ -105,4 +172,13 @@ def status_payload(actor, access, *, page=1):
     for row in rows:
         row['status_code'] = {'Waiting': 'waiting', 'Retrying': 'processing', 'Processing': 'processing'}.get(row['status'], 'needs_attention')
         counts[row['status_code']] += 1
-    return {**page_payload(rows, page), 'summary': counts}
+    payload = page_payload(rows, page)
+    operation_map = {str(operation.pk):operation for operation in operations}
+    page_ids = [operation_map[row['key']].source_id for row in payload['items'] if row['key'] in operation_map]
+    case_map = {str(case.pk):case for case in cases.filter(pk__in=page_ids).select_related('group_configuration')}
+    for row in payload['items']:
+        operation = operation_map.get(row['key'])
+        if operation:
+            row.update(publication_issue(operation, case_map[operation.source_id], actor=actor, access=access))
+            row.update(publication_changes(operation, case_map[operation.source_id]))
+    return {**payload, 'summary': counts}

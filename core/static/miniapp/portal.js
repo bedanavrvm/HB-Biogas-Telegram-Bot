@@ -2212,6 +2212,7 @@
       prefix: '/api/portal/',
       load: async page => { const result = await apiFetch(`/settings/recovery/?page=${page}`); if (!result.ok) throw new Error(result.data?.error || 'App status could not be loaded.'); return result.data; },
       request: (endpoint, payload) => portalApi.postJson(endpoint.slice('/api/portal'.length), payload, tg),
+      afterRetry: () => portalApi.wakePublicationPump(),
       notify: showToast,
     });
     const { ok, data } = await apiFetch('/settings/');
