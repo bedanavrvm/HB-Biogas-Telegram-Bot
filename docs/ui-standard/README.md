@@ -1,5 +1,9 @@
 # Mini App Design Lab
 
+Complaints legacy changeover now confirms test cleanup, backs up and clears the
+selected register, and automatically syncs saved cases in verified FIFO batches.
+See the [source and real Playwright record](reviews/2026-11-05-complaints-changeover-sheet-sync.md).
+
 Complaints and Portal reports now default to excluding historical imports and
 separate historical timing estimates from measured app performance. Complaint ID
 links, audited IT pencil corrections and scoped local reset recovery are covered

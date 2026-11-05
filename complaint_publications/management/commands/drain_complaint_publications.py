@@ -8,7 +8,7 @@ from complaint_publications.worker import publish
 
 
 class Command(BaseCommand):
-    help = 'Inspect or drain browser-only Complaint publications. Schedule --apply every minute.'
+    help = 'Inspect or drain Complaints publications, including legacy imports. Schedule --apply every minute.'
 
     def add_arguments(self, parser):
         parser.add_argument('--apply', action='store_true')
@@ -19,13 +19,16 @@ class Command(BaseCommand):
         if not 1 <= options['limit'] <= 25 or not 1 <= options['max_seconds'] <= 240:
             raise CommandError('Use --limit 1-25 and --max-seconds 1-240.')
         if not options['apply']:
-            self.stdout.write(f'DRY RUN: {queued_operations().count()} due publication(s). No outbound calls or cleanup.')
+            from complaint_legacy.publication import pending_rows
+            self.stdout.write(f'DRY RUN: {queued_operations().count()} due publication(s); {pending_rows().values("case_id").distinct().count()} imported case(s) awaiting verified Sheet sync. No outbound calls or cleanup.')
             return
         begin_runner(RUNNER)
         deadline = time.monotonic() + options['max_seconds']
         processed = 0
         try:
             cleanup()
+            from complaint_legacy.publication import drain, pending_rows
+            processed += drain(seconds=max(0, deadline-time.monotonic()),limit=options['limit'])
             # Snapshot IDs so paused, leased or cooling-down work cannot starve this run.
             for job in list(queued_operations()[:options['limit']]):
                 remaining = deadline - time.monotonic()
@@ -37,4 +40,4 @@ class Command(BaseCommand):
         except Exception:
             finish_runner(RUNNER, processed_count=processed, error_code='runner_failed')
             raise
-        self.stdout.write(f'APPLY: {processed} publication(s) inspected; {queued_operations().count()} remain due.')
+        self.stdout.write(f'APPLY: {processed} publication(s) inspected; {queued_operations().count()} remain due; {pending_rows().values("case_id").distinct().count()} imported case(s) awaiting verified Sheet sync.')

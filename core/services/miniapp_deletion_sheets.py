@@ -45,6 +45,13 @@ def guarded_publication(function):
 
         def publish():
             for record in records:
+                if record._meta.label == 'core.ParsedMessage':
+                    from complaint_legacy.publication import paused
+                    if paused(record.group_id) or not type(record).objects.filter(pk=record.pk).exists():
+                        if any(isinstance(value, (list, tuple)) for value in (*args, *kwargs.values())):
+                            return {'success_count': 0, 'failed_count': len(records), 'synced_message_ids': [],
+                                    'errors': ['Complaints publication is paused for reviewed test cleanup.'], 'failure_details': {}}
+                        return False
                 from portal_legacy.fence import active
                 if active(getattr(record, 'group_configuration_id', None)):
                     if any(isinstance(value, (list, tuple)) for value in (*args, *kwargs.values())):
@@ -60,7 +67,8 @@ def guarded_publication(function):
             return function(*args, **kwargs)
         # Ordinary production publication is not serialized once cleanup settles.
         # Tombstone checks still protect stale objects after the testing flag is off.
-        if not getattr(settings, 'MINIAPP_TEST_DELETION_ENABLED', False) and not IntegrationOperation.objects.filter(
+        complaint = any(record._meta.label == 'core.ParsedMessage' for record in records)
+        if not complaint and not getattr(settings, 'MINIAPP_TEST_DELETION_ENABLED', False) and not IntegrationOperation.objects.filter(
                 operation_type='miniapp_sheet_delete', status__in=[IntegrationOperation.STATUS_PENDING,
                     IntegrationOperation.STATUS_RUNNING, IntegrationOperation.STATUS_RETRYABLE]).exists():
             return publish()

@@ -1,0 +1,13 @@
+I’d focus the next upgrade on making the care feel more personal and the services easier to understand, while keeping the cream, gold and flowing vines.
+
+| Priority | Improvement | What it would add |
+|---|---|---|
+| 1 | Meet the people behind the care | Real staff portraits, names, verified qualifications and a short founder’s welcome. The About page currently describes values without introducing named people. |
+| 2 | More specific service pages | Explain what a first conversation or visit involves, what’s included, delivery options, coverage and confirmed fees. Build on the audience and next-step information already present. |
+| 3 | More expressive page composition | Mix portrait photography, wider candid images, short personal messages and featured content. Refine image crops and spacing while keeping the reading area calm. |
+| 4 | A useful resource hub | Start with three to six nurse-reviewed guides: preparing for discharge, supporting a caregiver, preparing for parenthood, and supporting someone through loss. Include review dates and printable checklists. |
+| 5 | A more reassuring contact experience | Build on the existing request reference with confirmed response expectations, working direct-contact options and clear instructions if someone needs to follow up. |
+| 6 | Better local discovery | Publish accurate coverage information, add a sitemap and appropriate structured data, and assess eligibility for a service-area Google Business Profile. Keep demo and private pages excluded. |
+| 7 | Measured mobile performance | Check real phones, slower connections and the first visit after Render has been idle. Use those results to prioritise loading improvements against Web Vitals guidance. |
+
+My suggested next batch: team introduction + clearer service details + photography/layout polish. The resource hub would follow.

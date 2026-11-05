@@ -275,7 +275,7 @@ def queued_operations():
         Q(status__in=[IntegrationOperation.STATUS_PENDING, IntegrationOperation.STATUS_RETRYABLE], next_retry_at__isnull=True)
         | Q(status__in=[IntegrationOperation.STATUS_PENDING, IntegrationOperation.STATUS_RETRYABLE], next_retry_at__lte=now)
         | Q(status='running', last_attempt_at__lte=now - timedelta(seconds=operation_lease_seconds()))
-    ).order_by('created_at', 'pk')
+    ).exclude(metadata__has_key='legacy_import').order_by('created_at', 'pk')
 
 
 def cleanup():

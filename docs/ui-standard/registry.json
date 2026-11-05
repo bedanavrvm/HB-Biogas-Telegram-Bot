@@ -983,15 +983,15 @@
     },
     {
       "path": "core/static/miniapp/complaint_legacy.js",
-      "sha256": "e91cce6928b1b13112ba78c2f53e8f494e151f14a8c281571d155a7d4548d97c",
-      "review_reference": "docs/ui-standard/reviews/2026-11-03-complaints-legacy-import.md",
-      "reason": "User-approved Complaints historical workbook import; compact existing surfaces, FarmUp table/cards, durable review and native/signed-Telegram transport isolation. Source-bound real Playwright evidence; no approved baseline or Phase 6 change."
+      "sha256": "e40e3e9c95f916b144ce2f5d6d6428d18d55231f55c779ab136e6e954105a856",
+      "review_reference": "docs/ui-standard/reviews/2026-11-05-complaints-changeover-sheet-sync.md",
+      "reason": "User-requested Complaints test-data changeover, retained Sheet backup and verified FIFO sync. Existing compact review controls; real signed-Telegram/native-MFA Playwright evidence. No approved baseline or Phase 6 change."
     },
     {
       "path": "complaint_legacy/templates/complaint_legacy/app.html",
-      "sha256": "3a77efad1ead4225e129f5ea6d2bd94c9f9cff66d8f63e2b764e869a19f0498e",
-      "review_reference": "docs/ui-standard/reviews/2026-11-03-complaints-legacy-import.md",
-      "reason": "User-approved Complaints historical workbook import; compact existing surfaces, FarmUp table/cards, durable review and native/signed-Telegram transport isolation. Source-bound real Playwright evidence; no approved baseline or Phase 6 change."
+      "sha256": "a0e18756e9af78be9f7d86532f3355f574be465f7be35e5ca9e14d548a81d1e1",
+      "review_reference": "docs/ui-standard/reviews/2026-11-05-complaints-changeover-sheet-sync.md",
+      "reason": "User-requested Complaints test-data changeover, retained Sheet backup and verified FIFO sync. Existing compact review controls; real signed-Telegram/native-MFA Playwright evidence. No approved baseline or Phase 6 change."
     },
     {
       "path": "browser/src/complaints-detail-page.tsx",

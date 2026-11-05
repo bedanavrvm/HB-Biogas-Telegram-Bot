@@ -246,10 +246,16 @@ def _delete_unaudited_media(group_id: str) -> None:
     ).delete()
 
 
-def _reset_complaint_configuration(group_id: str) -> None:
+def _reset_complaint_configuration(group_id: str, *, case_ids=None) -> None:
     from complaint_legacy.models import ImportUpload, ImportRow
     from complaint_publications.models import UploadAttempt, UploadFile
-    processed_ids, raw_ids = _case_processing_ids(group_id)
+    selected = ParsedMessage.objects.filter(group_id=group_id)
+    if case_ids is not None:
+        selected = selected.filter(pk__in=case_ids)
+        if ImportRow.objects.filter(case__in=selected).exists():
+            raise ValueError('Imported complaints cannot be removed by test cleanup.')
+    processed_ids = list(selected.values_list('processed_message_id', flat=True))
+    raw_ids = list(ProcessedMessage.objects.filter(pk__in=processed_ids).values_list('raw_message_id', flat=True))
 
     # Only the explicitly selected owner's import/upload evidence follows reset.
     if (ImportRow.objects.filter(case__group_id=group_id).exclude(upload__group__group_id=group_id).exists()
@@ -257,31 +263,41 @@ def _reset_complaint_configuration(group_id: str) -> None:
             or UploadAttempt.objects.filter(case__group_id=group_id).exclude(group__group_id=group_id).exists()
             or UploadAttempt.objects.filter(group__group_id=group_id, case__isnull=False).exclude(case__group_id=group_id).exists()
             or UploadFile.objects.filter(evidence__parsed_message__group_id=group_id).exclude(attempt__group__group_id=group_id).exists()
-            or UploadFile.objects.filter(attempt__group__group_id=group_id, evidence__isnull=False).exclude(evidence__parsed_message__group_id=group_id).exists()):
+            or UploadFile.objects.filter(attempt__group__group_id=group_id, evidence__isnull=False).exclude(evidence__parsed_message__group_id=group_id).exists()
+            or ComplaintCaseImportItem.objects.filter(parsed_message__in=selected).exclude(batch__group_id=group_id).exists()
+            or ComplaintCaseImportItem.objects.filter(batch__group_id=group_id, parsed_message__isnull=False).exclude(parsed_message__group_id=group_id).exists()):
         raise ValueError('Complaint import or upload evidence crosses group ownership. Review ownership before resetting.')
     from core.models import IntegrationOperation
     from django.db.models import Q
-    controls = ComplaintCaseControl.objects.filter(parsed_message__group_id=group_id).values_list('pk', flat=True)
-    files = UploadFile.objects.filter(attempt__group__group_id=group_id).values_list('pk', flat=True)
+    controls = ComplaintCaseControl.objects.filter(parsed_message__in=selected).values_list('pk', flat=True)
+    attempts = UploadAttempt.objects.filter(group__group_id=group_id)
+    if case_ids is not None:
+        attempts = attempts.filter(case__in=selected)
+    files = UploadFile.objects.filter(attempt__in=attempts).values_list('pk', flat=True)
     IntegrationOperation.objects.filter(
         Q(source_model__in=['ComplaintCaseControl', 'core.ComplaintCaseControl'], source_id__in=[str(pk) for pk in controls])
         | Q(source_model='complaint_publications.UploadFile', source_id__in=[str(pk) for pk in files])
     ).exclude(status=IntegrationOperation.STATUS_SUCCEEDED).update(
         status=IntegrationOperation.STATUS_DEAD_LETTER, last_error_code='source_deleted',
         last_error='Source removed by confirmed Complaints reset.', next_retry_at=None)
-    UploadAttempt.objects.filter(group__group_id=group_id).delete()
-    ImportUpload.objects.filter(group__group_id=group_id).delete()
+    attempts.delete()
+    if case_ids is None:
+        ImportUpload.objects.filter(group__group_id=group_id).delete()
 
     # Complaint events and import attribution intentionally use PROTECT during
     # normal operation. This explicitly confirmed reset is the sole destructive
     # path, so clear configuration-owned dependants before their cases.
-    ComplaintCaseEvent.objects.filter(case__parsed_message__group_id=group_id).delete()
-    ComplaintCaseImportItem.objects.filter(batch__group_id=group_id).delete()
-    ComplaintCaseImportBatch.objects.filter(group_id=group_id).delete()
-    ComplaintCaseControl.objects.filter(parsed_message__group_id=group_id).delete()
-    ComplaintCaseEvidence.objects.filter(parsed_message__group_id=group_id).delete()
-    CaseUpdate.objects.filter(parsed_message__group_id=group_id).delete()
-    ParsedMessage.objects.filter(group_id=group_id).delete()
+    ComplaintCaseEvent.objects.filter(case__parsed_message__in=selected).delete()
+    if case_ids is None:
+        ComplaintCaseImportItem.objects.filter(batch__group_id=group_id).delete()
+    else:
+        ComplaintCaseImportItem.objects.filter(parsed_message__in=selected).delete()
+    if case_ids is None:
+        ComplaintCaseImportBatch.objects.filter(group_id=group_id).delete()
+    ComplaintCaseControl.objects.filter(parsed_message__in=selected).delete()
+    ComplaintCaseEvidence.objects.filter(parsed_message__in=selected).delete()
+    CaseUpdate.objects.filter(parsed_message__in=selected).delete()
+    selected.delete()
 
     # Deduplication envelopes are removed only when no parsed row from another
     # configuration still references them.

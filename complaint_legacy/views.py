@@ -9,6 +9,7 @@ from zipfile import BadZipFile
 from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist, PermissionDenied
 from django.db import IntegrityError
+from django.core import signing
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect, render
 from django.views.decorators.csrf import csrf_exempt
@@ -16,7 +17,7 @@ from django.views.decorators.http import require_http_methods
 from core.api.complaint_case_views import _context, _request_payload, miniapp_write_response
 from core.api.browser_complaint_operations import endpoint, payload as browser_payload
 from core.services import complaint_cases as cases
-from . import services, workbook
+from . import services, workbook, publication
 from .models import ImportUpload
 
 
@@ -49,29 +50,38 @@ def command(request,group,actor,body,upload_id=None,action='index'):
                 if upload.phase!='mapping': raise ValueError('Review the column mapping before staging.')
                 upload.phase='staging';services.save(upload)
             elif action=='select': services.select(upload,body)
+            elif action=='cutover-preview':
+                result = publication.preview(upload, group, actor)
+                return JsonResponse({'upload':services.payload(upload), 'preview':result})
+            elif action=='cutover-confirm': publication.confirm(upload, group, actor, body)
+            elif action=='sync':
+                if upload.phase not in {'ready','committing'}: raise ValueError('Resume the current processing step first.')
+                publication.sync(upload, group)
             elif action=='commit':
+                if publication.paused(group.group_id): raise ValueError('Resume the saved test-data changeover first.')
                 if upload.phase!='ready' or not upload.rows.filter(approved=True,case__isnull=True).exists(): raise ValueError('Approve at least one valid source row before importing.')
                 upload.phase='committing';services.save(upload)
             elif action=='publish':
-                if upload.phase!='ready' or not upload.rows.filter(case__isnull=False,published=False).exists(): raise ValueError('Save approved cases before requesting publication.')
+                if upload.phase!='ready' or not publication.pending_rows(owner).exists(): raise ValueError('No saved complaints are awaiting sync.')
                 if not cases.complaint_sheet_projection_enabled(group): raise ValueError('Enable the existing Complaints Sheet projection before requesting publication.')
                 upload.phase='publishing';services.save(upload)
             elif action=='advance':
-                if upload.phase=='staging': services.stage_step(upload)
+                if upload.phase in publication.CUTOVER_PHASES: publication.advance_cutover(upload,group,actor)
+                elif upload.phase=='staging': services.stage_step(upload)
                 elif upload.phase=='committing': services.commit_step(upload,group,actor)
                 elif upload.phase=='publishing': services.publish_step(upload,group)
                 else: raise ValueError('No processing is active. Review the current step.')
             elif action=='discard':
-                if upload.rows.filter(committed_at__isnull=False).exists() or upload.phase in {'committing','publishing'}: raise ValueError('Imported case provenance cannot be discarded.')
+                if upload.rows.filter(committed_at__isnull=False).exists() or upload.phase in {'committing','publishing',*publication.CUTOVER_PHASES}: raise ValueError('Imported provenance and confirmed changeover cannot be discarded. Resume the saved step.')
                 upload.rows.all().delete(); upload.chunks.all().delete(); upload.phase='discarded';services.save(upload)
                 shutil.rmtree(services.cache_root(upload),ignore_errors=True)
             else: raise ValueError('Unknown import action.')
         return JsonResponse({'upload':services.payload(upload)})
-    except PermissionDenied as exc: return JsonResponse({'error':str(exc)},status=403)
+    except PermissionDenied as exc: return JsonResponse({'error':str(exc),'message':str(exc)},status=403)
     except ObjectDoesNotExist: return JsonResponse({'error':'This import is unavailable in this workspace.'},status=404)
-    except (ValueError,TypeError,KeyError,IndexError,IntegrityError,BadZipFile,ParseError,StopIteration,binascii.Error) as exc:
+    except (ValueError,TypeError,KeyError,IndexError,IntegrityError,BadZipFile,ParseError,StopIteration,binascii.Error,signing.BadSignature) as exc:
         detail=str(exc) if isinstance(exc,ValueError) else 'Invalid or duplicate source facts. Review this workbook before retrying.'
-        return JsonResponse({'error':detail},status=409)
+        return JsonResponse({'error':detail,'message':detail},status=409)
 
 
 @csrf_exempt

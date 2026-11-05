@@ -33,15 +33,16 @@
     root.querySelectorAll('button,input,select').forEach(n=>{if(!n.closest('dialog'))n.disabled=busy;});find('[data-action=pause]').disabled=false;
     root.querySelectorAll('[data-row-select]').forEach(box=>{const row=rows.find(r=>String(r.id)===box.dataset.rowSelect);box.disabled=busy||!row||!reviewable(row);});
     find('[data-action=pause]').hidden=!busy;
-    const phase=active?.phase,processing=['staging','committing','publishing'].includes(phase);
-    const actions={refresh:true,resume:processing,stage:phase==='mapping',commit:phase==='ready'&&(active?.selected>0||rows.some(r=>r.approved&&!r.committed)),
-      publish:phase==='ready'&&active.committed>active.queued&&settings?.projection_enabled,discard:Boolean(active)&&!active.committed&&!processing};
+    const phase=active?.phase,processing=['staging','committing','publishing','backing_up','clearing','deleting_tests'].includes(phase);
+    const actions={refresh:true,resume:processing,stage:phase==='mapping',cutover:['ready','backing_up','clearing','deleting_tests'].includes(phase)&&!active.cutover_complete,
+      commit:phase==='ready'&&active.cutover_complete&&(active?.selected>0||rows.some(r=>r.approved&&!r.committed)),
+      publish:phase==='ready'&&active.workspace_awaiting_sync>0&&settings?.projection_enabled,discard:Boolean(active)&&!active.committed&&!processing};
     for(const [name,show] of Object.entries(actions))find(`[data-action=${name}]`).hidden=!show;
     find('[data-review]').hidden=!active||!active.total;find('[data-mapping]').hidden=!active?.state?.bindings;
     if(active){
       find('[data-source]').open=phase==='uploading';
       find('[data-progress]').max=Math.max(active.total,1);find('[data-progress]').value=active.committed;
-      feedback(lastError||`${active.filename} · ${phase} · ${active.total} staged · ${active.committed} imported · ${active.selected} approved · ${active.queued} queued for publication`,Boolean(lastError));
+      feedback(lastError||active.state.sync_error||`${active.filename} · ${phase} · ${active.total} staged · ${active.committed} imported · ${active.selected} approved · ${active.synced}/${active.committed} verified in Sheet · ${active.workspace_awaiting_sync} awaiting sync across workspace`,Boolean(lastError||active.state.sync_error));
       find('[data-mapping]').open=phase==='mapping';find('[data-mapping-list]').innerHTML=Object.entries(active.state.bindings||{}).map(([col,key])=>`<div><strong>${esc(active.state.headers[col])}</strong><p>${esc(label(key))}</p></div>`).join('');
     }
     find('[data-action=previous]').disabled=busy||offset===0;find('[data-action=next]').disabled=busy||offset+50>=total;
@@ -77,8 +78,18 @@
   }
   async function refresh(){if(!active)return;const data=await request(`${active.id}/?offset=${offset}&filter=${find('[data-filter]').value}`);rows=data.rows;total=data.total;renderRows();}
   async function saveSelection(){if(active?.phase==='ready'&&rows.length)await command('select',{rows:rows.filter(r=>!r.committed).map(r=>({id:r.id,approved:r.approved}))});}
-  async function run(task){if(busy)return;busy=true;lastError='';render();try{await task();}catch(error){running=false;try{await refresh();}catch{}lastError=error.name==='AbortError'?'Step outcome unknown. Refresh saved progress before retrying; saved cases and source bytes are retained.':error.message;feedback(lastError,true);}finally{busy=false;render();}}
-  async function process(){running=true;while(running&&!document.hidden&&['staging','committing','publishing'].includes(active.phase)){await command('advance');await refresh();render();}running=false;await index();}
+  async function run(task){if(busy)return;busy=true;lastError='';render();try{await task();}catch(error){running=false;try{await refresh();}catch{}lastError=active?.state?.sync_error||(error.name==='AbortError'?'Step outcome unknown. Refresh saved progress before retrying; saved cases and source bytes are retained.':error.message);feedback(lastError,true);}finally{busy=false;render();}}
+  async function process(){
+    running=true;
+    while(running&&!document.hidden){
+      if(['staging','committing','publishing','backing_up','clearing','deleting_tests'].includes(active.phase)){
+        await command('advance');await refresh();render();
+        if(active.phase==='committing'&&active.workspace_awaiting_sync>0&&settings?.projection_enabled){await command('sync');await refresh();render();}
+      }else if(active.phase==='ready'&&active.cutover_complete&&active.workspace_awaiting_sync>0&&settings?.projection_enabled){await command('publish');}
+      else break;
+    }
+    running=false;await index();
+  }
   async function confirm(title,copy){const dialog=find('[data-confirm]');find('[data-confirm-title]').textContent=title;find('[data-confirm-copy]').textContent=copy;dialog.showModal();return new Promise(resolve=>dialog.addEventListener('close',()=>resolve(dialog.returnValue==='confirm'),{once:true}));}
   find('[data-saved]').onchange=()=>run(async()=>{const id=find('[data-saved]').value;if(!id)return;await saveSelection();active={id};offset=0;await refresh();});
   find('[data-filter]').onchange=()=>run(async()=>{await saveSelection();offset=0;await refresh();});
@@ -107,8 +118,14 @@
       else if(action==='previous'||action==='next'){await saveSelection();offset=Math.max(0,offset+(action==='next'?50:-50));await refresh();}
       else if(action==='approve_page'){const displayed=[];if(mode==='table'&&grid)grid.forEachNodeAfterFilterAndSort(n=>displayed.push(n.data));else displayed.push(...rows);displayed.filter(reviewable).forEach(r=>r.approved=true);await saveSelection();await refresh();}
       else if(action==='approve_all'||action==='clear'){await saveSelection();await command('select',{all:true,approved:action==='approve_all'});await refresh();}
-      else if(action==='commit'){await saveSelection();if(await confirm('Import approved historical cases',`Save ${active.selected} approved rows in ${settings.workspace}? Status and Date Reported come from your cleaned columns. Existing cases and the Sheet are not overwritten.`)){await command('commit');await process();}}
-      else if(action==='publish'){if(await confirm('Publish imported cases',`Queue ${active.committed-active.queued} cases for ${settings.sheet_name} (${settings.sheet_id})? The normal Complaints publisher writes the 22-column register by Complaint ID. No register replacement or row deletion is performed.`)){await command('publish');await process();}}
+      else if(action==='cutover'){
+        await saveSelection();const result=await command('cutover-preview'),p=result.preview;
+        if(await confirm('Replace test Complaints register',`Delete ${p.test_cases} existing test cases and their local history in ${settings.workspace}; retain ${p.retained_imports} already imported complaints and this source workbook. Back up and clear ${p.name} (${p.spreadsheet}) below header row ${p.header_row}, then write saved complaints from row ${p.header_row+1}. Other worksheets and Drive files are retained. Confirm only after pausing manual edits to this worksheet.`)){
+          await command('cutover-confirm',{token:p.token,manual_edits_paused:true});await process();
+        }
+      }
+      else if(action==='commit'){await saveSelection();if(await confirm('Import approved historical cases',`Save ${active.selected} approved rows in ${settings.workspace} and automatically sync saved cases to ${settings.sheet_name}? Status and Date Reported come from your cleaned columns. Sync runs in FIFO batches; progress is retained if you close this page.`)){await command('commit');await process();}}
+      else if(action==='publish'){await command('publish');await process();}
       else if(action==='discard'&&await confirm('Discard this upload','Remove only this uncommitted source version? Imported case provenance is retained.')){await command('discard');active=null;rows=[];await index();}
     });
   });

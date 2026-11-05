@@ -124,7 +124,7 @@ class Book:
                         values.extend([''] * max(0, area['endColumnIndex']-len(values)))
                         values[area['startColumnIndex']:area['endColumnIndex']] = [''] * (area['endColumnIndex']-area['startColumnIndex'])
                     for row, cells in enumerate(item.get('rows', []), area['startRowIndex']+1):
-                        sheet.cells[row][area['startColumnIndex']:area['endColumnIndex']] = [c['userEnteredValue']['stringValue'] for c in cells['values']]
+                        sheet.cells[row][area['startColumnIndex']:area['endColumnIndex']] = [next(iter(c['userEnteredValue'].values())) for c in cells['values']]
                 elif 'copyPaste' in request:
                     item = request['copyPaste']; src = item['source']; dest = item['destination']
                     sheet = self.get_worksheet_by_id(dest['sheetId']); original = self.get_worksheet_by_id(src['sheetId'])

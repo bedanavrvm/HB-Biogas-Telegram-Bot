@@ -208,12 +208,12 @@ class ComplaintLegacyTests(ImportFixture,TestCase):
         self.client=type(self.client)();upload=self.finish(upload,'committing')
         self.assertEqual(upload['committed'],61);self.assertEqual(ParsedMessage.objects.filter(source='complaint_legacy').count(),61)
 
-    def test_sheet_publication_is_explicit_and_durable(self):
-        upload=self.commit(self.stage());self.assertFalse(IntegrationOperation.objects.filter(operation_type='complaint_browser.sheet').exists())
-        upload=self.call('publish',upload=upload)['upload'];upload=self.finish(upload,'publishing')
+    def test_sheet_publication_starts_automatically_and_is_durable(self):
+        upload=self.commit(self.stage())
         self.assertEqual(upload['queued'],1)
         self.assertEqual(IntegrationOperation.objects.filter(operation_type='complaint_browser.sheet',status='pending').count(),1)
-        self.call('publish',upload=upload,status=409)
+        self.assertEqual(upload['synced'],0)
+        self.assertEqual(upload['awaiting_sync'],1)
 
     def test_uncommitted_discard_reopens_and_committed_provenance_is_retained(self):
         from .services import cache_root
@@ -287,7 +287,6 @@ class ComplaintLegacyTests(ImportFixture,TestCase):
         from core.services.sheet_schema import COMPLAINT_REGISTER_FIELD_HEADERS
         upload=self.commit(self.stage(source([[2,'CLOSED','24-May-2025','HB NOTE','JBL CHECK']],
             headers=['Source Row','Status','Date Reported','Resolution Comments','JBL Verification Comments'])))
-        upload=self.finish(self.call('publish',upload=upload)['upload'],'publishing')
         class Sheet:
             schema=SheetSchema.from_config({'schema_version':2});_sheet_id='synthetic-register';_sheet_name='Complaints Register'
             def __init__(self):self.rows={}

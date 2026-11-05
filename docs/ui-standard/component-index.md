@@ -1,5 +1,9 @@
 # Component index and migration hold
 
+Complaints import retains the compact review page and sticky feedback, with
+confirmed test cleanup, one-time register clearing and verified FIFO publication.
+See the [source and Playwright record](reviews/2026-11-05-complaints-changeover-sheet-sync.md).
+
 Historical-aware reports reuse the compact filter bars, charts, grids and
 revision-bound forms. Complaint ID opens detail; Complaints IT has an audited
 pencil editor. [Source and Playwright evidence](reviews/2026-11-04-historical-reporting-it-corrections-reset.md)

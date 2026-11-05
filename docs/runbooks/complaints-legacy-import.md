@@ -18,6 +18,12 @@ roles confer no import authority. The checked-in migration adds
 are created. Deploy with the normal `python manage.py migrate` release process.
 Browser release flags keep their existing default-off configuration.
 
+The one-time **Prepare test-data changeover** action additionally requires an
+active Superuser, matching the Portal test-cleanup policy. It discloses the exact
+workspace, test-case count, retained import count and Sheet destination before
+deletion. It preserves already imported cases, source workbooks, independent
+audit records and Drive files. Only the selected Complaints tab is cleared.
+
 ## Workbook contract
 
 Download the template from the page. It follows the app's current **22-column
@@ -62,17 +68,30 @@ are rejected. The original XLSX bytes are retained privately.
    Open a row number to compare all original and proposed values.
 4. Approve individual, displayed or all valid pending rows. Choices are saved
    server-side. Blocked rows cannot be approved. Warnings require your review.
-5. Confirm **Import approved cases**. Only approved rows become canonical cases.
-   The original reported date drives age; actual uploader, importer and import
-   time remain separate audit evidence. No existing cases are deleted/overwritten.
-6. Inspect the saved cases. **Publish imported cases** separately confirms the
-   configured destination and queues the normal Complaints background publisher.
+5. Before the first import, use **Prepare test-data changeover** as a Superuser.
+   Pause manual edits to the named worksheet and confirm the disclosed action.
+   The app backs up Sheet values privately in PostgreSQL, removes the confirmed
+   test cases in bounded chunks, clears below the existing header, verifies the
+   clear and republishes any previously imported cases. Other worksheets survive.
+6. Confirm **Import approved cases**. Approved rows become canonical cases and
+   sync automatically after each saved batch. The original reported date drives
+   age; uploader and actual import time remain separate audit evidence.
+7. Watch **verified in Sheet / awaiting sync**. Verification requires readback of
+   every projected field. Resume an existing import and use **Sync imported cases
+   to Sheet** for older saved cases; no reupload or repeated source review is needed.
 
 “Queued” means publication was requested; it does not mean Google accepted it.
-Use the existing Complaints publication/recovery settings for failed jobs.
+Lost provider acknowledgements leave rows pending; retries find their Complaint
+IDs and update the same rows. After clearing, new rows start immediately below
+the header and remain consecutive. Source worksheet row numbers never allocate
+destination rows. CMP references stay unique; consumed test references are not recycled.
 The destination must have the app's current 22-column register schema, including
-JBL Verification Comments. This importer does not replace an old 13-column tab,
-clear a sheet or bypass destination validation.
+JBL Verification Comments. Adapt an old 13-column tab before changeover;
+destination and duplicate-column validation still apply. Reordered named columns
+are supported. Changeover cannot clear the register again after completion.
+During interrupted changeover, **Prepare test-data changeover** can review changed
+Sheet/test facts again; prior backup versions survive. Confirmed changeover cannot
+be discarded.
 
 ## Corrections, duplicates and recovery
 
@@ -89,9 +108,21 @@ reuse already imported rows with identical original facts. Changing facts of an
 already imported row is blocked: use the normal audited case correction flow.
 Only an uncommitted upload can be discarded. Committed provenance is retained.
 
-Pause/closing the page stops after the current bounded step. Reopen, choose the
-saved import, then resume. Uploads use checksummed 512 KiB chunks; staging uses
-250 rows/5 seconds per request and commit/publication uses 50 rows/5 seconds.
+Pause/closing the page stops foreground processing after the current saved step.
+Reopen, choose the saved import, then resume. Uploads use checksummed 512 KiB
+chunks; staging uses 250 rows/5 seconds and commits use 50 rows/5 seconds.
+Sheet sync writes at most 50 cases per call with an 18-second external-call budget.
+The existing scheduled publisher also resumes saved imports after the app closes:
+
+```sh
+python manage.py drain_complaint_publications --apply --limit 10 --max-seconds 50
+```
+
+Schedule it every minute. Without `--apply`, it performs no Google writes.
+The open import page can also advance sync; a scheduled runner is needed for
+closed-page delivery. Publication errors retain the source, saved cases and
+retryable progress. Sheet clearing and writing share the database mutex with
+Complaint publication, preventing stale test writes and overlapping row allocation.
 An exclusive lease prevents parallel advancement; stale revisions require
 refresh. After a request timeout its outcome is unknown: refresh saved progress
 before retrying. Completed row transactions survive interruption.
@@ -123,11 +154,23 @@ Use the pinned Node runtime and installed Playwright Chromium. These commands
 create test databases; configure `TEST_DATABASE_URL` for a disposable local test
 server. Browser coverage exercises real signed Telegram requests and native
 password/MFA/CSRF, saved approvals/reload, negative states, mobile review,
-canonical imports and explicit queueing. Screenshots and results are under
+canonical imports, confirmed test cleanup and verified automatic sync. Screenshots and results are under
 `test-results/complaints-legacy-browser/`. Provider readback uses a simulated
 Sheet boundary; no production provider delivery is claimed.
 
-### Local evidence, 3 November 2026
+### Local evidence, 5 November 2026
+
+The changeover passed 83 scoped PostgreSQL checks plus three real-HTTP/browser
+checks, including independent publishers and Playwright on both channels. The
+browser removed three test cases, preserved one earlier import, verified all 63
+saved complaints on the synthetic Sheet, and recovered an applied write whose
+acknowledgement was lost. The gallery has 15 current captures and an inspectable
+`projected-complaints.xlsx`. Logs: `test-results/complaint-projection-regression-final.log`
+and `test-results/complaint-projection-browser-final.log`. UI source hashes are
+recorded alongside the captures. Google transport was simulated; live delivery
+and deployment remain unverified.
+
+### Earlier local evidence, 3 November 2026
 
 The combined scoped PostgreSQL run passed **104 tests**, including real
 Playwright on both channels and an independent-worker contention check. Log:

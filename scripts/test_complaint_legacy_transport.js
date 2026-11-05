@@ -45,13 +45,31 @@ async function main(){
     await frame.locator('.import-feedback').evaluate(n=>window.scrollTo(0,document.documentElement.scrollHeight));
     const sticky=await frame.locator('.import-feedback').boundingBox();assert.ok(sticky.y>=-1&&sticky.y<100,'Progress stays inside the viewport');
     await page.emulateMedia({colorScheme:'dark'});await snap('06-cards-dark-mobile',frame);await page.emulateMedia({colorScheme:'light'});
-    await page.setViewportSize({width:1280,height:850});await frame.locator('[data-action=approve_all]').click();await idle(frame);
+    await page.setViewportSize({width:1280,height:850});
+    await frame.locator('[data-action=cutover]').click();await frame.locator('[data-confirm]').waitFor();
+    assert.match(await frame.locator('[data-confirm-copy]').innerText(),/Delete 3 existing test cases/);
+    assert.match(await frame.locator('[data-confirm-copy]').innerText(),/retain 1 already imported/);
+    await snap('07-changeover-confirmation',frame);
+    await frame.getByRole('button',{name:'Confirm reviewed action'}).click();await idle(frame);
+    assert.match(await frame.locator('[data-feedback]').innerText(),/could not be verified/);
+    await snap('07a-uncertain-provider-write',frame);
+    await page.locator('#complaint-legacy-frame').evaluate(f=>f.contentWindow.location.reload());
+    await frame.locator('[data-saved] option').nth(1).waitFor({state:'attached'});
+    await frame.locator('[data-saved]').selectOption(saved);await idle(frame);
+    await frame.locator('[data-action=resume]').click();await idle(frame);
+    assert.match(await frame.locator('[data-feedback]').innerText(),/ready/);
+    await snap('07b-resumed-provider-write',frame);
+    assert.equal(await frame.locator('[data-action=cutover]').isHidden(),true);
+    await frame.locator('[data-action=approve_all]').click();await idle(frame);
     await frame.locator('[data-action=commit]').click();await frame.locator('[data-confirm]').waitFor();await snap('07-save-confirmation',frame);
     await frame.getByRole('button',{name:'Cancel',exact:true}).click();await idle(frame);
     await frame.locator('[data-action=commit]').click();await frame.getByRole('button',{name:'Confirm reviewed action'}).click();await idle(frame);
-    assert.match(await frame.locator('[data-feedback]').innerText(),/61 imported/);await snap('08-saved-before-publication',frame);
-    await frame.locator('[data-action=publish]').click();await frame.getByRole('button',{name:'Confirm reviewed action'}).click();await idle(frame);
-    assert.match(await frame.locator('[data-feedback]').innerText(),/61 queued/);await snap('09-publication-queued',frame);
+    assert.match(await frame.locator('[data-feedback]').innerText(),/61 imported/);
+    assert.match(await frame.locator('[data-feedback]').innerText(),/61\/61 verified in Sheet/);await snap('08-automatically-verified',frame);
+    await page.locator('#complaint-legacy-frame').evaluate(f=>f.contentWindow.location.reload());
+    await frame.locator('[data-saved] option').nth(1).waitFor({state:'attached'});
+    await frame.locator('[data-saved]').selectOption(saved);await idle(frame);
+    assert.match(await frame.locator('[data-feedback]').innerText(),/61\/61 verified in Sheet/);await snap('09-resumed-sync-receipts',frame);
     assert.equal(await page.evaluate(proof=>[...Object.values(localStorage),...Object.values(sessionStorage)].some(value=>value.includes(proof)),input.initData),false);
     const native=await browser.newContext({viewport:{width:1280,height:850}});await limit(native);const n=await native.newPage();n.setDefaultTimeout(18000);n.on('pageerror',e=>errors.push(e.message));n.on('response',r=>{if(r.status()>=500)errors.push('Server error: '+new URL(r.url()).pathname);});
     const base=`${origin.origin}/api/staff/complaints/operations/v1/groups/${input.key}/legacy-import/`;
@@ -61,7 +79,7 @@ async function main(){
     assert.equal((await native.request.get(base)).status(),401);
     const mfa=await post('/api/staff/auth/v1/mfa/',{code:input.code});assert.equal(mfa.status(),200,await mfa.text());
     assert.equal((await native.request.post(base,{data:{command:'index'}})).status(),403);
-    assert.equal((await native.request.get(base.replace('/'+input.key+'/','/'+input.other+'/'))).status(),403);
+    assert.equal((await native.request.get(base.replace('/'+input.key+'/','/'+input.other+'/'))).status(),200);
     await n.goto(origin.origin+'/staff/app/complaints/?workspace='+input.key);
     await n.getByRole('button',{name:'Workspace tools',exact:true}).click();await n.getByRole('menuitem',{name:'Legacy import',exact:true}).click();
     await n.getByRole('heading',{name:'Legacy import',exact:true}).waitFor();await idle(n);
@@ -70,6 +88,7 @@ async function main(){
     await upload(n,input.nativeWorkbook);await stage(n);await n.locator('[data-action=approve_all]').click();await idle(n);
     await n.locator('[data-action=commit]').click();await n.getByRole('button',{name:'Confirm reviewed action'}).click();await idle(n);
     assert.match(await n.locator('[data-feedback]').innerText(),/1 imported/);
+    assert.match(await n.locator('[data-feedback]').innerText(),/1\/1 verified in Sheet/);
     await n.screenshot({path:path.join(output,'10-native-mfa-import.png'),fullPage:true});captures++;
     await n.getByRole('link',{name:/Complaints/}).click();await n.getByRole('button',{name:'Workspace tools',exact:true}).waitFor();assert.equal(new URL(n.url()).searchParams.get('workspace'),String(input.key));
     const queue=await(await post(`/api/staff/complaints/operations/v1/groups/${input.key}/cases/`,{q:'SYNTHETIC 1',status:'all'})).json();
@@ -81,7 +100,7 @@ async function main(){
     await n.getByRole('tab',{name:/History/}).click();await n.getByText('Historical complaint imported',{exact:true}).waitFor();
     await n.screenshot({path:path.join(output,'11-imported-case-history.png'),fullPage:true});captures++;
     assert.equal(errors.length,0,errors.join('\n'));
-    fs.writeFileSync(path.join(output,'results.json'),JSON.stringify({passed:true,captures,channels:['signed Telegram','native cookie/password/MFA/CSRF'],cases:62,queued:61},null,2));
+    fs.writeFileSync(path.join(output,'results.json'),JSON.stringify({passed:true,captures,channels:['signed Telegram','native cookie/password/MFA/CSRF'],cases:63,verified:63,deletedTests:3},null,2));
     process.stdout.write(JSON.stringify({passed:true,captures}));
   }catch(error){await page.screenshot({path:path.join(output,'failure.png'),fullPage:true});throw error;}
   finally{await browser.close();}

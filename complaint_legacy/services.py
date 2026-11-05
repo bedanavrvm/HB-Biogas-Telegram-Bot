@@ -44,12 +44,19 @@ def save(upload):
 
 
 def payload(upload):
+    from .publication import pending_rows
+    committed = upload.rows.filter(committed_at__isnull=False)
+    synced = committed.filter(case__synced_to_sheets=True, case__complaint_control__sync_status='success').count()
     return {'id': str(upload.pk), 'filename': upload.filename, 'namespace': upload.namespace,
         'source_sheet': upload.source_sheet, 'phase': upload.phase, 'revision': upload.revision,
         'size': upload.size, 'chunks': list(upload.chunks.values_list('position',flat=True)),
         'total': upload.rows.count(), 'selected': upload.rows.filter(approved=True,case__isnull=True).count(),
-        'committed': upload.rows.filter(committed_at__isnull=False).count(), 'queued': upload.rows.filter(published=True).count(),
-        'state': upload.state}
+        'committed': committed.count(), 'queued': upload.rows.filter(published=True).count(),
+        'synced': synced, 'awaiting_sync': committed.count()-synced,
+        'workspace_awaiting_sync': pending_rows(upload.group).count(),
+        'cutover_complete': ImportUpload.objects.filter(group=upload.group, state__cutover_complete=True).exists(),
+        'state': {key: ({k:v for k,v in value.items() if k not in {'remaining','facts'}} if key=='cutover' else value)
+                  for key,value in upload.state.items()}}
 
 
 @transaction.atomic
@@ -133,7 +140,13 @@ def stage_step(upload):
                     if existing(upload,draft): candidate['warnings'].append('This exact source row was already imported; approval will reuse its case.')
                 except ValueError as exc: candidate['issues'].append(str(exc)); candidate['status']='blocked'
                 if values.get('complaint_id') and ComplaintCaseControl.objects.filter(parsed_message__group_id=upload.group.group_id,reference_number=values['complaint_id']).exists() and not ParsedMessage.objects.filter(group_id=upload.group.group_id,message_id=message_key(upload,source_row)).exists():
-                    candidate['issues'].append('Complaint ID already exists. Reconcile this source instead of creating another case.'); candidate['status']='blocked'
+                    imported = ComplaintCaseControl.objects.filter(parsed_message__group_id=upload.group.group_id,
+                        reference_number=values['complaint_id'], parsed_message__complaint_legacy_rows__isnull=False).exists()
+                    if imported:
+                        candidate['issues'].append('Complaint ID already exists on an imported case. Reconcile this source instead of creating another case.'); candidate['status']='blocked'
+                    else:
+                        candidate['warnings'].append('Complaint ID exists on a test-cleanup candidate. Confirm changeover before importing; a new unique CMP reference will be allocated.')
+                        if candidate['status']!='blocked': candidate['status']='warning'
                 pending.append(draft)
                 if count+len(pending)>50000: raise ValueError('The selected worksheet exceeds 50,000 source records.')
             offset=next_offset
@@ -170,10 +183,15 @@ def commit_row(upload,row_id,group,actor):
     if row.committed_at: return
     candidate=workbook.propose(row.values)
     if candidate['issues']: raise ValueError('Correct blocked status/date/field issues before import.')
+    if row.values.get('complaint_id') and ComplaintCaseControl.objects.filter(parsed_message__group_id=group.group_id,
+            reference_number=row.values['complaint_id']).exclude(parsed_message__message_id=message_key(upload,row.source_row)).exists():
+        raise ValueError('The source Complaint ID still belongs to an existing case. Complete reviewed test cleanup or reconcile the source first.')
     GroupSheetConfiguration.objects.select_for_update(no_key=True).get(pk=upload.group_id)
     case=existing(upload,row)
     if case:
-        row.case=case; row.committed_at=timezone.now(); row.save(update_fields=['case','committed_at']); return
+        row.case=case; row.committed_at=timezone.now(); row.save(update_fields=['case','committed_at'])
+        queue_row(row, group)
+        return
     fields=candidate['fields']; reference=message_key(upload,row.source_row)
     original=json.dumps(row.values,ensure_ascii=False,sort_keys=True)
     raw=RawMessage.objects.create(telegram_message_id=reference,sender='',content=original,received_at=timezone.now())
@@ -200,6 +218,17 @@ def commit_row(upload,row_id,group,actor):
     record_event(workflow='complaint_cases',action='complaint.legacy.imported',subject_type='complaint_case',subject_id=str(case.pk),
         actor=actor.user,source_model='ComplaintCaseEvent',source_event_id=str(event.pk),
         deduplication_key='complaint-legacy:'+str(row.pk),metadata={'upload':str(upload.pk),'source_row':row.source_row})
+    queue_row(row, group)
+
+
+def queue_row(row, group):
+    from complaint_publications.services import queue_sheet
+    job = queue_sheet(group, row.case)
+    if job:
+        job.metadata['legacy_import'] = str(row.upload_id)
+        job.save(update_fields=['metadata'])
+        row.published = True
+        row.save(update_fields=['published'])
 
 
 def commit_step(upload,group,actor):
@@ -214,14 +243,9 @@ def commit_step(upload,group,actor):
 
 
 def publish_step(upload,group):
-    from complaint_publications.services import queue_sheet
-    started=time.monotonic()
-    for row in upload.rows.filter(case__isnull=False,published=False).select_related('case')[:50]:
-        with transaction.atomic():
-            row=ImportRow.objects.select_for_update(of=('self',)).select_related('case').get(pk=row.pk)
-            if not row.published: queue_sheet(group,row.case); row.published=True; row.save(update_fields=['published'])
-        if time.monotonic()-started>=5: break
-    upload.phase='publishing' if upload.rows.filter(case__isnull=False,published=False).exists() else 'ready'; save(upload)
+    from .publication import sync, pending_rows
+    sync(upload, group)
+    upload.phase='publishing' if pending_rows(upload.group).exists() else 'ready'; save(upload)
 
 
 def historical_notes(case, field):
