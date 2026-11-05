@@ -1972,6 +1972,10 @@
     if (page === 'imports' && portalImports.load) return portalImports.load();
     if (page === 'farmup' && portalFarmUp.load) return portalFarmUp.load();
     else if (page === 'reports' && portalReports.load) {
+      if (!state.reportSessionKey) return loadMeta().then(ready => {
+        if (!ready || !state.reportSessionKey) throw new Error('Report access could not be loaded. Retry this page.');
+        return loadPage(page);
+      });
       return portalReports.load({
         tg,
         sessionKey: state.reportSessionKey,

@@ -1,5 +1,9 @@
 # Component index and migration hold
 
+Portal report filters adapt the existing dialog with compact checkbox groups;
+legacy readiness reuses existing case actions, pencil forms and sticky feedback.
+See the [source and interaction evidence](reviews/2026-11-05-portal-live-legacy-cases-multiselect-reports.md).
+
 Portal withdrawal reuses compact case sections and inline validation; completed
 Commissioning uses the existing tick. Both register imports retain their current
 review page. See the [source and interaction evidence](reviews/2026-11-05-portal-withdrawal-and-parallel-cutover.md).

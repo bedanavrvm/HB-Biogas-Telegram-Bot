@@ -20,12 +20,16 @@ Back up the database and source spreadsheet. Confirm the exact Portal owner,
 configured spreadsheet, both destination tab names and header row. Eco-conserve
 uses the existing Eco-conserve tab configuration in that spreadsheet; the two
 destination names must differ. Arrange a window that pauses manual edits,
-intake and numbered paperwork. The app holds Portal mutations and publication
-for the whole owner during either cutover and releases it on completion. Run
+intake and numbered paperwork during destructive test cleanup. Once a case is
+imported and its initial Sheet write is verified, it can be edited and continued
+through normal Portal actions while the remaining source rows are reviewed. Run
 the two imports concurrently if needed: each register has its own cutover lock,
 review progress and Sheet destination. A second cutover for the same register is
-blocked. The owner-wide write hold stays active until every held cutover finishes
-or is safely cancelled. It cannot stop people or independent integrations
+blocked. Unverified cases remain held; mixed selections containing an unverified
+case cannot proceed. Owner-wide administrative changes remain held until all
+cutovers finish or are safely cancelled. Full-register replacement temporarily
+pauses case changes in that register until readback succeeds. The other register
+remains available. The app cannot stop people or independent integrations
 editing Google Sheets directly.
 
 Test-data deletion requires an active Superuser and the existing
@@ -102,8 +106,12 @@ evidence; no data values change. See the
    register?** action on a fully imported, held upload: it requires exact
    destination review and confirmation, snapshots and stages the destination,
    then clears unmatched old rows. Ordinary FIFO sync never clears unrelated rows.
-   The normal Portal publication pump remains paused during partial cutover;
-   legacy sync runs through the owning importer. Summary refresh is read-only.
+   Verified cases use the normal Portal publication queue for later edits and
+   workflow changes. Initial unverified writes still run through the owning
+   importer. Resume retains the saved source and approvals; no re-upload is needed.
+   Continuation confirmation is audited and queues a new canonical publication.
+   A resumed old import checkpoint cannot overwrite a newer case correction.
+   Summary refresh is read-only.
    Existing UUID or readable-reference bindings update their current row. A
    matching raw source row is also retained in place. When no existing row is
    bound and the source position is empty, the case uses the first fully empty

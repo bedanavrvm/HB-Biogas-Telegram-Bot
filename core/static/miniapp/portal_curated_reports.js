@@ -12,7 +12,8 @@
   const id=()=>crypto.randomUUID?.() || `report-${Date.now()}-${Math.random().toString(16).slice(2)}`;
   const sharedKeys=['branch','county','product','date_mode','month','quarter','year','from','to','granularity','historical_scope'];
   let sessionKey='', launchKey='', tabFilters={}, sharedFilters={};
-  const picked=(value,keys)=>Object.fromEntries(keys.filter(key=>value[key]!==undefined).map(key=>[key,String(value[key])]));
+  const selections=value=>Array.isArray(value)?value:value?[value]:[];
+  const picked=(value,keys)=>Object.fromEntries(keys.filter(key=>value[key]!==undefined).map(key=>[key,Array.isArray(value[key])?[...value[key]]:String(value[key])]));
   function saveFilters(){
     const next=picked(s.applied,sharedKeys);
     if(JSON.stringify(next)!==JSON.stringify(sharedFilters))for(const key of Object.keys(tabFilters))tabFilters[key]=picked(tabFilters[key],['stage']);
@@ -44,7 +45,11 @@
   function chartLabel(chart,index){const key=chart.bucket_keys[index];const date=window.MiniAppReportControls.formatChartDate(key);return chart.type==='line'&&date!==key?date:chart.labels[index];}
   function filterSheet(){
     const f=s.applied,o=s.result.filter_options,mode=f.date_mode || (s.preset==='pipeline'?'all':'month');
-    const select=(key,label,values)=>`<label>${label}<select name="${key}"><option value="">All</option>${f[key]&&!values.includes(f[key])?`<option selected value="${esc(f[key])}">${esc(f[key])} (unavailable)</option>`:''}${values.map(v=>`<option value="${esc(v)}"${f[key]===v?' selected':''}>${esc(key==='stage'?stages[v]:v)}</option>`).join('')}</select></label>`;
+    const select=(key,label,values)=>{
+      const selected=Array.isArray(f[key])?f[key]:f[key]?[f[key]]:[];
+      const options=[...new Set([...values,...selected])];
+      return `<fieldset class="portal-report-checks" data-filter-group="${key}"><legend>${label} <span data-selection-count>${selected.length?selected.length+' selected':'All'}</span><button type="button" data-clear-filter="${key}" class="portal-report-clear" aria-label="Clear ${label} selections">Clear</button></legend><div>${options.map(v=>`<label><input type="checkbox" name="${key}" value="${esc(v)}"${selected.includes(v)?' checked':''}><span>${esc(key==='stage'?stages[v]||v:v)}${values.includes(v)?'':' (unavailable)'}</span></label>`).join('')||'<p>No available options</p>'}</div></fieldset>`;
+    };
     return `<dialog id="portal-report-dialog" aria-labelledby="portal-report-filter-title"><form id="portal-report-filters"><header><h2 id="portal-report-filter-title">Filter ${labels[s.preset].toLowerCase()}</h2><button type="button" data-action="close" aria-label="Close filters without applying">×</button></header><div class="portal-report-filter-fields">
     ${select('branch','Branch',o.branches||[])}${select('county','County',o.counties||[])}${select('product','Product',o.products||[])}
     ${s.preset==='pipeline'?select('stage','Stage',['jbl_visit','credit','final_review','order','ordered','deferred','rejected','withdrawn']):''}
@@ -64,8 +69,8 @@
     const tabs=`<div class="portal-curated-tabs" role="tablist" aria-label="Report sections">${Object.entries(labels).map(([k,l])=>`<button type="button" role="tab" data-preset="${k}" aria-selected="${k===s.preset}" class="${k===s.preset?'active':''}">${l}</button>`).join('')}</div>`;
     if(!r){target.innerHTML=`${tabs}<div class="empty-state" role="status">${s.error?`${esc(s.error)} <button class="btn btn-secondary" data-action="retry">Try again</button><button class="btn btn-secondary" data-action="reset">Reset filters</button>`:'Loading reports…'}</div>`;return;}
     const f=s.applied,p=r.pagination,selected=r.charts.find(c=>c.id===f.chart_key),selection=selected?.labels[selected.bucket_keys.indexOf(f.bucket_key)]||'';
-    const description=[f.branch||'All branches',f.county,f.product,stages[f.stage]].filter(Boolean).map(esc).join(' · ');
-    const count=['branch','county','product','stage'].filter(key=>f[key]).length+(f.date_mode&&f.date_mode!=='all'?1:0);
+    const description=[selections(f.branch).join(', ')||'All branches',selections(f.county).join(', '),selections(f.product).join(', '),selections(f.stage).map(value=>stages[value]||value).join(', ')].filter(Boolean).map(esc).join(' | ');
+    const count=['branch','county','product','stage'].filter(key=>selections(f[key]).length).length+(f.date_mode&&f.date_mode!=='all'?1:0);
     const period=r.period?`${fmt(r.period.from,'date')} – ${fmt(r.period.to,'date')}`:'Any time';
     target.innerHTML=`<div class="portal-report-heading"><h1>Reports</h1><div class="report-email-actions"><button type="button" class="report-email-icon" data-action="email" aria-label="Email report" title="Email report">${window.MiniAppReportEmailExport?.icon || ''}</button><button class="portal-report-icon" type="button" data-action="export" aria-label="Export report" title="Export report"${s.exporting?' disabled':''}>${svg('download')}</button></div></div>${tabs}<div class="portal-report-controls"><button class="portal-report-filter-bar" type="button" data-action="filters" aria-haspopup="dialog" aria-controls="portal-report-dialog"><span class="portal-filter-action">${svg('filter')}<strong>Filters</strong>${count?`<b>${count}</b>`:''}</span><span class="portal-filter-summary"><strong>${description}</strong><small>${period}</small></span><span aria-hidden="true">›</span></button></div><p class="portal-report-status" role="status">${s.loading?'Updating report…':esc(s.error)}${s.error?' <button type="button" data-action="retry">Try again</button>':''}</p>
     <label class="portal-history-toggle"><input type="checkbox" data-historical ${s.applied.historical_scope==='include'?'checked':''}> Include historical imports</label>${s.applied.historical_scope==='include'?'<p role="note">Historical — may be inaccurate. Timing estimates are separate; missing dates and targets remain unavailable.</p>':''}<div class="portal-curated-summary">${Object.entries(r.summary).map(([l,v])=>`<div><strong>${fmt(v,'number')}</strong><span>${esc(l)}</span></div>`).join('')}</div>
@@ -218,6 +223,7 @@
     notify:(message,tone)=>window.PortalAppShell?.showToast?.(message,tone)});}
   document.addEventListener('click',e=>{
     if(!root()?.contains(e.target))return;
+    const clear=e.target.closest('[data-clear-filter]');if(clear){const group=clear.closest('[data-filter-group]');group.querySelectorAll('input').forEach(input=>{input.checked=false;});group.querySelector('[data-selection-count]').textContent='All';return;}
     const preset=e.target.closest('[data-preset]');if(preset){clearTimeout(s.searchTimer);saveFilters();s.preset=preset.dataset.preset;s.result=null;s.applied={...sharedFilters,...(tabFilters[s.preset]||{})};return load(1,{...s.applied,search:s.search});}
     const display=e.target.closest('[data-display]');if(display){s.display=display.dataset.display;pref(s.display);return render();}
     const type=e.target.closest('[data-type]');if(type){s.resumeScroll=root().querySelector('#portal-insight-charts').scrollLeft;s.types[type.dataset.key]=type.dataset.type;return render();}
@@ -229,8 +235,8 @@
     if(action==='drill'){const card=b.closest('[data-chart]');drill(s.result.charts.find(c=>c.id===card.dataset.chart),card.querySelector('[data-bucket]').value,card.querySelector('[data-series]').value);}
   });
   document.addEventListener('input',e=>{if(e.target.id!=='portal-report-search'||!root()?.contains(e.target))return;clearTimeout(s.searchTimer);s.search=e.target.value;++s.sequence;s.loading=true;s.searchTimer=setTimeout(()=>load(1,{...s.applied,search:s.search}),300);});
-  document.addEventListener('change',e=>{if(!root()?.contains(e.target))return;if(e.target.matches('[data-historical]')){load(1,{...s.applied,historical_scope:e.target.checked?'include':'exclude',chart_key:'',bucket_key:'',series_key:''});return;}if(e.target.name==='date_mode'||e.target.matches('[data-date] input')){root().querySelector('[name="to"]')?.setCustomValidity('');dates();}if(e.target.matches('[data-bucket]'))e.target.closest('article').querySelector('[data-action="drill"]').disabled=!e.target.value;});
-  document.addEventListener('submit',e=>{if(e.target.id!=='portal-report-filters')return;e.preventDefault();clearTimeout(s.searchTimer);const f={...Object.fromEntries(new FormData(e.target)),search:s.search,granularity:s.applied.granularity||'month'};if(f.date_mode==='custom'&&f.from>f.to){e.target.elements.to.setCustomValidity('Choose an end date on or after the start date.');e.target.elements.to.reportValidity();return;}close();load(1,f);});
+  document.addEventListener('change',e=>{if(!root()?.contains(e.target))return;if(e.target.matches('.portal-report-checks input')){const group=e.target.closest('[data-filter-group]');const count=group.querySelectorAll('input:checked').length;group.querySelector('[data-selection-count]').textContent=count?count+' selected':'All';}if(e.target.matches('[data-historical]')){load(1,{...s.applied,historical_scope:e.target.checked?'include':'exclude',chart_key:'',bucket_key:'',series_key:''});return;}if(e.target.name==='date_mode'||e.target.matches('[data-date] input')){root().querySelector('[name="to"]')?.setCustomValidity('');dates();}if(e.target.matches('[data-bucket]'))e.target.closest('article').querySelector('[data-action="drill"]').disabled=!e.target.value;});
+  document.addEventListener('submit',e=>{if(e.target.id!=='portal-report-filters')return;e.preventDefault();clearTimeout(s.searchTimer);const form=new FormData(e.target);const f={...Object.fromEntries(form),search:s.search,granularity:s.applied.granularity||'month'};for(const key of ['branch','county','product','stage'])f[key]=form.getAll(key);if(f.date_mode==='custom'&&f.from>f.to){e.target.elements.to.setCustomValidity('Choose an end date on or after the start date.');e.target.elements.to.reportValidity();return;}close();load(1,f);});
   const theme=()=>{if(root()&&s.result){destroy(false);draw();}};
   window.PortalMiniAppReports={
     async load(options={}){

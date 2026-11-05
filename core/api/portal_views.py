@@ -119,7 +119,7 @@ def portal_auth_required(view_func):
             }
             from portal_legacy.fence import request_blocked
             if not report_read and request_blocked(request, kwargs):
-                return _finish_portal_response(request, JsonResponse({'ok': False, 'code': 'legacy_cutover_maintenance', 'error': 'This Portal owner is held for legacy cutover. Resume Legacy Data to complete it.'}, status=503), started_at)
+                return _finish_portal_response(request, JsonResponse({'ok': False, 'code': getattr(request, 'portal_cutover_code', 'legacy_cutover_maintenance'), 'error': 'This selection is not yet available for workflow changes.'}, status=503), started_at)
             if not report_read and view_func.__name__ != 'portal_set_maintenance':
                 from core.services.portal_maintenance import maintenance_write_blocked
 
@@ -141,7 +141,14 @@ def portal_auth_required(view_func):
             except ValueError:
                 request.portal_request_id = ''
         try:
-            response = view_func(request, *args, **kwargs)
+            from contextlib import nullcontext
+            from portal_legacy.fence import case_write_guard
+            guard = case_write_guard(request, kwargs) if request.method in {'POST', 'PUT', 'PATCH', 'DELETE'} and not report_read else nullcontext(False)
+            with guard as cutover_blocked:
+                if cutover_blocked:
+                    response = JsonResponse({'ok': False, 'code': getattr(request, 'portal_cutover_code', 'legacy_cutover_maintenance'), 'error': 'This selection is not yet available for workflow changes.'}, status=503)
+                else:
+                    response = view_func(request, *args, **kwargs)
         except Http404:
             response = JsonResponse({'ok': False, 'code': 'not_found',
                                      'error': 'This record is unavailable. Refresh and try again.'}, status=404)
@@ -4352,10 +4359,6 @@ def portal_publication_pump(request):
     access_error = _portal_any_capability_error(request)
     if access_error:
         return access_error
-    from portal_legacy.models import LegacyUpload
-    if LegacyUpload.objects.filter(frozen=True).exists():
-        return JsonResponse({'ok': True, 'paused': True, 'reason': 'legacy_cutover_maintenance',
-                             'changed': False, 'poll_after_seconds': 60})
     from core.models import IntegrationOperation, JawabuFarmerMaster, IntegrationCircuitState
     from core.services.external_resilience import ExternalCircuitOpen
     from core.services.portal_publication import (
@@ -4363,6 +4366,10 @@ def portal_publication_pump(request):
     )
 
     operation = queued_publication_operations().first()
+    from portal_legacy.models import LegacyUpload
+    if operation is None and LegacyUpload.objects.filter(frozen=True).exists():
+        return JsonResponse({'ok': True, 'paused': True, 'reason': 'legacy_cutover_maintenance',
+                             'changed': False, 'poll_after_seconds': 60})
     changed = False
     if operation is None:
         from core.services.invoice_cleanup import DELETE_OPERATION, attempt_pdf_delete

@@ -33,14 +33,25 @@ def prepare(preset, supplied, queryset):
         raise PortalReportingError('Choose valid report filters.')
     allowed = {'branch', 'county', 'product', 'search', 'stage', 'date_mode', 'month', 'quarter', 'year', 'from', 'to',
                'granularity', 'chart_key', 'bucket_key', 'series_key', 'historical_scope'}
-    if set(supplied) - allowed or any(not isinstance(v, (str, int)) or isinstance(v, bool) for v in supplied.values()):
+    if set(supplied) - allowed or any(
+        isinstance(v, bool) or not isinstance(v, (str, int, list))
+        or isinstance(v, list) and key not in {'branch', 'county', 'product', 'stage'}
+        for key, v in supplied.items()
+    ):
         raise PortalReportingError('Choose valid report filters.')
     from core.services.report_provenance import report_scope
     try:
         queryset = report_scope(queryset, 'portal', supplied.get('historical_scope'))
     except ValueError as exc:
         raise PortalReportingError(str(exc))
-    filters = {key: str(value).strip() for key, value in supplied.items() if value != ''}
+    filters = {key: str(value).strip() for key, value in supplied.items()
+               if value != '' and key not in {'branch', 'county', 'product', 'stage'}}
+    for key in ('branch', 'county', 'product', 'stage'):
+        values = supplied.get(key, [])
+        values = values if isinstance(values, list) else [values]
+        if len(values) > 100 or any(not isinstance(value, str) for value in values):
+            raise PortalReportingError(f'Choose up to 100 valid {key} values.')
+        filters[key] = list(dict.fromkeys(value.strip() for value in values if value.strip()))
     mode = filters.get('date_mode') or ('custom' if filters.get('from') or filters.get('to') else 'all' if preset == 'pipeline' else 'month')
     if mode not in {'all', 'month', 'quarter', 'year', 'custom'}:
         raise PortalReportingError('Choose Any time, Month, Quarter, Year, or Date range.')
@@ -84,15 +95,17 @@ def prepare(preset, supplied, queryset):
     county_map = county_labels(queryset.exclude(county='').values_list('county', flat=True).distinct())
     choices['counties'] = sorted(set(county_map.values()), key=str.casefold)
     if filters.get('county'):
-        label = county_labels([filters['county']])[filters['county']]
-        variants = [value for value, canonical in county_map.items() if canonical.casefold() == label.casefold()]
+        labels = list(dict.fromkeys(county_labels(filters['county']).values()))
+        selected = {label.casefold() for label in labels}
+        variants = [value for value, canonical in county_map.items() if canonical.casefold() in selected]
         queryset = queryset.filter(county__in=variants)
-        filters['county'] = label
-    for key in ('branch',):
+        filters['county'] = labels
+    for key, field in (('branch', 'branch'), ('product', 'product__code')):
         if filters.get(key):
-            queryset = queryset.filter(**{key + '__iexact': filters[key]})
-    if filters.get('product'):
-        queryset = queryset.filter(product__code__iexact=filters['product'])
+            selection = Q(pk__in=[])
+            for value in filters[key]:
+                selection |= Q(**{field + '__iexact': value})
+            queryset = queryset.filter(selection)
     if filters.get('search'):
         term = filters['search'][:120]
         match = Q(customer_name__icontains=term)
@@ -100,7 +113,7 @@ def prepare(preset, supplied, queryset):
         if reference.isdigit() and len(reference) <= 19 and int(reference) <= 9223372036854775807:
             match |= Q(case_reference_number=int(reference))
         queryset = queryset.filter(match)
-    if filters.get('stage') and filters['stage'] not in STAGES:
+    if any(stage not in STAGES for stage in filters['stage']):
         raise PortalReportingError('Choose a valid pipeline stage.')
     return queryset, filters, period, choices
 
@@ -186,7 +199,7 @@ def insights(preset, queryset, filters, period):
         for record in batch:
             state = current_workflow_state(record)
             received_at = record.hbg_visit_date if record.report_historical else record.created_at
-            if preset == 'pipeline' and (period and received_at is None or received_at is not None and not within(received_at) or filters.get('stage') and state != filters['stage']):
+            if preset == 'pipeline' and (period and received_at is None or received_at is not None and not within(received_at) or filters.get('stage') and state not in filters['stage']):
                 continue
             from core.services.portal_report_timing import report_timing
             timing = report_timing(record, now=now, events=record._report_events, hb_events=hb[record.pk], targets=targets, holidays=holidays) if preset != 'finance' else {}

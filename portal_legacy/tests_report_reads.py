@@ -81,7 +81,8 @@ class LegacyReportReadTests(LegacyHTTPMixin, TestCase):
             with self.subTest(route=name):
                 response = self.post(name, **kwargs)
                 self.assertEqual(response.status_code, 503, response.content[:700])
-                self.assertEqual(response.json().get('code'), 'legacy_cutover_maintenance')
+                expected = 'legacy_case_awaiting_sync' if name == 'portal_jbl_visit_draft' else 'legacy_cutover_maintenance'
+                self.assertEqual(response.json().get('code'), expected)
 
     def test_read_exemption_does_not_grant_reporting_access(self):
         self.staff(role='JBL_OFFICER', branch='EMBU')

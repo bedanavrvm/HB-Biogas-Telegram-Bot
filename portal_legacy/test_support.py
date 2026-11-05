@@ -36,7 +36,7 @@ class Sheet:
         self.col_count = cols; self.id = len(book.sheets) + 1
         self.cells = {}; self.hidden = False; self.hidden_columns=set()
 
-    def row_values(self, row):
+    def row_values(self, row, value_render_option=None):
         values = list(self.cells.get(row, []))
         while values and values[-1] == '': values.pop()
         return values
@@ -66,10 +66,18 @@ class Sheet:
 
     def add_cols(self,count):self.col_count+=count
 
+    def update_cell(self,row,col,value):
+        values=self.cells.setdefault(row,[])
+        values.extend(['']*max(0,col-len(values)))
+        values[col-1]=value
+
+    def update_cells(self,cells,value_input_option=None):
+        for cell in cells:self.update_cell(cell.row,cell.col,cell.value)
+
     def batch_update(self,updates,value_input_option=None):
         for update in updates:self.update(range_name=update['range'],values=update['values'],value_input_option=value_input_option)
 
-    def get_all_values(self):
+    def get_all_values(self, value_render_option=None):
         return [list(self.cells.get(row,[])) for row in range(1,max(self.cells,default=0)+1)]
 
     def delete_rows(self,row):

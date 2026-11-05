@@ -1,5 +1,9 @@
 # Mini App Design Lab
 
+Portal reports now offer compact Branch, County, Product and Stage checkboxes.
+Verified historical cases can continue during a partial import. See the
+[source and Playwright record](reviews/2026-11-05-portal-live-legacy-cases-multiselect-reports.md).
+
 Portal now supports audited pre-order withdrawal and same-case resumption, a
 completed Commissioning tick, and independent Master Data/Eco-conserve cutovers.
 See the [source and Playwright record](reviews/2026-11-05-portal-withdrawal-and-parallel-cutover.md).

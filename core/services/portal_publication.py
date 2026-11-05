@@ -34,6 +34,13 @@ def _with_destination(queryset):
     ))
 
 
+def _blocked_source_ids():
+    from core.models import JawabuFarmerMaster
+    from portal_legacy.fence import blocked_cases
+    return blocked_cases(JawabuFarmerMaster.objects.all()).annotate(
+        legacy_source_id=Cast('pk', CharField())).values('legacy_source_id')
+
+
 def _master_claim_in_order(operation):
     if operation.operation_type != MASTER_OPERATION:
         return True
@@ -41,7 +48,7 @@ def _master_claim_in_order(operation):
     return not _with_destination(IntegrationOperation.objects.filter(
         integration=operation.integration, source_model=SOURCE_MODEL, operation_type=MASTER_OPERATION,
         status__in=(IntegrationOperation.STATUS_PENDING, IntegrationOperation.STATUS_RETRYABLE, IntegrationOperation.STATUS_RUNNING),
-    )).filter(destination_fifo_key=key).filter(
+    )).exclude(source_id__in=_blocked_source_ids()).filter(destination_fifo_key=key).filter(
         Q(created_at__lt=operation.created_at) | Q(created_at=operation.created_at, pk__lt=operation.pk)
     ).exists()
 
@@ -56,6 +63,7 @@ def queued_publication_operations():
         status__in=(IntegrationOperation.STATUS_PENDING, IntegrationOperation.STATUS_RETRYABLE,
                     IntegrationOperation.STATUS_RUNNING),
     ))
+    masters = masters.exclude(source_id__in=_blocked_source_ids())
     older = masters.filter(destination_fifo_key=OuterRef('destination_fifo_key')).filter(
         Q(created_at__lt=OuterRef('created_at')) | Q(created_at=OuterRef('created_at'), pk__lt=OuterRef('pk'))
     )
@@ -63,14 +71,11 @@ def queued_publication_operations():
            & (Q(next_retry_at__isnull=True) | Q(next_retry_at__lte=now)))
     stale_running = Q(status=IntegrationOperation.STATUS_RUNNING,
                       last_attempt_at__lte=now - timedelta(seconds=lease_seconds))
-    from core.models import JawabuFarmerMaster
-    from portal_legacy.models import LegacyUpload
-    held_cases=JawabuFarmerMaster.objects.filter(group_configuration_id__in=LegacyUpload.objects.filter(frozen=True).values('batch__group_id')).annotate(legacy_source_id=Cast('pk',CharField())).values('legacy_source_id')
     return _with_destination(IntegrationOperation.objects.filter(
         integration=IntegrationOperation.INTEGRATION_GOOGLE_SHEETS,
         source_model=SOURCE_MODEL,
         operation_type__in=(MASTER_OPERATION, INTERNAL_ORDER_OPERATION),
-    )).exclude(source_id__in=held_cases).annotate(has_earlier=Exists(older)).filter(due | stale_running).filter(
+    )).exclude(source_id__in=_blocked_source_ids()).annotate(has_earlier=Exists(older)).filter(due | stale_running).filter(
         Q(operation_type=INTERNAL_ORDER_OPERATION) | Q(has_earlier=False)
     ).order_by('created_at', 'pk')
 
@@ -379,8 +384,8 @@ def attempt_publication(operation: IntegrationOperation) -> dict[str, Any]:
     farmer = JawabuFarmerMaster.objects.filter(pk=operation.source_id).first()
     if farmer is None:
         raise ValueError('The source case is no longer available.')
-    from portal_legacy.fence import active
-    if active(farmer.group_configuration_id):
+    from portal_legacy.fence import case_blocked
+    if case_blocked(farmer):
         return {'operation': operation, 'farmer': farmer, 'result': None, 'deferred': True}
     if operation.operation_type == MASTER_OPERATION:
         # A monthly FarmUp commit can reserve hundreds of rows. Never let a
@@ -421,8 +426,8 @@ def attempt_publication(operation: IntegrationOperation) -> dict[str, Any]:
         return {'operation': operation, 'farmer': farmer, 'result': result, 'superseded': True}
 
     def publish_once():
-        from portal_legacy.fence import active
-        if active(farmer.group_configuration_id):
+        from portal_legacy.fence import case_blocked
+        if case_blocked(farmer):
             raise PortalPublicationError('Portal owner is held for legacy cutover.')
         if operation.operation_type == MASTER_OPERATION:
             failure_context: dict[str, Any] = {}

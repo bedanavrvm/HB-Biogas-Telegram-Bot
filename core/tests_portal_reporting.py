@@ -32,6 +32,8 @@ class PortalReportingTests(TestCase):
     """Reports remain bounded, scoped, auditable, and free of Google effects."""
 
     def setUp(self):
+        from core.models import ComplianceAuditChainState
+        ComplianceAuditChainState.objects.get_or_create(singleton=1)
         self.it_user = get_user_model().objects.create_user(
             username='portal-reporting-it', password='not-used', is_active=True,
         )
@@ -140,6 +142,27 @@ class PortalReportingTests(TestCase):
         self.assertEqual(result['rows'][0]['customer_name'], self.emb_u_case.customer_name)
         self.assertEqual(result['rows'][0]['case_id'], display_case_reference(self.emb_u_case.id))
         self.assertNotIn('comments', {column['key'] for column in result['columns']})
+
+    def test_checkbox_filters_union_within_fields_intersect_across_fields_and_export(self):
+        other=JawabuFarmerMaster.objects.get(national_id='10000002')
+        self.emb_u_case.workflow_state='credit';self.emb_u_case.save()
+        other.workflow_state='order';other.save()
+        filters={'branch':['EMBU','NAKURU'],'county':['EMBU','NAKURU'],'stage':['credit','order']}
+        result=run_curated_report(preset='pipeline',filters=filters,user=self.it_user,access={'roles':['IT']})
+        self.assertEqual(result['total_rows'],2)
+        self.assertEqual(result['applied_filters']['stage'],['credit','order'])
+        narrowed=run_curated_report(preset='pipeline',filters={**filters,'county':['EMBU']},user=self.it_user,access={'roles':['IT']})
+        self.assertEqual(narrowed['total_rows'],1)
+        scoped=run_curated_report(preset='pipeline',filters=filters,user=self.it_user,access={'roles':['IT'],'branches':['EMBU']})
+        self.assertEqual(scoped['total_rows'],1)
+        data=export_curated_report(preset='pipeline',filters=filters,user=self.it_user,access={'roles':['IT']})
+        book=load_workbook(BytesIO(data),read_only=True)
+        self.assertEqual(book['Data'].max_row,3);book.close()
+        old=run_curated_report(preset='pipeline',filters={'branch':'EMBU','stage':'credit'},user=self.it_user,access={'roles':['IT']})
+        self.assertEqual(old['total_rows'],1)
+        for invalid in [{'stage':['missing']},{'county':[{'expression':'any'}]},{'date_mode':['all']}]:
+            with self.assertRaises(PortalReportingError):
+                run_curated_report(preset='pipeline',filters=invalid,user=self.it_user,access={'roles':['IT']})
 
     def test_case_references_are_consecutive_and_report_filters_accept_them(self):
         nakuru_case = JawabuFarmerMaster.objects.get(national_id='10000002')

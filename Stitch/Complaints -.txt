@@ -11,3 +11,12 @@ in the ag grid table, what should field should i click so that i can navigate to
 Portal, add another status called Withdrawn at the different stages -  represents scenarios where the client themselves withdrew/pulled out/decided not to proceed
 
 make a habit of standardizing title case or capitalization on displayed data
+
+in the graphic/timeline, if a case is commissioned, then the Commissioning circle should be ticked
+
+
+************************************************************************************************
+
+
+Portal reports - some filter options could be chechboxes instead of limiting to one option for more filtering control
+

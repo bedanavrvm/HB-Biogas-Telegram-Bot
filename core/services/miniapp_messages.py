@@ -166,6 +166,14 @@ MESSAGE_CATALOG: dict[str, MiniAppMessage] = {
         "Changes are paused while the legacy import is in progress. Your saved work is safe. IT can resume and complete the import from Legacy import.", 503,
         tone="warning",
     ),
+    "legacy_case_awaiting_sync": MiniAppMessage(
+        "One or more selected cases are awaiting initial Sheet verification. Saved cases become usable as soon as that verification finishes; the rest of the import can continue separately.", 503,
+        tone="warning",
+    ),
+    "legacy_register_replacing": MiniAppMessage(
+        "This register is being cleaned up or rebuilt. Its case changes will resume after verification. Other ready registers remain available.", 503,
+        tone="warning",
+    ),
     "unexpected_error": MiniAppMessage(
         "Something went wrong. Please try again. If it continues, contact JBL and share reference {support_reference}.", 500,
     ),

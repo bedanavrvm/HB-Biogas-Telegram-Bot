@@ -342,4 +342,11 @@ def confirm_stage(row_id, *, state, note, expected_revision, request_key, actor,
         row.proposal['hb_known'] = True; row.save(update_fields=['proposal'])
         _hb_baseline(row, farmer, actor)
     LegacyEvent.objects.create(row=row, actor=actor, request_key=request_key, action='stage_confirmed', payload=payload)
+    from core.services.jawabu_case360 import record_pipeline_event
+    record_pipeline_event(farmer, action='legacy_continuation_confirmed', stage_key=state,
+        actor=actor.get_username(), actor_user=actor, request_id=request_key, reason=payload['note'],
+        new_values={'workflow_state': state}, revision_before=farmer.workflow_revision-1,
+        revision_after=farmer.workflow_revision)
+    from core.services.portal_publication import reserve_farmer_publication
+    reserve_farmer_publication(farmer, request_id=request_key, requested_by=actor)
     return row

@@ -128,7 +128,8 @@
     if(!active?.state){root.querySelectorAll('[data-action]').forEach(button=>{button.hidden=true;});node('[data-mapping]').hidden=true;node('[data-source]').open=true;node('[data-grid-wrap]').hidden=true;node('[data-rows]').hidden=true;node('[data-table-hint]').hidden=true;return;}
     node('[data-mapping]').hidden=false;
     node('[data-source]').open=active.phase==='uploading';
-    feedback(lastNotice || (pendingEdits()?'Unsaved corrections — use Save corrections to validate and retain your changes.':`${active.source_sheet} · ${active.filename} · ${active.phase} · ${active.total} staged · ${active.committed} imported · ${active.selected} approved${active.frozen?' · Portal owner held for cutover':''}`));
+    const hold=active.frozen?(['backup','projecting','verifying','replacing','readback','deleting'].includes(active.phase)?'Register changes paused until verification':'Verified cases can continue; unverified cases remain held'):'';
+    feedback(lastNotice || (pendingEdits()?'Unsaved corrections — use Save corrections to validate and retain your changes.':`${active.source_sheet} · ${active.filename} · ${active.phase} · ${active.total} staged · ${active.committed} imported · ${active.selected} approved${hold?' · '+hold:''}`));
     const processing=active.state.projection;
     node('[data-progress]').max=Math.max(processing?.count||active.total,1);node('[data-progress]').value=processing?.offset||active.committed;
     const sync=active.sheet_sync||{synced:0,pending:active.committed,not_imported:active.total-active.committed,state:'awaiting_import'};

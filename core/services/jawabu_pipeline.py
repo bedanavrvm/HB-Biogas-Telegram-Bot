@@ -2465,8 +2465,8 @@ def sync_farmer_to_master_sheet(
     Also records a LiveSheetRecordChange audit entry for traceability.
     """
     from core.services.requisition_partners import master_order_reference
-    from portal_legacy.fence import active
-    if active(farmer.group_configuration_id):
+    from portal_legacy.fence import case_blocked
+    if case_blocked(farmer):
         return False
     from portal_legacy.models import LegacyRow
     if LegacyRow.objects.filter(farmer=farmer, publication_ready=False).exists():

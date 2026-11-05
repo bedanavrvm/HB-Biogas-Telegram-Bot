@@ -118,9 +118,24 @@ def advance(upload,actor,access):
                     if row==p['next_append']:p['next_append']+=1
             _check_identity(draft,old,headers)
             values=record_values(draft.legacy,p['new_headers'],row-p['header_row'],existing=old)
-            plans.append({'draft':draft.pk,'legacy':str(draft.legacy_id),'case':str(draft.legacy.farmer_id),'row':row,'before':checksum([old]),'values':values})
+            plans.append({'draft':draft.pk,'legacy':str(draft.legacy_id),'case':str(draft.legacy.farmer_id),'row':row,'before':checksum([old]),'values':values,'revision':draft.legacy.farmer.workflow_revision})
             if len(json.dumps(plans).encode())>512*1024 or time.monotonic()-started>=3:break
         p['plans']=plans;save(upload)
+    # Keep durable write plans even when Google loses an acknowledgement.
+    from gspread.exceptions import APIError
+    from requests.exceptions import RequestException
+    from core.services.miniapp_deletion_sheets import lock_sheet_mutations
+    failure=None
+    with transaction.atomic():
+        lock_sheet_mutations()
+        try:
+            _write_plans(upload, p, sheet, book, headers, width, plans)
+        except (APIError, RequestException, TimeoutError, ValueError) as exc:
+            failure=exc
+    if failure: raise failure
+
+
+def _write_plans(upload, p, sheet, book, headers, width, plans):
     def read():
         valid=[plan for plan in plans if plan['row']<=sheet.row_count]
         column=get_column_letter(min(width,sheet.col_count))
@@ -128,8 +143,20 @@ def advance(upload,actor,access):
         values=sheet.batch_get(ranges,value_render_option='FORMULA') if valid else []
         found={plan['draft']:list(rows[0]) if rows else [] for plan,rows in zip(valid,values)}
         return [found.get(plan['draft'],[]) for plan in plans]
+    from core.models import JawabuFarmerMaster
+    cases={str(farmer.pk):farmer for farmer in JawabuFarmerMaster.objects.filter(pk__in=[plan['case'] for plan in plans]).order_by('pk').select_for_update()}
+    observed=read()
+    for plan,values in zip(plans,observed):
+        farmer=cases[plan['case']]
+        if plan.get('revision')!=farmer.workflow_revision:
+            legacy=LegacyRow.objects.get(pk=plan['legacy']);legacy.farmer=farmer
+            fresh=record_values(legacy,p['new_headers'],plan['row']-p['header_row'],existing=values)
+            if checksum([values]) not in {plan['before'],checksum([plan['values']]),checksum([fresh])}:
+                raise ValueError('A pending import row changed outside its saved checkpoint. Review it before retrying.')
+            plan.update(values=fresh,before=checksum([values]),revision=farmer.workflow_revision)
+    save(upload)
     requests=[]
-    for plan,values in zip(plans,read()):
+    for plan,values in zip(plans,observed):
         if checksum([values])==checksum([plan['values']]):continue
         if checksum([values])!=plan['before']:raise ValueError(f'Sheet row {plan["row"]} changed after preparation; no stale value was overwritten.')
         for index,value in enumerate(plan['values']):
@@ -155,7 +182,7 @@ def advance(upload,actor,access):
     with transaction.atomic():
         for plan in plans:
             draft=upload.drafts.select_for_update(of=('self',)).select_related('legacy__farmer').get(pk=plan['draft'])
-            draft.reconciliation['sheet_receipt']={'verified':True,'spreadsheet':p['spreadsheet'],'sheet':sheet.id,'row':plan['row'],'digest':checksum([plan['values']]),'at':timezone.now().isoformat()}
+            draft.reconciliation['sheet_receipt']={'verified':True,'spreadsheet':p['spreadsheet'],'sheet':sheet.id,'row':plan['row'],'digest':checksum([plan['values']]),'revision':plan['revision'],'at':timezone.now().isoformat()}
             from core.services.jawabu_case_reference import display_case_reference
             case_column=next(i for i,header in enumerate(p['new_headers']) if token(header)=='caseid')
             if plan['values'][case_column]==display_case_reference(draft.legacy.farmer):draft.reconciliation['sheet_receipt']['reference_format']='staff'

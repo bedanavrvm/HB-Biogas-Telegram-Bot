@@ -45,6 +45,11 @@ def guarded_publication(function):
 
         def publish():
             for record in records:
+                if record._meta.label == 'core.JawabuFarmerMaster':
+                    # Reload after taking the Sheet mutex; an import/correction may have committed while waiting.
+                    if not type(record).objects.filter(pk=record.pk).exists():
+                        return False
+                    record.refresh_from_db()
                 if record._meta.label == 'core.ParsedMessage':
                     from complaint_legacy.publication import paused
                     if paused(record.group_id) or not type(record).objects.filter(pk=record.pk).exists():
@@ -52,8 +57,9 @@ def guarded_publication(function):
                             return {'success_count': 0, 'failed_count': len(records), 'synced_message_ids': [],
                                     'errors': ['Complaints publication is paused for reviewed test cleanup.'], 'failure_details': {}}
                         return False
-                from portal_legacy.fence import active
-                if active(getattr(record, 'group_configuration_id', None)):
+                from portal_legacy.fence import active, case_blocked
+                if (case_blocked(record) if record._meta.label == 'core.JawabuFarmerMaster'
+                        else active(getattr(record, 'group_configuration_id', None))):
                     if any(isinstance(value, (list, tuple)) for value in (*args, *kwargs.values())):
                         return {'success': False, 'synced': 0, 'failed': [], 'row_numbers': [],
                                 'error': 'The selected Portal owner is held for legacy cutover.'}
@@ -68,7 +74,8 @@ def guarded_publication(function):
         # Ordinary production publication is not serialized once cleanup settles.
         # Tombstone checks still protect stale objects after the testing flag is off.
         complaint = any(record._meta.label == 'core.ParsedMessage' for record in records)
-        if not complaint and not getattr(settings, 'MINIAPP_TEST_DELETION_ENABLED', False) and not IntegrationOperation.objects.filter(
+        from portal_legacy.models import LegacyUpload
+        if not complaint and not LegacyUpload.objects.filter(frozen=True).exists() and not getattr(settings, 'MINIAPP_TEST_DELETION_ENABLED', False) and not IntegrationOperation.objects.filter(
                 operation_type='miniapp_sheet_delete', status__in=[IntegrationOperation.STATUS_PENDING,
                     IntegrationOperation.STATUS_RUNNING, IntegrationOperation.STATUS_RETRYABLE]).exists():
             return publish()

@@ -9,6 +9,7 @@
     within_target:'Within target',near_target:'Near target',overdue:'Over target',current:'Current workload',performance:'Period performance',
     jbl_visit:'JBL visit',final_review:'Final review',reported:'Reported date',resolved:'Resolved date'};
   function readable(value) {
+    if (Array.isArray(value)) return value.map(readable).join(', ');
     if (/^\d{4}-\d{2}-\d{2}$/.test(String(value))) {
       const date = new Date(`${value}T12:00:00+03:00`);
       return date.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric',timeZone:'Africa/Nairobi'}).replace(/ /g,'-');
@@ -28,7 +29,7 @@
     dialog.setAttribute('aria-labelledby', 'report-email-dialog-title');
     dialog.innerHTML = '<form><header><h2 id="report-email-dialog-title">Email report</h2><button class="report-email-icon" type="button" data-close aria-label="Close email report">×</button></header><p data-title></p><p class="report-email-scope"></p><label>Email address<input type="email" name="email" required maxlength="254" autocomplete="email" placeholder="name@company.co.ke"></label><p role="status" aria-live="polite"></p><footer><button type="button" data-close>Cancel</button><button type="submit" class="report-email-send">Send</button></footer></form>';
     dialog.querySelector('[data-title]').textContent = options.title || 'Filtered report';
-    const scope = Object.entries(filters).filter(([k,v]) => v !== '' && v != null && !['page','page_size','sort','group'].includes(k));
+    const scope = Object.entries(filters).filter(([k,v]) => v !== '' && v != null && (!Array.isArray(v) || v.length) && !['page','page_size','sort','group'].includes(k));
     dialog.querySelector('.report-email-scope').textContent = scope.map(([k,v]) => `${names[k] || k[0].toUpperCase()+k.slice(1).replace(/_/g,' ')}: ${readable(v)}`).join(' · ') || 'All matching cases in your report access';
     const form = dialog.querySelector('form'), status = dialog.querySelector('[role="status"]'), send = dialog.querySelector('[type="submit"]');
     window.MiniAppUtils?.bindAccessibleForm?.(form);
