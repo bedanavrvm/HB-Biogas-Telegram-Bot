@@ -1,5 +1,10 @@
 # Component index and migration hold
 
+Complaints customer suggestions adapt TAT's compact matching panel while
+retaining the existing creation form. Both channels share Portal biodata lookup,
+editable autofill and inline legacy review. See the
+[source and Playwright record](reviews/2026-11-05-complaints-portal-customer-autofill.md).
+
 Complaints import retains the compact review page and sticky feedback, with
 confirmed test cleanup, one-time register clearing and verified FIFO publication.
 See the [source and Playwright record](reviews/2026-11-05-complaints-changeover-sheet-sync.md).

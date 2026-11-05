@@ -282,6 +282,22 @@ def complaint_cases_category_suggestion(request):
 @csrf_exempt
 @require_http_methods(['POST'])
 @miniapp_write_response
+def complaint_cases_customer_suggestions(request):
+    body = _request_payload(request)
+    group, actor, error = _context(request, body)
+    if error: return error
+    error = _capability_error(actor, 'complaint.case.create', group)
+    if error: return error
+    from core.services.complaint_customer_lookup import lookup
+    try:
+        return JsonResponse({'ok': True, 'data': lookup(group, actor, {k:v for k,v in body.items()
+            if k not in {'group_id','init_data','client_request_id'}})})
+    except ComplaintCaseError as exc: return _complaint_error(request, exc)
+
+
+@csrf_exempt
+@require_http_methods(['POST'])
+@miniapp_write_response
 def complaint_cases_voice_transcription(request):
     """Transcribe one authorized complaint field without changing its value."""
     from core.models import GroupSheetConfiguration, PortalVoiceTranscriptionAttempt

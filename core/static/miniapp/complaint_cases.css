@@ -210,3 +210,10 @@ button{transition:border-color .16s ease,background-color .16s ease,color .16s e
 .complaint-correction-form{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,12rem),1fr));gap:8px;padding:8px 0}
 .complaint-correction-form label{margin:0;min-width:0}
 .complaint-correction-form textarea,.complaint-correction-form button{grid-column:1/-1}
+.cmp-customer-suggestions{font-size:12px;min-width:0}
+.cmp-customer-suggestions p{margin:4px 0;overflow-wrap:anywhere}
+.cmp-customer-suggestions>button{font:inherit;min-height:32px;padding:6px 9px;border:1px solid var(--line,#dfe1e6);border-radius:6px;background:var(--surface,#fff);color:var(--text,#172b4d);cursor:pointer}
+.cmp-customer-suggestions [role=group]{max-height:260px;overflow:auto;display:grid;gap:4px}
+.cmp-customer-suggestions button[data-customer-choice]{display:grid;gap:2px;text-align:left;width:100%;min-height:48px;padding:7px 9px;border:1px solid var(--line,#dfe1e6);border-radius:6px;background:var(--surface,#f6f7f9);color:var(--text,#172b4d);font:inherit;cursor:pointer;overflow-wrap:anywhere}
+.cmp-customer-suggestions button[data-customer-choice]:focus-visible{outline:2px solid var(--brand,#004fb6);outline-offset:-2px}
+.cmp-customer-warning{color:var(--warning,#974f0c)}

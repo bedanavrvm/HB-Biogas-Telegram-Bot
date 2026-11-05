@@ -1,4 +1,13 @@
 /* User reference: Stitch/Create Complaint/code.html and screen.png (28 October 2026). */
+.cmp-customer-suggestions:empty{display:none}
+.cmp-customer-suggestions{font-size:12px;min-width:0}
+.cmp-customer-suggestions p{margin:4px 0;overflow-wrap:anywhere}
+.cmp-customer-suggestions>button{font:inherit;min-height:32px;padding:6px 9px;border:1px solid var(--stitch-border);border-radius:6px;background:var(--stitch-card);color:var(--stitch-blue);cursor:pointer}
+.cmp-customer-suggestions [role=group]{max-height:260px;overflow:auto;display:grid;gap:4px}
+.cmp-customer-suggestions button[data-customer-choice]{display:grid;gap:2px;text-align:left;width:100%;min-height:48px;padding:7px 9px;border:1px solid var(--stitch-border);border-radius:6px;background:var(--stitch-field);color:var(--stitch-text);font:inherit;cursor:pointer;overflow-wrap:anywhere}
+.cmp-customer-suggestions button[data-customer-choice]:focus-visible{outline:2px solid var(--stitch-blue);outline-offset:-2px}
+.cmp-customer-suggestions small{color:var(--stitch-muted)}
+.cmp-customer-warning{color:var(--ds-text-warning,#974f0c)}
 .complaints-stitch-shell, body.complaints-stitch-active {
   --stitch-canvas: #faf9ff;
   --stitch-card: #fff;

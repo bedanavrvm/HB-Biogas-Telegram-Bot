@@ -1,5 +1,13 @@
 # Browser design references and application decisions
 
+The 5 November customer-prefill addition reuses the compact matching-panel
+pattern from TAT inside the existing Complaints creation form. The user approved
+all-branch Portal biodata access for Complaints creators and replacement of
+entered biodata on explicit selection. Existing workflow authority, manual
+editing and historical review stay intact. Source-bound Playwright evidence and
+validation limits are recorded in
+[`2026-11-05-complaints-portal-customer-autofill.md`](../docs/ui-standard/reviews/2026-11-05-complaints-portal-customer-autofill.md).
+
 The current component-adoption decisions are in
 [`STITCH-DESIGN-DECISIONS.md`](STITCH-DESIGN-DECISIONS.md), including the new
 Stitch state references and the user's explicit backend-feature choices.

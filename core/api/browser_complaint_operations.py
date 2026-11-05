@@ -28,6 +28,7 @@ CASE_FIELDS = (
     'hb_comment_count', 'sync_status', 'days_open', 'priority', 'sla', 'source_attribution',
 )
 CREATE_FIELDS = frozenset((
+    'portal_source_key', 'portal_source_label',
     'client_name', 'customer_phone', 'secondary_phone', 'customer_id', 'county',
     'sub_county', 'village', 'branch_region', 'complaint_category',
     'complaint_description', 'latitude', 'longitude', 'client_request_id',
@@ -104,6 +105,12 @@ def require(actor, group, capability):
     if not cases.actor_can(group, actor, capability):
         raise PermissionDenied
     record_capability_usage(actor.user, 'complaint_cases', capability)
+
+
+@endpoint(['POST'], capability='complaint.case.create')
+def customer_suggestions(request, group, actor):
+    from core.services.complaint_customer_lookup import lookup
+    return JsonResponse(lookup(group, actor, payload(request)))
 
 
 def payload(request):

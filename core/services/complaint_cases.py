@@ -906,7 +906,7 @@ def create_complaint_case(
                     ComplaintCaseEvent.objects.create(
                         case=control, revision=control.revision, action='created', actor=actor.user,
                         actor_label=actor.name, request_id=request_id, payload_hash=payload_hash,
-                        after_values=control_snapshot(control, case),
+                        after_values={**control_snapshot(control, case), **({'portal_biodata_source': values['portal_source_key']} if values.get('portal_source_key') else {})},
                     )
                     record_complaint_update(create_update, case, actor, action='complaint.case.created')
                     created = True
@@ -1074,7 +1074,10 @@ def validate_new_case_fields(
     ).allowed:
         raise ComplaintCaseError('Choose a branch within your authorized complaint scope.')
     customer, match_status = match_customer(customer_id, customer_phone)
+    from core.services.complaint_customer_lookup import source as portal_source
+    source_key = str(portal_source(fields['portal_source_key']).pk) if fields.get('portal_source_key') else ''
     return {
+        **({'portal_source_key': source_key} if source_key else {}),
         'client_name': client_name,
         'customer_phone': customer_phone,
         'secondary_phone': secondary_phone,

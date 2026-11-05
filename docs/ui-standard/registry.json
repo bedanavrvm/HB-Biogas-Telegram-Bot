@@ -845,9 +845,9 @@
     },
     {
       "path": "browser/src/complaints-stitch.css",
-      "sha256": "60a7ab96fc23ba97630be1521b37e003bab6058fae56a5bf60835e003a3cf73e",
-      "review_reference": "docs/ui-standard/reviews/2026-10-31-complaint-verification-comments.md",
-      "reason": "User-approved JBL Comment/Reopen and HB Comment/Resolve with retained attachments and history. Reuses current Stitch/native forms; manual Playwright and PostgreSQL evidence, no test suite or baseline update. Shared dialog top geometry preserved in native style."
+      "sha256": "9f1f999d55a7e717bca1308a6d460e28de4a2e5076b727b8c8cfe1febe6f36df",
+      "review_reference": "docs/ui-standard/reviews/2026-11-05-complaints-portal-customer-autofill.md",
+      "reason": "User-approved Portal biodata suggestions and editable autofill in both Complaints creation forms. Compact TAT matching pattern within existing Stitch styling; real Django/PostgreSQL/Playwright evidence. No approved baseline or Phase 6 change."
     },
     {
       "path": "browser/src/complaints-publication.tsx",
@@ -959,21 +959,21 @@
     },
     {
       "path": "core/templates/complaint_cases/app.html",
-      "sha256": "d352f1261dedad44d2e3c09e44b1664280ea2f23f3c36079c3d2fd387fdd8682",
-      "review_reference": "docs/ui-standard/reviews/2026-11-04-historical-reporting-it-corrections-reset.md",
-      "reason": "User-approved historical reporting, explicit Complaint ID navigation and compact audited IT correction controls. Reuses existing shell, chart, form and filter patterns; native Playwright evidence. No approved baseline or Phase 6 change."
+      "sha256": "d6b254912128af717374d0f48759441cab71ef6e2a298cf8487d6060eb1f0592",
+      "review_reference": "docs/ui-standard/reviews/2026-11-05-complaints-portal-customer-autofill.md",
+      "reason": "User-approved Portal biodata suggestions and editable autofill in both Complaints creation forms. Compact TAT matching pattern within existing Stitch styling; real Django/PostgreSQL/Playwright evidence. No approved baseline or Phase 6 change."
     },
     {
       "path": "core/static/miniapp/complaint_cases.css",
-      "sha256": "dd01b3145cd15e15f5266934a2f595f5f0e7a8231bbd3039af586927a4714814",
-      "review_reference": "docs/ui-standard/reviews/2026-11-04-historical-reporting-it-corrections-reset.md",
-      "reason": "User-approved historical reporting, explicit Complaint ID navigation and compact audited IT correction controls. Reuses existing shell, chart, form and filter patterns; native Playwright evidence. No approved baseline or Phase 6 change."
+      "sha256": "d07e638654682412e499b55a427c5a69219d4a478329db7b76d890279e315b33",
+      "review_reference": "docs/ui-standard/reviews/2026-11-05-complaints-portal-customer-autofill.md",
+      "reason": "User-approved Portal biodata suggestions and editable autofill in both Complaints creation forms. Compact TAT matching pattern within existing Stitch styling; real Django/PostgreSQL/Playwright evidence. No approved baseline or Phase 6 change."
     },
     {
       "path": "core/static/miniapp/complaint_cases.js",
-      "sha256": "50b08dd935802f4b246d51f45b1d57c5f4f6c88f2a264a6ae9d2eadef7b9d622",
-      "review_reference": "docs/ui-standard/reviews/2026-11-04-historical-reporting-it-corrections-reset.md",
-      "reason": "User-approved historical reporting, explicit Complaint ID navigation and compact audited IT correction controls. Reuses existing shell, chart, form and filter patterns; native Playwright evidence. No approved baseline or Phase 6 change."
+      "sha256": "cd371d7895c1771390ac3419341534e159b55c0be2e58bf62065fd4310a34779",
+      "review_reference": "docs/ui-standard/reviews/2026-11-05-complaints-portal-customer-autofill.md",
+      "reason": "User-approved Portal biodata suggestions and editable autofill in both Complaints creation forms. Compact TAT matching pattern within existing Stitch styling; real Django/PostgreSQL/Playwright evidence. No approved baseline or Phase 6 change."
     },
     {
       "path": "core/static/miniapp/complaint_legacy.css",
@@ -1013,9 +1013,9 @@
     },
     {
       "path": "browser/src/complaints-operations-workspace.tsx",
-      "sha256": "76927caecf6496e71c31e3f3c250405499821ae64306d19e4ebbf18d39e2e2ec",
-      "review_reference": "docs/ui-standard/reviews/2026-11-04-historical-reporting-it-corrections-reset.md",
-      "reason": "User-approved historical reporting, explicit Complaint ID navigation and compact audited IT correction controls. Reuses existing shell, chart, form and filter patterns; native Playwright evidence. No approved baseline or Phase 6 change."
+      "sha256": "138a580a832cbb00ca00c1152201d580f14693ae500a37e593e8162c0586dc86",
+      "review_reference": "docs/ui-standard/reviews/2026-11-05-complaints-portal-customer-autofill.md",
+      "reason": "User-approved Portal biodata suggestions and editable autofill in both Complaints creation forms. Compact TAT matching pattern within existing Stitch styling; real Django/PostgreSQL/Playwright evidence. No approved baseline or Phase 6 change."
     },
     {
       "path": "core/templates/base_shell.html",
@@ -1058,6 +1058,12 @@
       "sha256": "88b625ca525e5fee82653725c2b8f3f877228a565261eb027a37ac551b13f9c3",
       "review_reference": "docs/ui-standard/reviews/2026-11-04-historical-reporting-it-corrections-reset.md",
       "reason": "User-approved historical reporting, explicit Complaint ID navigation and compact audited IT correction controls. Reuses existing shell, chart, form and filter patterns; native Playwright evidence. No approved baseline or Phase 6 change."
+    },
+    {
+      "path": "browser/src/complaints-customer-suggestions.tsx",
+      "sha256": "411707de389d42d544af86f369ffdb2e72b634384481521dfb869bb0d2276eb2",
+      "review_reference": "docs/ui-standard/reviews/2026-11-05-complaints-portal-customer-autofill.md",
+      "reason": "User-approved Portal biodata suggestions and editable autofill in both Complaints creation forms. Compact TAT matching pattern within existing Stitch styling; real Django/PostgreSQL/Playwright evidence. No approved baseline or Phase 6 change."
     }
   ],
   "source_roots": [

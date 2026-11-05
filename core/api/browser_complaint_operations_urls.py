@@ -23,6 +23,7 @@ urlpatterns = [
     path('draft/', views.draft),
     path('locations/', views.locations),
     path('category-suggestion/', views.category_suggestion),
+    path('customers/suggest/', views.customer_suggestions),
     path('preferences/', views.preferences),
     path('recovery/', views.recovery),
     path('voice/', views.voice),

@@ -393,6 +393,13 @@ _add(
     domain_replay='Advisory category inference only; no complaint creation or transition; governed inference service owns provider attempts',
 )
 _add(
+    'complaint_cases_customer_suggestions',
+    authentication=_COMPLAINT_AUTH, capability='complaint.case.create',
+    scope='User-approved all-Portal biodata directory; owning Complaints creation authority, no Portal workflow access',
+    request_key_binding='Read-only authenticated POST; search values excluded from URLs',
+    domain_replay='No mutation, identity merge, workflow transition or external provider call',
+)
+_add(
     'complaint_cases_complete_details',
     authentication=_COMPLAINT_AUTH, capability='complaint.case.details.complete', scope=_COMPLAINT_SCOPE,
     request_key_binding='complaint miniapp_write_response plus required canonical key',

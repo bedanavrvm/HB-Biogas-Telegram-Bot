@@ -393,7 +393,7 @@ def miniapp_draft(request, workflow: str, context_key: str):
 
     if workflow in {'complaint_create', 'tat_create'}:
         allowed = {
-            'complaint_create': {'client_name', 'customer_phone', 'secondary_phone', 'customer_id', 'branch_region', 'county', 'sub_county', 'village', 'complaint_description', 'complaint_category'},
+            'complaint_create': {'client_name', 'customer_phone', 'secondary_phone', 'customer_id', 'branch_region', 'county', 'sub_county', 'village', 'complaint_description', 'complaint_category', 'portal_source_key', 'portal_source_label'},
             'tat_create': {'client_name', 'national_id', 'primary_phone', 'product_key', 'branch', 'bro_user_id', 'amount', 'product_configuration'},
         }[workflow]
         fields = payload.get('payload')

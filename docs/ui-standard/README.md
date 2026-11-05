@@ -1,5 +1,10 @@
 # Mini App Design Lab
 
+Complaints creation now offers selectable Portal biodata suggestions in ID,
+phone and name order on both channels. The compact matching panel, editable
+autofill, historical review states and native/signed Playwright evidence are in
+[the source and interaction record](reviews/2026-11-05-complaints-portal-customer-autofill.md).
+
 Complaints legacy changeover now confirms test cleanup, backs up and clears the
 selected register, and automatically syncs saved cases in verified FIFO batches.
 See the [source and real Playwright record](reviews/2026-11-05-complaints-changeover-sheet-sync.md).

@@ -8,6 +8,7 @@ import MoreIcon from '@atlaskit/icon/core/show-more-horizontal';
 import SuccessIcon from '@atlaskit/icon/core/status-success';
 import { Reports } from './complaints-operations-reports';
 import { VoiceInput } from './complaints-operations-media';
+import { CustomerSuggestions } from './complaints-customer-suggestions';
 import { WorkspaceSettings } from './complaints-operations-settings';
 import { ComplaintDetailPage,useStitchFont } from './complaints-detail-page';
 import {LoadingSkeletons,PublicationAttention,SheetRecovery} from './complaints-publication';
@@ -308,7 +309,7 @@ function Create({ group, bootstrap, onSaved, cancel, markDirty, slot }: {
             throw new OperationError(response.status, 'Location choices could not be loaded. Check your connection and retry.'); return response.json() as Promise<Locations>; }).then(data => {if(active)setLocationChoices({key: locationKey, data});}).catch(error => {if(active)setLocationChoices({key: locationKey, error});}).finally(() => clearTimeout(timer));
         return () => {active = false; controller.abort(); clearTimeout(timer);};
     }, [locationKey]);
-    const change = (name: string, value: string) => { setValues(previous => ({ ...previous, [name]: value, ...(name === 'branch_region' ? { county: '', sub_county: '' } : name === 'county' ? { sub_county: '' } : {}) })); state.setErrors({}); };
+    const change = (name: string, value: string) => { setValues(previous => ({ ...previous, [name]: value, ...(['client_name','customer_id','customer_phone'].includes(name)?{portal_source_key:'',portal_source_label:''}:{}), ...(name === 'branch_region' ? { county: '', sub_county: '' } : name === 'county' ? { sub_county: '' } : {}) })); state.setErrors({}); };
     const saveDraft = async (discard = false) => {
         if (draftPending.current || locked) return;
         const snapshot = {...latestValues.current};
@@ -376,6 +377,7 @@ function Create({ group, bootstrap, onSaved, cancel, markDirty, slot }: {
             return state.save('cases/create/', { ...values, browser_draft_revision: String(slot.read().draftRevision || 0), browser_draft_key: String(slot.read().draftKey || '') }, files);
         }}>{({ formProps }) => <Box as="form" {...formProps} id={formId} noValidate><Stack space="space.200">
       <Text size="small" color="color.text.subtle">Required fields are marked *.</Text><Section title="Customer details"><AlignedFields>{[['client_name', 'Customer name'], ['customer_id', 'National ID'], ['customer_phone', 'Primary phone number'], ['secondary_phone', 'Alternative phone number']].map(([name, label]) => <Input key={name} name={name} label={label} values={values} errors={state.errors} change={change} required={name !== 'secondary_phone'} type={name.includes('phone') ? 'tel' : 'text'}/>)}</AlignedFields></Section>
+      <CustomerSuggestions group={group} values={values} locked={locked} select={(fields,issues)=>{setValues(previous=>({...previous,...fields}));state.setErrors(issues||{});}}/>
       <Section title="Location">{locationsLoading && <Box role="status"><Text size="small">Loading location choices…</Text></Box>}<Feedback error={locationError} retry={() => setLocationRetry(value => value + 1)}/><AlignedFields>{[['branch_region', 'Branch', locations.branches], ['county', 'County', locations.counties], ['sub_county', 'Constituency', locations.sub_counties]].map(([name, label, options]) => <Stack key={String(name)} space="space.050"><Choice id={`create-${name}`} label={String(label)} value={values[String(name)] || ''} options={(options as Locations['branches']).map(item => ({ value: item.code, label: item.name }))} onChange={value => change(String(name), value)} error={state.errors[String(name)]} required isDisabled={name==='county'?!values.branch_region||locationsLoading||Boolean(locationError):name==='sub_county'?!values.county||locationsLoading||Boolean(locationError):false} hint={name==='county'&&!values.branch_region?'Choose a branch first.':name==='sub_county'&&!values.county?'Choose a county first.':undefined}/></Stack>)}<Input name="village" label="Village/Nearest Landmark" values={values} errors={state.errors} change={change} required/></AlignedFields></Section>
       <Section title="Complaint"><Stack space="space.150"><Choice id="create-category" label="Complaint type" value={values.complaint_category || ''} options={bootstrap.categories.map(value => ({ value, label: value }))} onChange={value => change('complaint_category', value)} error={state.errors.complaint_category} required/>
       <Input name="complaint_description" label="Complaint description" values={values} errors={state.errors} change={change} required/></Stack></Section>

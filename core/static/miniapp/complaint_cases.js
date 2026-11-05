@@ -521,6 +521,87 @@
     window.scrollTo({ top: 0, behavior: 'instant' });
   }
 
+  const customerPanel = $('portalCustomerSuggestions'), customerForm = $('createCaseForm');
+  let customerSequence=0,customerTimer;
+  function customerStatus(message){customerPanel.hidden=false;customerPanel.replaceChildren(textNode('p',message));customerPanel.firstChild.setAttribute('role','status');}
+  function customerFieldNotes(selection){
+    customerForm.querySelectorAll('[data-portal-field-note]').forEach(node=>node.remove());
+    for(const [field,message] of Object.entries(selection.field_issues||{})){
+      const control=customerForm.elements[field];if(control&&control.value===selection.fields[field]){
+        const note=textNode('small',message,'cmp-customer-warning');note.dataset.portalFieldNote='';control.closest('label')?.appendChild(note);
+      }
+    }
+  }
+  function customerClearButton(){
+    const button=textNode('button','Clear Portal selection');button.type='button';button.onclick=()=>{
+      ++customerSequence;clearTimeout(customerTimer);customerForm.elements.portal_source_key.value='';customerForm.elements.portal_source_label.value='';customerPanel.hidden=true;
+      customerForm.querySelectorAll('[data-portal-field-note]').forEach(node=>node.remove());
+      $('createSaveState').textContent='Not saved';customerForm.dispatchEvent(new Event('input',{bubbles:true}));
+    };customerPanel.appendChild(button);
+  }
+  async function searchPortalCustomers(sequence){
+    if(sequence!==customerSequence||state.submitting)return;
+    const fields=customerForm.elements;
+    customerStatus('Searching Portal customers…');
+    try{
+      const result=await json('customers/suggest/',{client_name:fields.client_name.value,customer_id:fields.customer_id.value,customer_phone:fields.customer_phone.value});
+      if(sequence!==customerSequence||state.submitting)return;
+      const matches=result.data.matches||[];customerStatus(matches.length?'Select a Portal customer to replace biodata.':'No matching Portal customer. Continue entering details manually.');
+      const group=document.createElement('div');group.setAttribute('role','group');group.setAttribute('aria-label','Matching Portal customers');customerPanel.appendChild(group);
+      matches.forEach(item=>{
+        const button=document.createElement('button');button.type='button';button.dataset.customerChoice=item.key;
+        button.append(textNode('strong',`${item.name||'Name not recorded'} · ${item.reference}`),textNode('span',`ID ${item.national_id||'not recorded'} · ${item.primary_phone||'Phone not recorded'} · ${item.branch}`),textNode('span',item.location),textNode('small',`Matched by ${item.matched_on}${item.conflicts.length?' · '+item.conflicts.join(' · '):''}`));
+        button.onclick=()=>applyPortalCustomer(item.key);group.appendChild(button);
+      });
+    }catch{if(sequence===customerSequence)customerLookupError();}
+  }
+  function customerLookupError(){
+    customerStatus('Customer lookup unavailable. Continue manually or retry.');
+    const retry=textNode('button','Retry customer lookup');retry.type='button';retry.onclick=()=>searchPortalCustomers(++customerSequence);customerPanel.appendChild(retry);
+  }
+  async function applyPortalCustomer(key){
+    if(state.submitting)return;
+    const sequence=++customerSequence;clearTimeout(customerTimer);customerStatus('Loading customer biodata…');
+    try{
+      const response=await json('customers/suggest/',{source_key:key});
+      if(sequence!==customerSequence||state.submitting)return;
+      const selection=response.data.selection,options=selection.location_options;
+      ++state.locationOptionsSequence;
+      state.locationOptionsLoading=false;state.locationOptions=options;$('createSaveBtn').disabled=!state.categoriesAvailable;
+      locationSelectOptions(customerForm.elements.branch_region,options.branches,'Select branch');
+      locationSelectOptions(customerForm.elements.county,options.counties,'Select county');
+      locationSelectOptions(customerForm.elements.sub_county,options.sub_counties,'Select constituency');
+      for(const [name,value] of Object.entries(selection.fields))customerForm.elements[name].value=value;
+      customerFieldNotes(selection);
+      customerForm.elements.sub_county.disabled=!selection.fields.county;
+      customerStatus(`Biodata copied from ${selection.source_label}. You can edit these fields.`);
+      selection.warnings.forEach(message=>customerPanel.appendChild(textNode('p',message,'cmp-customer-warning')));
+      customerClearButton();
+      $('createSaveState').textContent='Not saved';
+      customerForm.dispatchEvent(new Event('input',{bubbles:true}));
+    }catch{if(sequence===customerSequence)customerLookupError();}
+  }
+  ['client_name','customer_id','customer_phone'].forEach(name=>{
+    customerForm.elements[name].setAttribute('aria-controls','portalCustomerSuggestions');
+    customerForm.elements[name].addEventListener('keydown',event=>{
+      if(event.key==='Escape'&&!customerPanel.hidden&&!customerForm.elements.portal_source_key.value){event.preventDefault();event.stopPropagation();customerPanel.hidden=true;++customerSequence;clearTimeout(customerTimer);}
+    });
+    customerForm.elements[name].addEventListener('input',()=>{
+      const sequence=++customerSequence;clearTimeout(customerTimer);customerPanel.hidden=true;
+      customerForm.elements.portal_source_key.value='';customerForm.elements.portal_source_label.value='';
+      if(state.submitting)return;
+      const fields=customerForm.elements;
+      if(fields.client_name.value.trim().length<3&&fields.customer_id.value.trim().length<3&&fields.customer_phone.value.replace(/\D/g,'').length<4)return;
+      customerTimer=setTimeout(()=>searchPortalCustomers(sequence),300);
+    });
+  });
+  customerForm.addEventListener('reset',()=>{++customerSequence;clearTimeout(customerTimer);customerPanel.hidden=true;});
+  customerPanel.addEventListener('keydown',event=>{
+    if(event.key==='Escape'){customerPanel.hidden=true;++customerSequence;clearTimeout(customerTimer);return;}
+    if(!['ArrowDown','ArrowUp'].includes(event.key))return;
+    const buttons=[...customerPanel.querySelectorAll('[data-customer-choice]')],index=buttons.indexOf(document.activeElement);
+    if(buttons.length){event.preventDefault();buttons[(index+(event.key==='ArrowDown'?1:-1)+buttons.length)%buttons.length].focus();}
+  });
   function selectOptions(select, values, placeholder) {
     select.replaceChildren(textNode('option', placeholder));
     select.firstElementChild.value = '';
@@ -624,11 +705,26 @@
       setComplaintCategories(data);
       if (!creationDraft && can('complaint.case.create')) creationDraft = utils.bindCreationDraft?.($('createCaseForm'), {
         workflow: 'complaint_create', contextKey: state.groupId, initData: () => state.initData, status: $('createSaveState'),
+        collect: () => ({portal_source_key:customerForm.elements.portal_source_key.value,portal_source_label:customerForm.elements.portal_source_label.value}),
         restore: async payload => {
-          await refreshLocationOptions();
+          customerForm.elements.portal_source_key.value=payload.portal_source_key||'';customerForm.elements.portal_source_label.value=payload.portal_source_label||'';
+          const response=await getJson('location-options/',{branch:payload.branch_region||'',county:payload.county||''});
+          for(const [name,items] of [['branch_region',response.data.branches],['county',response.data.counties],['sub_county',response.data.sub_counties]]){
+            locationSelectOptions(customerForm.elements[name],items,'Select '+name.replace('_',' '));
+            const match=(items||[]).find(item=>item.code===payload[name]||item.name.toLowerCase()===String(payload[name]||'').toLowerCase());
+            customerForm.elements[name].value=match?.code||'';
+          }
+          customerForm.elements.sub_county.disabled=!customerForm.elements.county.value;
           const control = $('createCaseForm').elements.sub_county;
           control.value = payload.sub_county || '';
           updateCategoryGuidance();
+          if(payload.portal_source_key){
+            customerStatus(`Biodata copied from ${payload.portal_source_label||'Portal'}. Review the restored details before submitting.`);customerClearButton();
+            const key=payload.portal_source_key;
+            void json('customers/suggest/',{source_key:key}).then(result=>{
+              if(customerForm.elements.portal_source_key.value===key){customerFieldNotes(result.data.selection);result.data.selection.warnings.forEach(message=>customerPanel.appendChild(textNode('p',message,'cmp-customer-warning')));}
+            }).catch(()=>{if(customerForm.elements.portal_source_key.value===key)customerPanel.appendChild(textNode('p','Portal source unavailable. Clear the selection to use the entered details manually.'));});
+          }
           if (payload.sub_county && !control.value) return 'Draft restored. Choose the constituency again; its availability changed. Reselect any files.';
         },
       });
