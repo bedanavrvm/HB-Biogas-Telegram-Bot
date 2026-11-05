@@ -111,7 +111,12 @@ def current_workflow_state(farmer: JawabuFarmerMaster) -> str:
 
 
 def credit_decision_label(farmer: JawabuFarmerMaster) -> str:
-    """A paused visit has no queued credit work; preserve actual decisions."""
+    """Label unknown historical credit without inventing a workflow decision."""
+    if (farmer.source == 'portal_legacy' and farmer.credit_decision in {'', 'Pending'}
+            and not farmer.credit_decided_at and not farmer.credit_decided_by
+            and farmer.legacy_records.filter(committed_at__isnull=False).exists()
+            and not farmer.pipeline_events.filter(action__in=['credit_decision_recorded', 'jbl_visit_completed']).exists()):
+        return 'Legacy'
     visit_deferred = (
         current_workflow_state(farmer) == JawabuWorkflowState.DEFERRED
         and (farmer.deferred_stage == 'jbl_visit' or farmer.jbl_visit_status == 'Deferred / On Hold')
@@ -214,6 +219,22 @@ def current_pipeline_state_label(farmer: JawabuFarmerMaster) -> str:
         return deferred_labels.get(str(farmer.deferred_stage or ''), 'Deferred')
 
     visit_status = str(farmer.jbl_visit_status or '').strip()
+    if farmer.source == 'portal_legacy' and state == JawabuWorkflowState.REJECTED:
+        if farmer.final_decision == 'Rejected':
+            return 'Rejected — Head of Rural Review'
+        if farmer.credit_decision == 'Rejected':
+            return 'Rejected — Credit'
+        return 'Rejected by JBL' if visit_status == 'Rejected by JBL' else 'Rejected'
+    if farmer.source == 'portal_legacy' and state == JawabuWorkflowState.WITHDRAWN:
+        from core.services.portal_withdrawals import STAGES
+        label = STAGES.get(farmer.withdrawn_stage, ('', ''))[0]
+        return f'Withdrawn — {label}' if label else 'Withdrawn'
+    legacy_active_state = farmer.source == 'portal_legacy' and farmer.workflow_state in {
+        JawabuWorkflowState.JBL_VISIT, JawabuWorkflowState.CREDIT,
+        JawabuWorkflowState.FINAL_REVIEW, JawabuWorkflowState.ORDER,
+    }
+    if legacy_active_state and visit_status != 'Rescheduled':
+        visit_status = ''
     if visit_status == 'Rejected by JBL':
         return 'Rejected by JBL'
     if visit_status == 'Opted for Cash':
@@ -242,6 +263,14 @@ def current_pipeline_state_label(farmer: JawabuFarmerMaster) -> str:
         if hb_action.installation_status == 'closed':
             return 'Installation Closed'
         return 'Installation in Progress'
+
+    if legacy_active_state:
+        return {
+            JawabuWorkflowState.JBL_VISIT: 'JBL Visit Rescheduled' if visit_status == 'Rescheduled' else 'Awaiting JBL Visit',
+            JawabuWorkflowState.CREDIT: 'Awaiting Credit Analysis',
+            JawabuWorkflowState.FINAL_REVIEW: 'Awaiting Head of Rural Review',
+            JawabuWorkflowState.ORDER: 'Ready for Order',
+        }[state]
 
     if farmer.order_number:
         if farmer.legacy_fulfillment_partner:
@@ -2195,6 +2224,16 @@ def _pipeline_stage(farmer: JawabuFarmerMaster) -> int:
         if hb_action.installation_status == 'installed':
             return 7
         return 6
+    if farmer.source == 'portal_legacy' and farmer.workflow_state in {'jbl_visit', 'credit', 'final_review', 'order', 'ordered'}:
+        return {'jbl_visit':2, 'credit':3, 'final_review':4, 'order':5, 'ordered':5}[farmer.workflow_state]
+    if farmer.source == 'portal_legacy' and farmer.workflow_state == JawabuWorkflowState.DEFERRED:
+        return {'jbl_visit':2, 'credit':3, 'final':4}.get(farmer.deferred_stage, 1)
+    if farmer.source == 'portal_legacy' and farmer.workflow_state == JawabuWorkflowState.REJECTED:
+        if farmer.final_decision == 'Rejected':
+            return 4
+        if farmer.credit_decision == 'Rejected':
+            return 3
+        return 2 if farmer.jbl_visit_status == 'Rejected by JBL' else 1
     if farmer.order_number:
         return 5
     if farmer.final_decision == FINAL_DECISION_APPROVED:

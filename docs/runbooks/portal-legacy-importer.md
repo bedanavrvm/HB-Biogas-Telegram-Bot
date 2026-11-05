@@ -6,6 +6,28 @@ has no importer. Select **Master Data** or **Eco-conserve** before uploading.
 Each source is reviewed, cleaned up, imported and projected independently.
 The other register's cases and sheet are preserved.
 
+## Historical credit and current status
+
+Imported cases without a recorded credit decision display **Legacy** in Credit
+Analysis and its Sheet projection. Recorded decisions remain intact. Legacy is
+a presentation marker, not an operational credit decision or approval; unknown
+decision dates/actors stay blank. A source workbook containing that marker can
+be imported again without inventing a credit decision. Once actual app visit or
+credit-decision activity exists, its current pending/recorded decision takes
+precedence over the historical marker.
+
+Confirming a continuation immediately updates the displayed current pipeline
+status and stage number from the canonical workflow state. Missing historical
+HBG/JBL dates and older visit outcomes no longer send a confirmed JBL/credit/
+final-review/order case back to an earlier displayed step. Actual HB installation
+and commissioning evidence still controls delivery progress. Normal new-case
+requirements and the HB minimum-deposit gate remain in force.
+
+Local browser/Sheet evidence is recorded in
+`docs/ui-standard/reviews/2026-11-05-portal-legacy-credit-and-current-status.md`.
+No bulk production rewrite occurs; existing Sheet rows adopt the labels through
+their normal publication path.
+
 ## Before starting
 
 Deploy the checked-in portal_legacy migrations through **0006_selected_register**

@@ -1,5 +1,10 @@
 # Component index and migration hold
 
+Legacy Credit Analysis and current pipeline status reuse the existing detail
+fields, badges and progress strip. The shared backend labels historical unknowns
+as Legacy and honors the confirmed continuation; see the
+[source and browser record](reviews/2026-11-05-portal-legacy-credit-and-current-status.md).
+
 Portal App status now reuses compact field-change rows and checkboxes for
 one-click sequential Sheet retry, with selections across pages and explicit
 waiting causes. See the [source and browser record](reviews/2026-11-05-portal-sheet-retry-batch.md).

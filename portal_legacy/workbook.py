@@ -128,6 +128,9 @@ def propose(values):
         if token(key.removeprefix('legacy:')) in JBL_RECEIPT_HEADERS:
             key = 'legacy_deposit_paid_jbl'
         if raw in ('', '-', None): continue
+        if key == 'credit_decision' and token(raw) == 'legacy':
+            evidence.append('Legacy credit marker; no recorded credit decision')
+            continue
         value = raw
         if key in DATES:
             parsed = parse_business_date(raw)
