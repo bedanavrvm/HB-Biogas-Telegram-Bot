@@ -16,7 +16,8 @@ in the graphic/timeline, if a case is commissioned, then the Commissioning circl
 
 
 ************************************************************************************************
+kcu 288b dorcas kiburu
 
+Portal reports - some filter options could be checkboxes instead of limiting to one option for more filtering control
 
-Portal reports - some filter options could be chechboxes instead of limiting to one option for more filtering control
-
+Changes are paused while the legacy import is in progress. Your saved work is safe. IT can resume and complete the import from Legacy import. - this blocker shows up when i try to edit an imported(historic) case at the confirmed continuation. Why is it blocking ? i know that the import is not fully imported but cases that have already been imported and synced should be editable/acted upon by the miniapp actions

@@ -959,9 +959,9 @@
     },
     {
       "path": "core/templates/complaint_cases/app.html",
-      "sha256": "d6b254912128af717374d0f48759441cab71ef6e2a298cf8487d6060eb1f0592",
-      "review_reference": "docs/ui-standard/reviews/2026-11-05-complaints-portal-customer-autofill.md",
-      "reason": "User-approved Portal biodata suggestions and editable autofill in both Complaints creation forms. Compact TAT matching pattern within existing Stitch styling; real Django/PostgreSQL/Playwright evidence. No approved baseline or Phase 6 change."
+      "sha256": "54dbb8836b8816b3491bbce2ec51405004b0e9091415e152629d23c52f82070f",
+      "review_reference": "docs/ui-standard/reviews/2026-11-05-complaints-note-free-corrections.md",
+      "reason": "User-requested removal of the manual Complaints correction reason. Existing compact IT forms, automatic before/after audit, validation and request/revision controls retained. Real signed-Telegram/native MFA Playwright evidence; no approved baseline or Phase 6 change."
     },
     {
       "path": "core/static/miniapp/complaint_cases.css",
@@ -971,9 +971,9 @@
     },
     {
       "path": "core/static/miniapp/complaint_cases.js",
-      "sha256": "cd371d7895c1771390ac3419341534e159b55c0be2e58bf62065fd4310a34779",
-      "review_reference": "docs/ui-standard/reviews/2026-11-05-complaints-portal-customer-autofill.md",
-      "reason": "User-approved Portal biodata suggestions and editable autofill in both Complaints creation forms. Compact TAT matching pattern within existing Stitch styling; real Django/PostgreSQL/Playwright evidence. No approved baseline or Phase 6 change."
+      "sha256": "7f66b9c24e49fb8747476c568bca6642f848bb6e56a301efb10743329d5a76d7",
+      "review_reference": "docs/ui-standard/reviews/2026-11-05-complaints-note-free-corrections.md",
+      "reason": "User-requested removal of the manual Complaints correction reason. Existing compact IT forms, automatic before/after audit, validation and request/revision controls retained. Real signed-Telegram/native MFA Playwright evidence; no approved baseline or Phase 6 change."
     },
     {
       "path": "core/static/miniapp/complaint_legacy.css",
@@ -1013,9 +1013,9 @@
     },
     {
       "path": "browser/src/complaints-operations-workspace.tsx",
-      "sha256": "138a580a832cbb00ca00c1152201d580f14693ae500a37e593e8162c0586dc86",
-      "review_reference": "docs/ui-standard/reviews/2026-11-05-complaints-portal-customer-autofill.md",
-      "reason": "User-approved Portal biodata suggestions and editable autofill in both Complaints creation forms. Compact TAT matching pattern within existing Stitch styling; real Django/PostgreSQL/Playwright evidence. No approved baseline or Phase 6 change."
+      "sha256": "6ddf05282bea5735fb83f8e982199fe0537e2d91a8b24a7f30a926e176e64180",
+      "review_reference": "docs/ui-standard/reviews/2026-11-05-complaints-note-free-corrections.md",
+      "reason": "User-requested removal of the manual Complaints correction reason. Existing compact IT forms, automatic before/after audit, validation and request/revision controls retained. Real signed-Telegram/native MFA Playwright evidence; no approved baseline or Phase 6 change."
     },
     {
       "path": "core/templates/base_shell.html",

@@ -29,8 +29,9 @@ def correct(group, actor, case_id, fields):
     if set(fields) - set(FIELDS) - {'reason', 'expected_revision', 'client_request_id', 'group_id', 'init_data'}:
         raise cases.ComplaintCaseError('Only the displayed correction fields can be changed.')
     reason = str(fields.get('reason') or '').strip()
-    if not reason or len(reason) > 2000:
-        raise cases.ComplaintCaseError('Enter a correction reason of at most 2,000 characters.')
+    if len(reason) > 2000:
+        raise cases.ComplaintCaseError('Correction notes must be at most 2,000 characters.')
+    reason = reason or 'Complaint fields corrected by IT.'
     key = cases.create_request_id(fields.get('client_request_id'))
     digest = cases.mutation_payload_hash({name: fields[name] for name in fields if name in FIELDS or name == 'reason'})
     original = cases._case_for_group(group.group_id, case_id, actor=actor)

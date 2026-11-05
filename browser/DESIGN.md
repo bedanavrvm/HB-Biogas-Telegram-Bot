@@ -754,6 +754,9 @@ case detail/history. Source and Playwright evidence: [review](../docs/ui-standar
 The 4 November user-approved report changes retain the existing compact controls
 and dialogs. Historical timing estimates stay separate from measured app results;
 Complaint ID opens detail, and scoped Complaints IT has a pencil correction form
-with required reason and audited dates. [Source and native Playwright evidence](../docs/ui-standard/reviews/2026-11-04-historical-reporting-it-corrections-reset.md)
+with audited dates. The user's 5 November follow-up removes the manual correction
+reason from both channels while retaining actor/time and before/after audit
+evidence. [Note-free correction evidence](../docs/ui-standard/reviews/2026-11-05-complaints-note-free-corrections.md)
+records the current behavior. [Earlier source and native Playwright evidence](../docs/ui-standard/reviews/2026-11-04-historical-reporting-it-corrections-reset.md)
 records both themes/channels and the local reset boundary. Existing production
 activation and Phase 6 approvals are unchanged.

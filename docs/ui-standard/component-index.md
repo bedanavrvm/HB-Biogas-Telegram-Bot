@@ -1,5 +1,9 @@
 # Component index and migration hold
 
+Complaints IT edits reuse the existing compact correction forms without a manual
+reason field. Automatic actor/time and before/after audit remain. See the
+[source and Playwright record](reviews/2026-11-05-complaints-note-free-corrections.md).
+
 Legacy continuation retains the compact dropdown and confirm action, removing
 the duplicate source summary and explanation input. See the
 [source and interaction record](reviews/2026-11-05-portal-continuation-selection-only.md).

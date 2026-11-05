@@ -41,6 +41,7 @@ it is never projected into the operational register. Sheet name defaults to
 
 | Source fact | Import rule |
 | --- | --- |
+| Complaint Type | Use an exact active category label (case insensitive) to link the category. The importer does not classify descriptions automatically. Blank values warn and remain unassigned; unknown labels retain their text but do not link a category. |
 | Status | Required: OPEN, CLOSED or REOPENED, case insensitive. Literal PENDING maps to OPEN. Prose such as “Closed, customer confirmed” must be separated manually. No status is inferred from comments. |
 | Date Reported | Required original date. Excel dates, ISO, day/month/year, dotted day.month.year, the current projected date format and `24-May-2026` are accepted. Invalid, multiple or future dates block the row. |
 | Date Resolved | Optional for historical Closed cases. If supplied, it must be a real date between Date Reported and today. Open/Reopened cases must leave it blank. |
@@ -60,6 +61,30 @@ aliases. Duplicate mappings and formulas in authoritative status/date fields
 are rejected. The original XLSX bytes are retained privately.
 
 ## Review and save
+
+### Categorised reviewed workbook, 5 November 2026
+
+`Complaints - Reviewed Import Ready - Categorised.xlsx` preserves the reviewed
+single-sheet workbook and all non-category values. Its original Complaint Type
+column was empty on all 994 rows. The categorised copy assigns 898 rows using
+the existing catalogue labels; 12 assignments recovered from retained comments
+are blue. The remaining 96 category cells are blank and red because source
+wording is missing or ambiguous. Cell notes explain the assignments/review needs;
+the column includes a dropdown of the 14 existing labels. Customer workbooks
+remain private, ignored local artifacts.
+
+Reviewers can fill those cells before upload. The import review table has no
+inline editing. After import, authorized Complaints IT can open a case and use
+**Edit complaint fields** to correct its category without a manual reason. That
+action retains source provenance, records an audit event and queues Sheet sync.
+An unassigned category is not automatically changed to Other Complaint.
+
+The actual 994-row workbook passed parser checks with all 898 assigned labels
+preserved. A separate Playwright import of 15 synthetic cases verified all 14
+category links in PostgreSQL, a blank remaining unassigned, and category values
+in simulated Sheet readback (uppercase under the register's existing projection
+format). Evidence: `test-results/complaint-category-browser/`. No importer code
+was changed, and no live import or Google write was performed.
 
 1. Keep one stable source namespace for this changeover. Upload the cleaned XLSX.
 2. Inspect the source-to-register mapping, then stage rows. No cases are saved yet.
