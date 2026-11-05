@@ -437,9 +437,9 @@
     },
     {
       "path": "core/static/miniapp/portal.css",
-      "sha256": "c6f2dfadbaff3b94d99b0f400a25d0d48fcbff4cb31c4ae8aef1c2d0bce8d8b9",
-      "review_reference": "docs/ui-standard/reviews/2026-10-31-portal-legacy-changeover.md",
-      "reason": "User-approved compact Revisit/map correction and scoped legacy changeover preparation; source-bound manual Playwright evidence, no approved baseline changes or Phase 6 migration."
+      "sha256": "0f389b0297ff38aabb5e86f57470e6dd939dba1b4f671be1ad083b6a50fd638e",
+      "review_reference": "docs/ui-standard/reviews/2026-11-05-portal-compact-case-notices.md",
+      "reason": "User-requested compact collapsible case notices and historical Legacy badge. Existing Case 360 disclosure pattern; source-bound signed Django/PostgreSQL Playwright before/after screenshots and continuation verification. No approved baseline or Phase 6 changes."
     },
     {
       "path": "core/static/miniapp/portal.js",
@@ -449,9 +449,9 @@
     },
     {
       "path": "core/static/miniapp/portal_farmer_sheet.js",
-      "sha256": "769f4906a162cc43f62e8797f170e8a3838b86ed0100d0dd24704b6547b87c71",
-      "review_reference": "docs/ui-standard/reviews/2026-11-05-portal-withdrawal-and-parallel-cutover.md",
-      "reason": "User-approved compact withdrawal/resume controls, display capitalization and completed Commissioning tick. Signed native-page Playwright evidence; existing patterns retained. No baseline or Phase 6 change."
+      "sha256": "2587b38b4d3c7012ffd2b31c3a6528d644a7e7ad9f41fff6af37127d5d4fcc46",
+      "review_reference": "docs/ui-standard/reviews/2026-11-05-portal-compact-case-notices.md",
+      "reason": "User-requested compact collapsible case notices and historical Legacy badge. Existing Case 360 disclosure pattern; source-bound signed Django/PostgreSQL Playwright before/after screenshots and continuation verification. No approved baseline or Phase 6 changes."
     },
     {
       "path": "core/static/miniapp/portal_hb_actions.js",
@@ -1019,9 +1019,9 @@
     },
     {
       "path": "core/templates/base_shell.html",
-      "sha256": "bed1b4a20472ddd09b468114a4d990ef333044022b28f3ce0334859c2686a1a9",
-      "review_reference": "docs/ui-standard/reviews/2026-11-05-portal-live-legacy-cases-multiselect-reports.md",
-      "reason": "User-authorized compact report multiselect and verified-case continuation during partial legacy import. Real signed Django/PostgreSQL Playwright journeys cover persistence, workflow actions, desktop/mobile and local Sheet readback. Existing shell and patterns retained; no approved baseline, candidate-token or Phase 6 migration changes."
+      "sha256": "d997c8541810cd7cf4fafccb556e1af547347144c5615d7fec59e66300259090",
+      "review_reference": "docs/ui-standard/reviews/2026-11-05-portal-compact-case-notices.md",
+      "reason": "User-requested compact collapsible case notices and historical Legacy badge. Existing Case 360 disclosure pattern; source-bound signed Django/PostgreSQL Playwright before/after screenshots and continuation verification. No approved baseline or Phase 6 changes."
     },
     {
       "path": "core/templates/portal/partials/legacy_import.html",

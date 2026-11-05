@@ -1,5 +1,9 @@
 # Mini App Design Lab
 
+Portal case notices now collapse into compact disclosures, with a persistent
+Legacy badge for historical imports. See the
+[before/after and interaction record](reviews/2026-11-05-portal-compact-case-notices.md).
+
 Portal reports now offer compact Branch, County, Product and Stage checkboxes.
 Verified historical cases can continue during a partial import. See the
 [source and Playwright record](reviews/2026-11-05-portal-live-legacy-cases-multiselect-reports.md).

@@ -1,5 +1,9 @@
 # Component index and migration hold
 
+Portal case notices reuse Case 360 details/summary and chevrons with compact
+closed summaries and a provenance-based Legacy badge. See the
+[source and Playwright record](reviews/2026-11-05-portal-compact-case-notices.md).
+
 Portal report filters adapt the existing dialog with compact checkbox groups;
 legacy readiness reuses existing case actions, pencil forms and sticky feedback.
 See the [source and interaction evidence](reviews/2026-11-05-portal-live-legacy-cases-multiselect-reports.md).
