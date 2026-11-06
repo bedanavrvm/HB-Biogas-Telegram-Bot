@@ -5,6 +5,7 @@
     <section class="case360-section">
       <details data-source open><summary>Upload a reviewed workbook</summary><form data-upload-form>
         <label>Portal owner<select name="group_id" required><option value="">Loading owners…</option></select></label>
+        <label>Import mode<select name="import_mode"><option value="initial">Initial Import</option><option value="updates">Update Existing Cases</option></select></label>
         <label>Import namespace<input name="namespace" required pattern="[a-zA-Z0-9_-]{1,100}" placeholder="master-data-changeover"></label>
         <label>Reviewed legacy workbook<input name="file" type="file" accept=".xlsx" required></label>
         <button class="primary" type="submit">Upload and preview mapping</button>
@@ -15,7 +16,7 @@
       <p data-feedback role="status" aria-live="polite">Choose a reviewed workbook or resume saved progress.</p>
       <progress data-progress max="1" value="0" style="width:100%" aria-label="Import progress"></progress>
       <div data-sheet-sync class="legacy-sheet-sync" hidden>
-        <div class="legacy-sync-counts"><span><strong data-imported-count>0 / 0</strong> saved in database</span><span><strong data-synced-count>0 / 0</strong> synced</span><span><strong data-sync-pending>0</strong> awaiting sync</span><span><strong data-not-imported>0</strong> not imported</span></div>
+        <div class="legacy-sync-counts"><span><strong data-imported-count>0 / 0</strong> <span data-save-label>saved in database</span></span><span><strong data-synced-count>0 / 0</strong> synced</span><span><strong data-sync-pending>0</strong> awaiting sync</span><span><strong data-not-imported>0</strong> <span data-pending-label>not imported</span></span></div>
         <progress data-sync-progress max="1" value="0" aria-label="Rows verified on the Sheet"></progress>
         <p id="legacy-sheet-sync-message" data-sync-message role="status" aria-live="polite"></p>
       </div>
@@ -32,6 +33,7 @@
         <button type="button" data-action="project" aria-describedby="legacy-sheet-sync-message">Sync imported rows to Sheet</button>
         <button type="button" data-action="replace">Replace entire register…</button>
         <button type="button" data-action="review_pending">Review unimported rows</button>
+        <button type="button" data-action="recompare" hidden>Refresh displayed comparisons</button>
         <button type="button" data-action="restart_projection">Review replacement again</button>
       </div>
     </section>

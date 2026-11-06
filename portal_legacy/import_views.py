@@ -16,7 +16,7 @@ from requests.exceptions import RequestException
 from core.api.portal_views import portal_auth_required
 from core.models import GroupSheetConfiguration
 from core.services.external_resilience import external_call_budget
-from . import importer,projection,row_sync
+from . import importer,projection,row_sync,updates
 from .models import LegacyUpload
 from .registers import SOURCE_SHEETS
 from .views import identity
@@ -60,6 +60,9 @@ def legacy_upload(request,upload_id=None,action='index'):
                 body=json.loads(request.body or '{}')
                 if not isinstance(body,dict):raise ValueError('A JSON object is required.')
                 if 'source_sheet' in body and body['source_sheet']!=upload.source_sheet:raise ValueError('This upload is bound to its original register. Create a separate upload for the other sheet.')
+                if 'mode' in body and body['mode']!=upload.mode:raise ValueError('Import mode is fixed for this upload.')
+                if upload.mode=='updates' and action in {'cleanup_preview','cleanup_confirm','projection_preview','projection_confirm','restart_projection','cancel_preview'}:
+                    raise ValueError('Update uploads cannot delete data, replace a register or pause case changes.')
                 if action not in {'advance','prepare','cleanup_preview'} and body.get('revision')!=upload.revision:raise ValueError('This workspace changed. Refresh saved progress before retrying.')
                 if action=='prepare':importer.prepare(upload)
                 elif action=='stage':
@@ -76,9 +79,19 @@ def legacy_upload(request,upload_id=None,action='index'):
                     return JsonResponse({'ok':True,'upload':importer.payload(upload),'review':review})
                 elif action=='cleanup_confirm':importer.cleanup_confirm(upload,actor,body.get('token',''))
                 elif action=='commit':
-                    if upload.phase!='ready' or not upload.state.get('cleanup_complete'):raise ValueError('Complete test cleanup and review the import first.')
+                    if upload.phase!='ready' or (upload.mode!='updates' and not upload.state.get('cleanup_complete')):raise ValueError('Complete the review before applying the selection.')
                     upload.phase='committing';importer.save(upload)
-                elif action=='sync_rows':row_sync.begin(upload)
+                elif action=='sync_rows':
+                    if upload.mode=='updates':
+                        if upload.phase not in {'ready','committing'}:raise ValueError('Finish the comparison before syncing updates.')
+                        upload.state['resume_commit']=upload.phase=='committing';upload.phase='syncing_updates';importer.save(upload)
+                    else:row_sync.begin(upload)
+                elif action=='recompare':
+                    if upload.mode!='updates' or upload.phase!='ready':raise ValueError('Finish processing before refreshing comparisons.')
+                    matches=updates.Matches(upload)
+                    for draft in upload.drafts.filter(pk__in=body.get('ids',[])[:50]).exclude(reconciliation__applied=True):
+                        updates.compare(draft,matches,draft.proposal.get('case_id',''))
+                    importer.save(upload)
                 elif action=='projection_preview':
                     if upload.phase!='ready':raise ValueError('Finish the current step before previewing replacement.')
                     with external_call_budget(8):preview=projection.preview(upload,actor,access)
@@ -91,7 +104,7 @@ def legacy_upload(request,upload_id=None,action='index'):
                     upload.state.setdefault('projection_attempts',[]).append(upload.state.pop('projection'))
                     upload.phase='ready';importer.save(upload)
                 elif action=='discard':
-                    if upload.frozen or upload.drafts.filter(legacy__isnull=False).exists():raise ValueError('A started cutover must be completed; its recovery evidence cannot be discarded.')
+                    if upload.frozen or upload.drafts.filter(legacy__isnull=False).exists() or upload.drafts.filter(reconciliation__applied=True).exists():raise ValueError('Saved import/update evidence cannot be discarded.')
                     upload.drafts.all().delete();upload.chunks.all().delete();upload.phase='discarded';importer.save(upload)
                 elif action=='cancel_preview':
                     if upload.phase!='ready' or upload.state.get('cleanup_started'):raise ValueError('A started cutover must be completed.')
@@ -101,6 +114,10 @@ def legacy_upload(request,upload_id=None,action='index'):
                     importer.save(upload)
                 elif action=='advance':
                     if upload.phase=='staging':importer.stage_step(upload,actor,access)
+                    elif upload.phase=='comparing' and upload.mode=='updates':updates.compare_step(upload,actor,access)
+                    elif upload.phase=='syncing_updates' and upload.mode=='updates':
+                        with external_call_budget(8):result=updates.sync_step(upload,actor,access)
+                        return JsonResponse({'ok':True,'upload':importer.payload(upload),**result})
                     elif upload.phase=='deleting':importer.deletion_step(upload,actor)
                     elif upload.phase=='committing':
                         results=importer.commit_step(upload,actor,access)

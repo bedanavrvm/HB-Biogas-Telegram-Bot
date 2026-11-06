@@ -14,18 +14,23 @@ def cache(upload):
 
 @contextmanager
 def rows(upload,offset=0):
-    with legacy_xlsx.rows(upload,cache(upload),offset) as records:
+    with legacy_xlsx.rows(upload,cache(upload),offset,data_only=upload.mode=='updates') as records:
         yield records
 
 
 def mapping(upload):
     with rows(upload) as records:
         offset,(_,cells)=next(records)
-    width=max(c['column'] for c in cells)
+    width=max(c['column'] for c in cells if c['value'] not in ('',None))
     if width>256:raise ValueError('Mapped worksheet headers must fit within 256 columns.')
     headers=['']*width
-    for cell in cells:headers[cell['column']-1]=cell['value']
-    bindings=bind_headers(headers)
+    for cell in cells:
+        if cell['column']<=width:headers[cell['column']-1]=cell['value']
+    if upload.mode == 'updates':
+        from .updates import bind_update_headers
+        bindings=bind_update_headers(headers)
+    else:
+        bindings=bind_headers(headers)
     return {'offset':offset,'bindings':{str(k):v for k,v in bindings.items()},'headers':headers,'mapping_version':5}
 
 

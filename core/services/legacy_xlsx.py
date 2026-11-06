@@ -99,17 +99,23 @@ class Strings:
 
 
 @contextmanager
-def rows(upload,root,offset=0):
+def rows(upload,root,offset=0,*,data_only=False):
     root=cache(upload,root);reader=ExcelReader(root/'source.xlsx',read_only=True,data_only=False)
     reader.read_manifest();reader.read_workbook();apply_stylesheet(reader.archive,reader.wb)
     wrapper=worksheet_wrapper(root/'rows.xml')
     db=sqlite3.connect(root/'strings.sqlite3');stream=(root/'rows.xml').open('rb')
-    parser=WorkSheetParser(io.BytesIO(),Strings(db),data_only=False,epoch=reader.wb.epoch,
+    parser=WorkSheetParser(io.BytesIO(),Strings(db),data_only=data_only,epoch=reader.wb.epoch,
         date_formats=reader.wb._date_formats,timedelta_formats=reader.wb._timedelta_formats)
     parser.shared_formulae={index:Translator(formula,coordinate) for index,coordinate,formula in db.execute('select id,coordinate,formula from formulas')}
     def iterate():
         for position,fragment in row_fragments(stream,offset):
             node=ET.fromstring(wrapper+fragment+b'</worksheet>')[0]
-            yield position,parser.parse_row(node)
+            parsed=parser.parse_row(node)
+            if data_only:
+                missing={c.attrib.get('r') for c in node if c.find(f'{{{NS}}}f') is not None and (c.find(f'{{{NS}}}v') is None or c.find(f'{{{NS}}}v').text is None)}
+                for cell,xml in zip(parsed[1],node):
+                    if xml.attrib.get('r') in missing:
+                        cell['data_type']='f';cell['value']='Formula has no cached result'
+            yield position,parsed
     try:yield iterate()
     finally:stream.close();db.close();reader.archive.close()

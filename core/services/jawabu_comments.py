@@ -64,8 +64,10 @@ def master_comment_history(farmer: JawabuFarmerMaster) -> str:
     lines: list[str] = []
     from portal_legacy.models import LegacyRow
     legacy = LegacyRow.objects.filter(farmer=farmer, committed_at__isnull=False).first()
-    if legacy and legacy.values.get('case_comment_history'):
-        lines.append(str(legacy.values['case_comment_history']))
+    if legacy:
+        from portal_legacy.services import effective_values
+        historical=effective_values(legacy).get('case_comment_history')
+        if historical:lines.append(str(historical))
     for entry in entries:
         occurred_at = entry.occurred_at
         local_time = timezone.localtime(occurred_at) if timezone.is_aware(occurred_at) else occurred_at

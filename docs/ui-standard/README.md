@@ -1,5 +1,8 @@
 # Mini App Design Lab
 
+Historical workbook updates reuse the Legacy Import comparison and bulk-selection
+workspace. See the [source and evidence record](reviews/2026-11-06-legacy-update-import.md).
+
 Personal table ordering/freezing, retained report setup and publication recovery
 have a [source-bound implementation record](reviews/2026-11-06-personal-table-layouts-and-publication.md).
 This preserves the existing design migration hold.

@@ -8,6 +8,7 @@
   try{reviewMode=sessionStorage.getItem('portal-legacy-review-mode')==='cards'?'cards':'table';}catch{}
   try{if(sessionStorage.getItem('portal-legacy-source-sheet')==='Eco-conserve')selectedSheet='Eco-conserve';}catch{}
   const node = selector => root.querySelector(selector);
+  const updating=()=>active?.mode==='updates';
   const feedback = text => {node('[data-feedback]').textContent=text;};
   async function call(path='',body,options={}) {
     const response=await window.PortalMiniAppApi.apiFetch('/legacy/uploads/'+path,body===undefined?{}:{method:'POST',body:JSON.stringify({...body,revision:active?.revision}),...options},window.Telegram?.WebApp);
@@ -17,7 +18,7 @@
   }
   const command=(action,body={})=>call(`${active.id}/${action}/`,{...body,source_sheet:active.source_sheet});
   function renderSavedImports(){
-    node('[data-resume]').innerHTML='<option value="">Choose saved '+esc(selectedSheet)+' import</option>'+uploads.filter(u=>u.source_sheet===selectedSheet).map(u=>`<option value="${u.id}">${esc(u.namespace)} · ${esc(u.phase)}</option>`).join('');
+    node('[data-resume]').innerHTML='<option value="">Choose saved '+esc(selectedSheet)+' import</option>'+uploads.filter(u=>u.source_sheet===selectedSheet).map(u=>`<option value="${u.id}">${esc(u.namespace)} · ${u.mode==='updates'?'Updates · ':''}${esc(u.phase)}</option>`).join('');
     if(active)node('[data-resume]').value=active.id;
   }
   async function loadIndex(){
@@ -27,8 +28,8 @@
     if(index.groups.some(group=>group.id===owner))node('[name="group_id"]').value=owner;
     renderSavedImports();
   }
-  const reviewable=row=>!row.committed&&row.proposal.review_status!=='blocked'&&['ready','committing'].includes(active?.phase);
-  const editable=row=>!busy&&!row.committed&&active?.phase==='ready';
+  const reviewable=row=>!row.committed&&row.proposal.review_status!=='blocked'&&row.proposal.kind!=='unchanged'&&['ready','committing'].includes(active?.phase);
+  const editable=row=>!updating()&&!busy&&!row.committed&&active?.phase==='ready';
   const human=value=>({national_id:'National ID',deposit_paid_hbg:'Deposit paid to HB',legacy_deposit_paid_jbl:'Deposit paid to JBL'}[value]||String(value||'').replace(/^legacy:/,'Historical: ').replace(/_/g,' ').replace(/^./,c=>c.toUpperCase()));
   function identityIssues(row){
     if(!row.identity_collision)return [];
@@ -47,14 +48,23 @@
   const pendingEdits=()=>current.some(row=>Object.keys(row._edits||{}).length);
   const reviewClass=row=>row.proposal.review_status==='blocked'?'blocked':issues(row)?'warning':'ready';
   function rowCard(row){
+    if(updating())return updateCard(row);
     const disabled=busy||!reviewable(row);
     const state=reviewClass(row),notes=issueList(row);
     return `<article class="case360-section legacy-review-card legacy-card-${state}" data-review-row="${row.id}"><label class="legacy-row-select"><input type="checkbox" data-select="${row.id}" ${row.approved?'checked':''} ${disabled?'disabled':''}>Row ${row.source_row} · ${esc(row.name)} ${row.committed?'· Imported':''}</label><p><strong class="legacy-review-label">${state==='blocked'?'Blocked':state==='warning'?'Needs review':'Ready'}</strong> · ${esc(human(row.proposal.state))}</p>${notes.length?`<ul class="legacy-review-issues">${notes.map(note=>`<li>${esc(note)}</li>`).join('')}</ul>`:''}<details><summary>Source facts, corrections and history</summary><div class="case360-grid">${Object.entries(row.source_values||{}).filter(([,v])=>v!==''&&v!==null).map(([k,v])=>`<div class="${fieldIssues(row,k).length?'legacy-field-issue':''} ${fieldEdited(row,k)?'legacy-field-edited':''}"><strong>${esc(human(k))}${fieldIssues(row,k).length?' ⚠':''}</strong><p>${esc(v)}</p>${fieldIssues(row,k).map(message=>`<small>${esc(message)}</small>`).join('')}${fieldEdited(row,k)?`<small>Original: ${esc(row.original_values[k]||'(blank)')}</small>`:''}</div>`).join('')}</div></details>${!row.committed?`<details><summary>Link or separate unit${row.identity_collision?' - same National ID':' (optional)'}</summary><label>Explicit existing case ID<input data-match="${row.id}" value="${esc(row.reconciliation.existing_case_id||'')}" ${disabled?'disabled':''}></label><label>Link / separate-unit explanation<input data-note="${row.id}" value="${esc(row.reconciliation.note||'')}" ${disabled?'disabled':''}></label>${(row.existing_cases||[]).map(match=>`<p>${esc(match.reference)} · ${esc(match.name)}<br>Case ID: <code>${esc(match.id)}</code></p>`).join('')}</details>`:''}</article>`;
   }
+  function updateCard(row){
+    const p=row.proposal,disabled=busy||row.committed;
+    return `<article class="case360-section"><strong>${esc(row.name)} · ${esc(human(p.kind))}</strong><p>${esc(p.match_method||'')}${p.case_id?' · '+esc((row.existing_cases||[]).find(c=>c.id===p.case_id)?.reference||p.case_id):''}</p>${issueList(row).map(issue=>`<p class="legacy-review-issues">${esc(issue)}</p>`).join('')}
+      ${Object.entries(p.changes||{}).map(([key,change])=>`<label class="legacy-field-edited"><input type="checkbox" data-update-field="${esc(key)}" data-row-id="${row.id}" ${row.reconciliation.selected_fields?.includes(key)?'checked':''} ${disabled?'disabled':''}><strong>${esc(human(key))}</strong><p>${esc(change.before||'(blank)')} → ${esc(change.after||'(blank)')}</p>${change.error?`<small class="legacy-field-issue">${esc(change.error)}</small>`:''}${change.app_conflict?'<small>The app differs from the previous imported source. Keep or explicitly select this change.</small>':''}</label>`).join('')}
+      ${p.kind==='new'?`<label><input type="checkbox" data-new-case="${row.id}" ${row.reconciliation.create_new?'checked':''} ${disabled?'disabled':''}>Confirm this is a new case</label>`:''}
+      ${!row.committed&&p.kind==='ambiguous'?(row.existing_cases||[]).map(c=>`<button type="button" data-use-case="${c.id}" data-row-id="${row.id}" ${busy?'disabled':''}>Use ${esc(c.reference)} · ${esc(c.name)}</button>`).join(''):''}
+      <label><input type="checkbox" data-select="${row.id}" ${row.approved?'checked':''} ${!reviewable(row)||disabled?'disabled':''}>Apply this row</label></article>`;
+  }
   function openRow(id){
     gridApi?.stopEditing();const row=current.find(r=>String(r.id)===id);if(!row||busy)return;
     node('[data-row-detail]').innerHTML=rowCard(row);
-    node('[data-row-detail] details').open=true;
+    const details=node('[data-row-detail] details');if(details)details.open=true;
     node('[data-row-dialog]').showModal();
   }
   async function loadGrid(){
@@ -75,6 +85,7 @@
     window.PortalMiniAppHelpers?.bindHoldToCopy?.(node('[data-review-grid]'),'.ag-cell:not([col-id="approval"]):not([col-id="source_row"])');
   }
   function columnDefs(keys){
+    if(updating())return updateColumns(keys);
     const textField=(field,width)=>({colId:field,headerName:human(field),width,valueGetter:p=>p.data.source_values?.[field]??'',
       editable:p=>editable(p.data)&&!['source_row','case_id'].includes(field)&&Object.values(active.state.bindings||{}).includes(field),
       valueSetter:p=>{const value=String(p.newValue??'');if(value===String(p.oldValue??''))return false;p.data.source_values[field]=value;p.data._edits={...p.data._edits,[field]:value};if(field==='customer_name')p.data.name=value;return true;},
@@ -105,6 +116,17 @@
       {colId:'imported_case_id',headerName:'Imported case ID',width:250,valueGetter:p=>p.data.farmer_id||''},
     ];
   }
+  function updateColumns(keys){
+    return [
+      {field:'source_row',headerName:'Row',width:48,minWidth:48,maxWidth:48,pinned:'left',filter:false,cellRenderer:p=>{const b=document.createElement('button');b.type='button';b.textContent=p.value;b.dataset.rowOpen=p.data.id;b.className='legacy-row-details';b.setAttribute('aria-label',`Review row ${p.value}`);return b;}},
+      {colId:'approval',headerName:'',width:42,filter:false,sortable:false,cellRenderer:p=>{const c=document.createElement('input');c.type='checkbox';c.dataset.select=p.data.id;c.checked=p.data.approved;c.disabled=busy||!reviewable(p.data)||['ambiguous','new'].includes(p.data.proposal.kind)&&!p.data.reconciliation.create_new;c.setAttribute('aria-label',`Apply row ${p.data.source_row}`);return c;}},
+      {colId:'customer_name',headerName:'Customer',width:210,valueGetter:p=>p.data.name},
+      {colId:'review_state',headerName:'Comparison',width:130,valueGetter:p=>p.data.committed?'Applied':human(p.data.proposal.kind)},
+      {colId:'match',headerName:'Matched Case',width:145,valueGetter:p=>p.data.existing_cases.find(c=>c.id===p.data.proposal.case_id)?.reference||''},
+      {colId:'issues',headerName:'Review Notes',width:260,valueGetter:p=>issues(p.data)},
+      ...keys.filter(k=>current.some(r=>Object.hasOwn(r.proposal.changes||{},k))).map(key=>({colId:key,headerName:human(key),width:230,valueGetter:p=>{const c=p.data.proposal.changes?.[key];return c?`${c.before||'(blank)'} → ${c.after||'(blank)'}`:'';},cellClassRules:{'farmup-cell-edited':p=>Boolean(p.data.proposal.changes?.[key]),'farmup-cell-invalid':p=>Boolean(p.data.proposal.changes?.[key]?.error)}})),
+    ];
+  }
   async function renderReview(){
     node('[data-rows]').hidden=reviewMode!=='cards';node('[data-grid-wrap]').hidden=reviewMode!=='table';node('[data-table-hint]').hidden=reviewMode!=='table';
     if(reviewMode==='cards'){node('[data-rows]').innerHTML=current.map(rowCard).join('');return;}
@@ -112,7 +134,7 @@
     try{
       await loadGrid();
       const keys=[...new Set([...Object.values(active.state.bindings||{}),...current.flatMap(r=>Object.keys(r.source_values||{}))])];
-      const key=active.id+JSON.stringify(keys);
+      const key=active.id+JSON.stringify(keys)+JSON.stringify(current.map(r=>Object.keys(r.proposal.changes||{})));
       if(key!==gridColumns){gridApi.setGridOption('columnDefs',columnDefs(keys));gridApi.setFilterModel(null);gridApi.applyColumnState({defaultState:{sort:null}});gridColumns=key;}
       if(!gridApi.__personalLayout)gridApi.__personalLayout=window.MiniAppTableLayouts?.attach('legacy',gridApi,node('[data-review-grid]'));
       gridApi.__personalLayout?.refresh();
@@ -123,11 +145,13 @@
   }
   function renderState() {
     root.querySelectorAll('[data-source-sheet]').forEach(button=>{button.disabled=busy;button.classList.toggle('active',button.dataset.sourceSheet===selectedSheet);button.setAttribute('aria-pressed',String(button.dataset.sourceSheet===selectedSheet));});
-    node('[data-source-description]').textContent=`${selectedSheet} import. ${selectedSheet==='Eco-conserve'?'Master Data':'Eco-conserve'} records and sheet are preserved.`;
+    node('[data-source-description]').textContent=updating()?`${selectedSheet} updates. Existing records and Sheet rows are preserved.`:`${selectedSheet} import. ${selectedSheet==='Eco-conserve'?'Master Data':'Eco-conserve'} records and sheet are preserved.`;
     node('[data-resume]').disabled=busy;node('[data-filter]').disabled=busy||!active?.state;
     root.querySelectorAll('[data-review-mode]').forEach(button=>{button.disabled=busy||!active?.state;button.classList.toggle('active',button.dataset.reviewMode===reviewMode);button.setAttribute('aria-pressed',String(button.dataset.reviewMode===reviewMode));});
     node('[data-sheet-sync]').hidden=!active?.state;
     if(!active?.state){root.querySelectorAll('[data-action]').forEach(button=>{button.hidden=true;});node('[data-mapping]').hidden=true;node('[data-source]').open=true;node('[data-grid-wrap]').hidden=true;node('[data-rows]').hidden=true;node('[data-table-hint]').hidden=true;return;}
+    const filter=node('[data-filter]'),filterMode=updating()?'updates':'initial';
+    if(filter.dataset.importMode!==filterMode){filter.dataset.importMode=filterMode;filter.innerHTML=(updating()?['changed','ambiguous','new','unchanged','all','selected','committed']:['all','ready','warning','blocked','pending','selected','committed']).map(v=>`<option value="${v}">${esc(human(v))}</option>`).join('');}
     node('[data-mapping]').hidden=false;
     node('[data-source]').open=active.phase==='uploading';
     const hold=active.frozen?(['backup','projecting','verifying','replacing','readback','deleting'].includes(active.phase)?'Register changes paused until verification':'Verified cases can continue; unverified cases remain held'):'';
@@ -136,7 +160,9 @@
     node('[data-progress]').max=Math.max(processing?.count||active.total,1);node('[data-progress]').value=processing?.offset||active.committed;
     const sync=active.sheet_sync||{synced:0,pending:active.committed,not_imported:active.total-active.committed,state:'awaiting_import'};
     node('[data-sheet-sync]').dataset.state=sync.state;
-    node('[data-imported-count]').textContent=`${active.committed} / ${active.total}`;
+    node('[data-imported-count]').textContent=`${active.committed} / ${updating()?active.total-(active.counts?.unchanged||0):active.total}`;
+    node('[data-save-label]').textContent=updating()?'updates applied':'saved in database';
+    node('[data-pending-label]').textContent=updating()?'awaiting review':'not imported';
     node('[data-synced-count]').textContent=`${sync.synced} / ${active.committed}`;
     node('[data-sync-pending]').textContent=sync.pending;
     node('[data-not-imported]').textContent=sync.not_imported;
@@ -148,17 +174,26 @@
       active.phase==='committing'?`${active.committed} of ${active.total} source rows saved. ${busy?'Importing and syncing in FIFO order.':'Import paused. Use “Resume processing” to continue.'}`:
       sync.pending>0?`${sync.pending} saved cases await Sheet sync, oldest first. Use “Sync imported rows to Sheet” to retry; ${sync.not_imported} unimported source rows stay under review.`:
       `${sync.synced} saved cases verified on the Sheet. ${sync.not_imported} source rows remain: use “Review unimported rows”, approve them, then “Import approved rows”. Each saved batch syncs automatically in FIFO order.`;
-    const available={stage:active.phase==='mapping',cleanup:superuser&&['ready','deleting'].includes(active.phase)&&!active.state.cleanup_complete,commit:active.phase==='ready'&&active.state.cleanup_complete,
-      project:['ready','committing'].includes(active.phase)&&sync.pending>0,replace:active.phase==='ready'&&active.committed===active.total&&active.total>0,review_pending:active.phase==='ready'&&sync.not_imported>0,restart_projection:['backup','projecting','verifying'].includes(active.phase),cancel_preview:active.frozen&&!active.state.cleanup_started&&active.phase==='ready',discard:!active.frozen&&active.committed===0};
+    const available={stage:active.phase==='mapping',cleanup:!updating()&&superuser&&['ready','deleting'].includes(active.phase)&&!active.state.cleanup_complete,commit:active.phase==='ready'&&(updating()||active.state.cleanup_complete),recompare:updating()&&active.phase==='ready',
+      project:['ready','committing'].includes(active.phase)&&sync.pending>0,replace:!updating()&&active.phase==='ready'&&active.committed===active.total&&active.total>0,review_pending:active.phase==='ready'&&sync.not_imported>0,restart_projection:['backup','projecting','verifying'].includes(active.phase),cancel_preview:active.frozen&&!active.state.cleanup_started&&active.phase==='ready',discard:!active.frozen&&active.committed===0};
     for(const [name,enabled] of Object.entries(available)){const button=node(`[data-action="${name}"]`);button.hidden=!enabled;button.disabled=busy||!enabled;}
     node('[data-action="project"]').hidden=active.committed===0||active.phase==='complete';
-    node('[data-action="save_edits"]').hidden=active.phase!=='ready';node('[data-action="save_edits"]').disabled=busy||!pendingEdits();
+    node('[data-action="save_edits"]').hidden=updating()||active.phase!=='ready';node('[data-action="save_edits"]').disabled=busy||!pendingEdits();
+    node('[data-action="commit"]').textContent=updating()?'Apply selected changes':'Import approved rows';
+    node('[data-action="select_all"]').textContent=updating()?'Select all changed cases':'Approve all pending rows';
+    node('[data-action="select_page"]').textContent=updating()&&node('[data-filter]').value==='new'?'Select displayed new cases':updating()?'Select displayed changes':'Approve displayed rows';
+    if(updating()){
+      const counts=active.counts||{};
+      feedback(lastNotice||`${active.source_sheet} · ${active.phase} · ${active.total} staged · ${counts.changed||0} changed · ${counts.unchanged||0} unchanged · ${counts.ambiguous||0} need matching · ${counts.new||0} new · ${active.committed} applied`);
+      node('[data-table-hint]').textContent='Changed fields show database → workbook. Open Row to choose fields, match a case or confirm a new case. Blank replacements start unchecked.';
+      node('[data-sync-message]').textContent=sync.error||`${active.committed} applied · ${sync.synced} synced · ${sync.pending} awaiting sync. Existing records and Sheet rows are preserved.`;
+    }
     for(const name of ["refresh","select_page","select_all","unselect_all","previous","next"]){node(`[data-action="${name}"]`).hidden=false;}
     for(const name of ['refresh','select_page','select_all','unselect_all','previous','next'])node(`[data-action="${name}"]`).disabled=busy||(name==='previous'&&offset===0)||(name==='next'&&offset+50>=pageTotal);
     node('[data-filter]').disabled=busy;node('[data-resume]').disabled=busy;
     for(const name of ['select_page','select_all','unselect_all'])node(`[data-action="${name}"]`).hidden=!['ready','committing'].includes(active.phase);
     node('[data-action="pause"]').hidden=!busy;
-    node('[data-action="resume"]').hidden=!['staging','deleting','committing','syncing_rows','backup','projecting','verifying','replacing','readback'].includes(active.phase);
+    node('[data-action="resume"]').hidden=!['staging','comparing','deleting','committing','syncing_updates','syncing_rows','backup','projecting','verifying','replacing','readback'].includes(active.phase);
     node('[data-action="resume"]').disabled=busy;
     const bindings=active.state.bindings||{};node('[data-mapping-rows]').innerHTML=Object.entries(bindings).map(([i,field])=>`<div><strong>${esc(active.state.headers[i])}</strong><p>${esc(field)}</p></div>`).join('');
     node('[data-mapping]').open=active.phase==='mapping';
@@ -170,7 +205,8 @@
   }
   async function refresh() {
     if(!active)return;
-    const data=await call(`${active.id}/?offset=${offset}&filter=${encodeURIComponent(node('[data-filter]').value)}`);current=data.rows;pageTotal=data.total;
+    const filter=node('[data-filter]').value;
+    const data=await call(`${active.id}/?offset=${offset}&filter=${encodeURIComponent(filter)}`);renderState();if(node('[data-filter]').value!==filter)return refresh();current=data.rows;pageTotal=data.total;
     await renderReview();
     node('[data-page]').textContent=`${data.total?offset+1:0}–${offset+current.length} of ${data.total}`;
     node('[data-action="previous"]').disabled=offset===0;node('[data-action="next"]').disabled=offset+50>=data.total;renderState();
@@ -191,7 +227,7 @@
   async function process() {
     running=true;
     if(['ready','committing'].includes(active.phase)&&active.sheet_sync?.pending>0)await command('sync_rows');
-    while(running&&!document.hidden&&['staging','deleting','committing','syncing_rows','backup','projecting','verifying','replacing','readback'].includes(active.phase)) {
+    while(running&&!document.hidden&&['staging','comparing','deleting','committing','syncing_updates','syncing_rows','backup','projecting','verifying','replacing','readback'].includes(active.phase)) {
       const data=await command('advance');renderState();
       if(data.results?.some(r=>r.ok)&&active.sheet_sync?.pending>0)await command('sync_rows');
       if(data.wait_seconds)await new Promise(resolve=>setTimeout(resolve,Math.ceil(data.wait_seconds*1000)));
@@ -214,7 +250,7 @@
     if(!rows.length||!['ready','committing'].includes(active.phase))return;
     gridApi?.stopEditing();
     await command('select',{rows:rows.map(r=>({id:r.id,approved:r.approved,
-      existing_case_id:r.reconciliation.existing_case_id||'',note:r.reconciliation.note||''}))});
+      existing_case_id:r.reconciliation.existing_case_id||'',note:r.reconciliation.note||'',...(updating()?{selected_fields:r.reconciliation.selected_fields||[],create_new:!!r.reconciliation.create_new}:{})}))});
   }
   async function init() {
     root=document.getElementById('legacy-data-workspace');if(!root||root.dataset.ready)return;root.dataset.ready='true';
@@ -223,7 +259,7 @@
     node('[data-upload-form]').onsubmit=event=>{event.preventDefault();run(async()=>{
       const file=node('[name="file"]').files[0];if(!file||file.size>20*1024*1024)throw new Error('Select one XLSX up to 20 MiB.');
       feedback('Reading source checksum…');const digest=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',await file.arrayBuffer()))).map(v=>v.toString(16).padStart(2,'0')).join('');
-      await call('',{group_id:node('[name="group_id"]').value,namespace:node('[name="namespace"]').value,filename:file.name,size:file.size,digest,source_sheet:selectedSheet});
+      await call('',{group_id:node('[name="group_id"]').value,namespace:node('[name="namespace"]').value,filename:file.name,size:file.size,digest,source_sheet:selectedSheet,mode:node('[name="import_mode"]').value});
       const existing=new Set(active.chunks);let position=0;running=true;
       for(let start=0;start<file.size;start+=512*1024,position++) {
         if(!running||document.hidden){feedback('Upload paused. Re-select the same workbook to resume saved chunks.');return;}
@@ -238,14 +274,17 @@
     });};
     node('[data-filter]').onchange=()=>run(async()=>{if(active)await selection(current.filter(r=>!r.committed));offset=0;await refresh();});
     root.addEventListener('input',event=>{
+      if(event.target.dataset.updateField){const r=current.find(r=>r.id===event.target.dataset.rowId);if(r&&!busy){const fields=new Set(r.reconciliation.selected_fields||[]);event.target.checked?fields.add(event.target.dataset.updateField):fields.delete(event.target.dataset.updateField);r.reconciliation.selected_fields=[...fields];}return;}
+      if(event.target.dataset.newCase){const r=current.find(r=>r.id===event.target.dataset.newCase);if(r&&!busy){r.reconciliation.create_new=event.target.checked;r.approved=event.target.checked;}return;}
       const target=event.target,id=target.dataset.select||target.dataset.match||target.dataset.note;
       const row=current.find(r=>String(r.id)===id);if(!row||busy||!reviewable(row))return;
       if(target.dataset.select)row.approved=target.checked;
       if(target.dataset.match)row.reconciliation.existing_case_id=target.value;
       if(target.dataset.note)row.reconciliation.note=target.value;
     });
-    node('[data-row-dialog]').addEventListener('close',()=>{gridApi?.refreshCells({force:true});if(reviewMode==='cards')node('[data-rows]').innerHTML=current.map(rowCard).join('');});
+    node('[data-row-dialog]').addEventListener('close',()=>{if(updating()){void run(async()=>{await selection(current.filter(r=>!r.committed));await refresh();});return;}gridApi?.refreshCells({force:true});if(reviewMode==='cards')node('[data-rows]').innerHTML=current.map(rowCard).join('');});
     root.addEventListener('click',event=>{
+      const matched=event.target.closest('[data-use-case]');if(matched){run(async()=>{const r=current.find(r=>r.id===matched.dataset.rowId);await command('select',{rows:[{id:r.id,existing_case_id:matched.dataset.useCase,approved:false}]});await refresh();node('[data-row-detail]').innerHTML=updateCard(current.find(row=>row.id===r.id));});return;}
       const source=event.target.closest('[data-source-sheet]')?.dataset.sourceSheet;
       if(source){run(async()=>{
         if(source===selectedSheet)return;
@@ -267,14 +306,15 @@
         else if(action==='save_edits')lastNotice='Corrections saved and revalidated. Review and approve the changed rows again.';
         else if(action==='resume')await process();
         else if(action==='stage'){await command('stage');await process();}
+        else if(action==='recompare'){await command('recompare',{ids:current.filter(r=>!r.committed).map(r=>r.id)});await refresh();}
         else if(action==='previous'||action==='next'){await selection(current.filter(r=>!r.committed));offset=Math.max(0,offset+(action==='previous'?-50:50));await refresh();}
         else if(action==='select_page'){
           const rows=[];if(reviewMode==='table'&&gridApi)gridApi.forEachNodeAfterFilterAndSort(n=>{if(reviewable(n.data))rows.push(n.data);});else rows.push(...current.filter(reviewable));
-          rows.forEach(r=>{r.approved=true;});await selection(current.filter(r=>!r.committed));await refresh();
+          rows.forEach(r=>{if(updating()&&r.proposal.kind==='new'){if(node('[data-filter]').value!=='new')return;r.reconciliation.create_new=true;}if(updating()&&r.proposal.kind==='ambiguous')return;r.approved=true;});await selection(current.filter(r=>!r.committed));await refresh();
         }
         else if(action==='select_all'||action==='unselect_all'){await selection(current.filter(r=>!r.committed));await command('select',{all:true,approved:action==='select_all'});await refresh();}
         else if(action==='review_pending'){await selection(current.filter(r=>!r.committed));node('[data-filter]').value='pending';offset=0;await refresh();}
-        else if(action==='commit'){await selection(current.filter(r=>!r.committed));if(await confirm('Import approved records',`Import the saved selection (${active.selected} approved rows)?`,`Saved cases sync to ${active.source_sheet} automatically in FIFO order. Pause manual edits to the affected Sheet rows. Historical gaps remain unknown.`)){await command('commit');await process();}}
+        else if(action==='commit'){await selection(current.filter(r=>!r.committed));if(await confirm(updating()?'Apply selected changes':'Import approved records',`${updating()?'Apply changes to':'Import'} the saved selection (${active.selected} rows)?`,updating()?'Only selected fields change. Original evidence and other records are retained; saved changes queue for Sheet sync.':`Saved cases sync to ${active.source_sheet} automatically in FIFO order. Pause manual edits to the affected Sheet rows. Historical gaps remain unknown.`)){await command('commit');await process();}}
         else if(action==='cleanup'){
           running=true;let result;do{result=await command('cleanup_preview');renderState();}while(!result.review.complete&&running&&!document.hidden);running=false;
           if(result.review.complete&&await confirm('Delete '+active.source_sheet+' test data',`Delete ${result.review.count} ${active.source_sheet} test cases for ${active.group_label} and the disclosed dependent records?`,'Impact: '+result.review.impact.map(i=>`${i.category}: ${i.count} ${i.model}`).join('; ')+'. The other register is preserved. No Sheet rows are deleted in this step. The owner remains held until cutover finishes.')){await command('cleanup_confirm',{token:result.review.token});await process();}

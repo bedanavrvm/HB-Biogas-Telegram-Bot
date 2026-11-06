@@ -26,6 +26,7 @@ class LegacyUpload(models.Model):
     filename = models.CharField(max_length=200, db_comment='Private original filename, never a filesystem path.')
     digest = models.CharField(max_length=64, db_comment='Expected SHA256, verified against retained chunks.')
     source_sheet = models.CharField(max_length=32, choices=[('Master Data','Master Data'),('Eco-conserve','Eco-conserve')], default='Master Data', db_comment='Immutable selected source register; binds decoding, cleanup, partner and projection destination.')
+    mode = models.CharField(max_length=12, choices=[('initial', 'Initial import'), ('updates', 'Update existing cases')], default='initial', db_comment='Immutable import intent. Update sessions never authorize deletion, replacement or a register fence.')
     size = models.PositiveIntegerField(db_comment='Expected compressed XLSX bytes, at most 20 MiB.')
     phase = models.CharField(max_length=24, default='uploading', db_comment='Server-owned resumable processing state.')
     state = models.JSONField(default=dict, db_comment='Mapping, cursor, deletion manifest, publication checkpoints and recovery evidence.')
@@ -38,7 +39,8 @@ class LegacyUpload(models.Model):
     class Meta:
         db_table = 'portal_legacy_upload_session'
         db_table_comment = 'Authoritative private upload and cutover checkpoints; retained with import evidence.'
-        constraints = [models.UniqueConstraint(fields=['batch','digest','source_sheet'], name='portal_legacy_upload_source_unique'),
+        constraints = [models.UniqueConstraint(fields=['batch','digest','source_sheet','mode'], name='portal_legacy_upload_mode_unique'),
+                       models.CheckConstraint(condition=models.Q(mode__in=['initial','updates']), name='portal_legacy_upload_mode_valid'),
                        models.CheckConstraint(condition=models.Q(source_sheet__in=['Master Data','Eco-conserve']), name='portal_legacy_upload_source_valid')]
 
 

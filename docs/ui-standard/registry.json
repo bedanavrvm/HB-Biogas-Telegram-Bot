@@ -1100,6 +1100,24 @@
       "sha256": "452fcaa1818cd99bffa4e4b635ec8663493a372339aeca33384568331cee650d",
       "review_reference": "docs/ui-standard/reviews/2026-11-06-personal-table-layouts-and-publication.md",
       "reason": "User-authorized personal table layouts, retained report presentation, deposit filters and publication countdown recovery; existing source-bound controls and synthetic browser evidence. No Phase 6 migration or access expansion."
+    },
+    {
+      "path": "core/static/miniapp/portal_legacy_import.js",
+      "sha256": "c7721bb4d28eca1cb0c016a68c6ac2e8e976fb44b472ee535bedbda17598ad57",
+      "review_reference": "docs/ui-standard/reviews/2026-11-06-legacy-update-import.md",
+      "reason": "Approved non-destructive update mode: changes-only comparison, field selection, matching/new-case consent and resumable publication. Existing components and synthetic browser evidence; no design migration."
+    },
+    {
+      "path": "core/templates/portal/partials/legacy_import.html",
+      "sha256": "d5bbb7192be98c969de7d0a93d59b780bad7a5b7b0d08d68ccb0d5091e4c17e6",
+      "review_reference": "docs/ui-standard/reviews/2026-11-06-legacy-update-import.md",
+      "reason": "Approved non-destructive update mode: changes-only comparison, field selection, matching/new-case consent and resumable publication. Existing components and synthetic browser evidence; no design migration."
+    },
+    {
+      "path": "core/templates/base_shell.html",
+      "sha256": "345fe8af4065d84d8f55a065127e03a20496bdaa56d79a9ac709393e1c63264f",
+      "review_reference": "docs/ui-standard/reviews/2026-11-06-legacy-update-import.md",
+      "reason": "Approved non-destructive update mode: changes-only comparison, field selection, matching/new-case consent and resumable publication. Existing components and synthetic browser evidence; no design migration."
     }
   ],
   "source_roots": [

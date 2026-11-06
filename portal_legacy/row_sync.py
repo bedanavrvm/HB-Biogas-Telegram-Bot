@@ -12,6 +12,7 @@ from .workbook import token
 
 
 def begin(upload):
+    if upload.mode=='updates':raise ValueError('Use the non-destructive update publisher for update uploads.')
     if upload.phase not in {'ready','committing'}:raise ValueError('Finish the current processing step before starting Sheet sync.')
     if not upload.frozen or not upload.state.get('cleanup_complete'):raise ValueError('The reviewed cutover hold is required.')
     committed=upload.drafts.filter(legacy__committed_at__isnull=False)

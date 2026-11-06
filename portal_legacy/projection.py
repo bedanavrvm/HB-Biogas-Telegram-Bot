@@ -33,6 +33,7 @@ def destination(upload):
 
 
 def preview(upload,actor,access):
+    if upload.mode=='updates':raise ValueError('Update uploads never replace a register.')
     authorize(actor,access,upload.batch.group,branch='')
     if not upload.state.get('cleanup_complete'):raise ValueError('Complete test cleanup first.')
     if upload.drafts.filter(legacy__isnull=True).exists():raise ValueError('Account for every source row before replacing the selected register.')
@@ -71,6 +72,8 @@ def confirm(upload,body):
 
 
 def record_values(legacy,headers,ordinal,existing=None):
+    from .services import effective_values
+    values=effective_values(legacy)
     from core.services.jawabu_pipeline import master_projection_fields
     from core.services.jawabu_case_reference import display_case_reference
     from core.services.jawabu_validation import parse_business_date
@@ -89,19 +92,19 @@ def record_values(legacy,headers,ordinal,existing=None):
         if value is not None:
             for alias in fields.get(name,([],None))[0]:result[token(alias)]=format(Decimal(str(value)),'.2f')
     for name in ('primary_phone','secondary_phone'):
-        if legacy.values.get(name) and name not in corrected:
-            for alias in fields.get(name,([],None))[0]:result[token(alias)]=legacy.values[name]
-    hb=legacy.values.get('deposit_paid_hbg','0');jbl=legacy.values.get('legacy_deposit_paid_jbl','0')
+        if values.get(name) and name not in corrected:
+            for alias in fields.get(name,([],None))[0]:result[token(alias)]=values[name]
+    hb=values.get('deposit_paid_hbg','0');jbl=values.get('legacy_deposit_paid_jbl','0')
     if 'deposit_paid_hbg' in corrected:
         hb=str(legacy.farmer.deposit_paid_hbg or '0')
     from .workbook import propose
-    parsed=propose(legacy.values)['fields']
+    parsed=propose(values)['fields']
     hb_amount=(legacy.farmer.deposit_paid_hbg or Decimal('0')) if 'deposit_paid_hbg' in corrected else Decimal(parsed.get('deposit_paid_hbg','0'))
     total='' if 'not on sf' in hb.lower() else format(hb_amount+Decimal(parsed.get('legacy_deposit_paid_jbl','0')),'.2f')
     result.update({'caseid':display_case_reference(legacy.farmer),'masterrecordid':str(legacy.farmer_id),'no':str(ordinal),
         'total':total,'depositpaidtojbl':str(jbl),'depositpaidtohbg':str(hb)})
     # Historical-only fields are projected only if that explicit column already exists.
-    for name,value in legacy.values.items():
+    for name,value in values.items():
         if name.startswith('legacy:'):result[token('LEGACY | '+name[7:]+' | Cleaned')]=str(value)
     return [result.get(token(h),existing[i] if existing and i<len(existing) else '') for i,h in enumerate(headers)]
 

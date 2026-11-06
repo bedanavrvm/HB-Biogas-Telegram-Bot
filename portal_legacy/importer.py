@@ -43,17 +43,19 @@ def create(body,actor,access):
     authorize(actor,access,group,branch='')
     namespace=str(body.get('namespace',''));size=int(body.get('size',0));digest=str(body.get('digest',''))
     source_sheet=str(body.get('source_sheet','Master Data'));partner_for_source(source_sheet)
+    mode=str(body.get('mode','initial'))
+    if mode not in {'initial','updates'}:raise ValueError('Choose initial import or updates.')
     if not re.fullmatch(r'[A-Za-z0-9_-]{1,100}',namespace):raise ValueError('Supply a stable cutover namespace.')
     if not 1<=size<=streaming.LIMIT or not re.fullmatch('[a-f0-9]{64}',digest):raise ValueError('Select an XLSX file up to 20 MiB with a SHA256 digest.')
     with transaction.atomic():
         GroupSheetConfiguration.objects.select_for_update().get(pk=group.pk)
-        existing=LegacyUpload.objects.filter(batch__group=group,digest=digest,source_sheet=source_sheet).first()
+        existing=LegacyUpload.objects.filter(batch__group=group,digest=digest,source_sheet=source_sheet,mode=mode).first()
         if existing:
             if existing.phase=='discarded':
                 existing.phase='uploading';existing.state={};save(existing)
             return existing
         batch,_=LegacyBatch.objects.get_or_create(group=group,namespace=namespace,defaults={'source_hash':digest,'created_by':actor})
-        return LegacyUpload.objects.create(batch=batch,actor=actor,filename=str(body.get('filename','source.xlsx'))[:200],digest=digest,size=size,source_sheet=source_sheet)
+        return LegacyUpload.objects.create(batch=batch,actor=actor,filename=str(body.get('filename','source.xlsx'))[:200],digest=digest,size=size,source_sheet=source_sheet,mode=mode)
 
 
 def receive(upload,position,content):
@@ -84,6 +86,9 @@ def save(upload):
 
 
 def payload(upload):
+    if upload.mode=='updates':
+        from .updates import payload as update_payload
+        return update_payload(upload)
     counts=upload.drafts.aggregate(total=Count('pk'),committed=Count('pk',filter=Q(legacy__committed_at__isnull=False)),selected=Count('pk',filter=Q(approved=True)),verified=Count('pk',filter=Q(legacy__committed_at__isnull=False,reconciliation__sheet_receipt__verified=True,reconciliation__sheet_receipt__reference_format='staff')))
     total,committed=counts['total'],counts['committed']
     # Publication permission (including an explicit case link) is not a remote receipt.
@@ -97,7 +102,7 @@ def payload(upload):
     state_values={k:v for k,v in upload.state.items() if k not in {'cleanup_ids','cleanup_plans','cleanup_facts','cleanup_remaining','snapshot_hashes'}}
     if 'row_sync' in state_values:state_values['row_sync']={k:v for k,v in state_values['row_sync'].items() if k not in {'case_rows','plans','empty_rows'}}
     return {'id':str(upload.pk),'namespace':upload.batch.namespace,'group_id':str(upload.batch.group_id),'group_label':upload.batch.group.display_name or upload.batch.group.sheet_name,
-        'filename':upload.filename,'source_sheet':upload.source_sheet,'phase':upload.phase,'revision':upload.revision,'frozen':upload.frozen,
+        'filename':upload.filename,'source_sheet':upload.source_sheet,'mode':upload.mode,'phase':upload.phase,'revision':upload.revision,'frozen':upload.frozen,
         'chunks':list(upload.chunks.filter(kind='source').values_list('position',flat=True)),
         'size':upload.size,'total':total,'committed':committed,
         'sheet_sync':{'state':state,'synced':synced,'pending':committed-synced,'not_imported':total-committed,'error':error},
@@ -116,7 +121,7 @@ def stage_step(upload,actor,access):
         for next_offset,(physical,cells) in records:
             values=streaming.values_for(cells,upload.state['bindings'])
             if values.get('customer_name') or any(v not in ('','-','0',None) for k,v in values.items() if k not in {'source_row'} and not k.startswith('legacy:')):
-                try:source_row=int(values.pop('source_row'))
+                try:source_row=int(values.pop('source_row',physical) if upload.mode=='updates' else values.pop('source_row'))
                 except (KeyError,ValueError,TypeError):raise ValueError(f'Worksheet row {physical}: retain its original Source Row.')
                 if source_row<2:raise ValueError('Source Row must be at least 2.')
                 authorize(actor,access,upload.batch.group,branch=values.get('branch',''),product=values.get('payment_product',''))
@@ -128,7 +133,7 @@ def stage_step(upload,actor,access):
     with transaction.atomic():
         LegacyDraft.objects.bulk_create(pending,batch_size=100)
         upload.state['offset']=offset
-        if exhausted:upload.phase='ready'
+        if exhausted:upload.phase='comparing' if upload.mode=='updates' else 'ready'
         save(upload)
 
 
@@ -146,6 +151,9 @@ def review_proposal(values):
 
 
 def inspect_rows(upload,offset=0,filter_by='all'):
+    if upload.mode=='updates':
+        from .updates import inspect_rows as update_rows
+        return update_rows(upload,offset,filter_by)
     identity=KeyTextTransform('national_id',KeyTransform('fields','proposal'))
     qs=upload.drafts.annotate(review_identity=identity).order_by('source_row');offset=max(0,int(offset))
     duplicate_ids=upload.drafts.annotate(review_identity=identity).exclude(review_identity__isnull=True).exclude(review_identity='').values('review_identity').annotate(n=Count('pk')).filter(n__gt=1).values('review_identity')
@@ -194,6 +202,9 @@ def inspect_rows(upload,offset=0,filter_by='all'):
 
 
 def select(upload,body):
+    if upload.mode=='updates':
+        from .updates import select as update_select
+        return update_select(upload,body)
     if upload.phase not in {'ready','committing'}:raise ValueError('Finish staging before selecting rows.')
     if body.get('all') is True:
         upload.drafts.filter(legacy__isnull=True).exclude(proposal__review_status='blocked').update(approved=bool(body.get('approved')))
@@ -208,6 +219,7 @@ def select(upload,body):
 
 @transaction.atomic
 def edit(upload,body,actor,access):
+    if upload.mode=='updates':raise ValueError('Select fields in the comparison. Correct the source workbook before uploading a new version.')
     if upload.phase!='ready':raise ValueError('Pause and finish the current processing step before editing review values.')
     draft=upload.drafts.select_for_update().get(pk=body.get('id'))
     if draft.legacy_id:raise ValueError('This row is already imported. Use the case correction workflow; imported source evidence is read-only.')
@@ -232,6 +244,7 @@ def edit(upload,body,actor,access):
 
 
 def cleanup_preview(upload,actor):
+    if upload.mode=='updates':raise ValueError('Update uploads never delete cases.')
     from core.services.miniapp_deletion import authorize as deletion_authorize,preview_selection,CASCADE
     deletion_authorize(actor)
     group=upload.batch.group
@@ -277,6 +290,7 @@ def cleanup_preview(upload,actor):
 
 
 def cleanup_confirm(upload,actor,token):
+    if upload.mode=='updates':raise ValueError('Update uploads never delete cases.')
     from core.services.miniapp_deletion import authorize as deletion_authorize
     deletion_authorize(actor)
     if upload.phase!='ready' or not upload.frozen or upload.state.get('cleanup_complete') or upload.drafts.filter(legacy__isnull=False).exists():
@@ -308,6 +322,9 @@ def deletion_step(upload,actor):
 
 
 def commit_step(upload,actor,access):
+    if upload.mode=='updates':
+        from .updates import commit_step as update_commit
+        return update_commit(upload,actor,access)
     if not upload.state.get('cleanup_complete'):raise ValueError('Complete the Superuser-confirmed test cleanup first.')
     started=time.monotonic();results=[]
     for draft in upload.drafts.filter(approved=True,legacy__isnull=True).order_by('source_row')[:50]:

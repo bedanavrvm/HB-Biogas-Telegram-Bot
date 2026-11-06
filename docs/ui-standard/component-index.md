@@ -1,5 +1,8 @@
 # Component index and migration hold
 
+Legacy update imports reuse upload/mapping, AG Grid change cells, field checkboxes,
+row dialogs and resumable progress. [Implementation and evidence](reviews/2026-11-06-legacy-update-import.md).
+
 Personal Table Layouts, retained report presentation, JBL deposit checkboxes and
 publication retry countdowns reuse current compact settings/filter/recovery
 patterns. [Scope and local evidence](reviews/2026-11-06-personal-table-layouts-and-publication.md).

@@ -1,5 +1,18 @@
 # Portal legacy register importer
 
+## Updating previously imported cases
+
+Use **Update Existing Cases** in the upload form to compare a newer raw workbook
+with current Django records. This mode never deletes records or clears a Sheet.
+Select Master Data or Eco-conserve; upload the same workbook separately for each
+register. Review Changed rows, open Row to choose fields, and apply the selected
+changes together. Unchanged rows need no action. New cases and ambiguous matches
+have separate filters and explicit selection. Original evidence is retained,
+concurrent edits require a refreshed comparison, and saved updates queue for
+normal Sheet publication. See the [update workflow and validation evidence](../ui-standard/reviews/2026-11-06-legacy-update-import.md).
+
+Deploy migration `portal_legacy.0007_update_mode` before using this option.
+
 Open **Legacy changeover → Legacy import** in the Telegram Portal sidebar.
 This dedicated page is separate from Pipeline Intake and All Cases; All Cases
 has no importer. Select **Master Data** or **Eco-conserve** before uploading.

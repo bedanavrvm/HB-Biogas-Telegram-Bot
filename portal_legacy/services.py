@@ -10,6 +10,11 @@ from .models import LegacyBatch, LegacyRow, LegacyEvent
 from .workbook import read_workbook, propose
 
 
+def effective_values(row):
+    from .updates import effective_values as amended_values
+    return amended_values(row)
+
+
 def authorize(actor, access, group, *, branch=None, product='', farmer=None):
     from core.services.portal_permissions import portal_access_decision
     from core.services.access_policies import OPERATIONS_ADMIN_ROLE
@@ -97,8 +102,8 @@ def row_payload(row):
 
 
 def legacy_order_reference(farmer):
-    references = {str(values.get('order_number') or '').strip()
-                  for values in LegacyRow.objects.filter(farmer=farmer, committed_at__isnull=False).values_list('values', flat=True)} - {'', '-'}
+    references = {str(effective_values(row).get('order_number') or '').strip()
+                  for row in LegacyRow.objects.filter(farmer=farmer, committed_at__isnull=False).prefetch_related('events')} - {'', '-'}
     return {'value': next(iter(references)) if len(references) == 1 else None,
             'issue': 'Conflicting legacy order references; review the original rows.' if len(references) > 1 else ''}
 
@@ -107,7 +112,8 @@ def legacy_jbl_receipt(farmer):
     """Reviewed historical receipts, never a current balance or SysUp LGF."""
     amounts = set()
     invalid = False
-    for values in LegacyRow.objects.filter(farmer=farmer, committed_at__isnull=False).values_list('values', flat=True):
+    for row in LegacyRow.objects.filter(farmer=farmer, committed_at__isnull=False).prefetch_related('events'):
+        values=effective_values(row)
         candidate = propose(values)
         invalid |= any('legacy_deposit_paid_jbl: invalid amount' in issue for issue in candidate['issues'])
         amount = candidate['fields'].get('legacy_deposit_paid_jbl')
@@ -122,20 +128,21 @@ def legacy_jbl_receipt(farmer):
 def case_payload(farmer):
     row = LegacyRow.objects.filter(farmer=farmer, committed_at__isnull=False).order_by('committed_at', 'pk').first()
     if row is None: return None
+    values=effective_values(row)
     receipt = legacy_jbl_receipt(farmer)
     reference = legacy_order_reference(farmer)
     from core.services.identifiers import normalize_kenyan_phone
     return {'reported_receipts': {'Legacy deposit received by JBL': receipt['amount']} if receipt['amount'] is not None else {},
             'receipt_issue': receipt['issue'],
             'row_id': str(row.pk), 'source_sheet': row.source_sheet, 'source_row': row.source_row,
-            'reported_outcome': row.proposal.get('outcome', ''), 'stage': row.proposal.get('stage', ''),
-            'historical_fields': {k.removeprefix('legacy:'): v for k,v in row.values.items() if k.startswith('legacy:') and v not in ('',None,'-')},
-            'historical_contacts': {k: row.values[k] for k in ('primary_phone','secondary_phone') if row.values.get(k) and not normalize_kenyan_phone(row.values[k])},
-            'reason': row.values.get('legacy_reason', ''), 'comment': row.values.get('case_comment_history', ''),
+            'reported_outcome': values.get('legacy_outcome', row.proposal.get('outcome', '')), 'stage': row.proposal.get('stage', ''),
+            'historical_fields': {k.removeprefix('legacy:'): v for k,v in values.items() if k.startswith('legacy:') and v not in ('',None,'-')},
+            'historical_contacts': {k: values[k] for k in ('primary_phone','secondary_phone') if values.get(k) and not normalize_kenyan_phone(values[k])},
+            'reason': values.get('legacy_reason', ''), 'comment': values.get('case_comment_history', ''),
             'issues': [*row.proposal.get('issues', []), *([reference['issue']] if reference['issue'] else [])], 'revision': row.revision,
-            'source_notes': {key.replace('_', ' '): row.values[key] for key in ('pending_installation_comment', 'pending_commissioning_comment', 'cs_remarks') if row.values.get(key)},
-            'reported_references': {key.replace('_', ' '): row.values[key] for key in ('order_number', 'invoice_number', 'payment_number') if row.values.get(key)},
-            'missing_fields': [key.replace('_', ' ') for key in ('national_id', 'primary_phone', 'hbg_visit_date', 'invoice_number', 'invoice_date', 'installation_date', 'commissioning_date') if not row.values.get(key) or row.values.get(key) == '-'],
+            'source_notes': {key.replace('_', ' '): values[key] for key in ('pending_installation_comment', 'pending_commissioning_comment', 'cs_remarks') if values.get(key)},
+            'reported_references': {key.replace('_', ' '): values[key] for key in ('order_number', 'invoice_number', 'payment_number') if values.get(key)},
+            'missing_fields': [key.replace('_', ' ') for key in ('national_id', 'primary_phone', 'hbg_visit_date', 'invoice_number', 'invoice_date', 'installation_date', 'commissioning_date') if not values.get(key) or values.get(key) == '-'],
             'continuation_confirmed': row.continuation_confirmed,
             'needs_hb_handover': bool(farmer.legacy_fulfillment_partner) and farmer.workflow_state == 'ordered' and not hasattr(farmer, 'homebiogas_action'),
             'evidence': row.proposal.get('evidence', []), 'publication_ready': row.publication_ready}
