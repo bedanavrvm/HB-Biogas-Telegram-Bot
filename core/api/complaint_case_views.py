@@ -229,6 +229,8 @@ def complaint_cases_bootstrap(request):
     data['report_email_allowed'] = can_manage(actor.user, workflow='complaint_cases')
     data['access_policy_version'] = policy_version()
     data['personal'] = preference_payload(actor.user, 'complaint_cases')
+    from core.services.table_layouts import catalogue
+    data['table_catalogue'] = catalogue(actor.user, 'complaint_cases', actor.access)
     access = user_access(actor.user, 'complaint_cases', group_configuration=group_config)
     data['account'] = account_summary_payload(
         actor.user,
@@ -441,7 +443,8 @@ def complaint_cases_settings_personal(request):
         return capability_error
     from core.services.miniapp_settings import update_preference
     try:
-        return JsonResponse({'ok': True, 'data': update_preference(actor.user, 'complaint_cases', payload.get('preferences') or {})})
+        return JsonResponse({'ok': True, 'data': update_preference(actor.user, 'complaint_cases', payload.get('preferences') or {},
+            expected_layouts=payload.get('expected_table_layouts'))})
     except ValueError as exc:
         return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
 

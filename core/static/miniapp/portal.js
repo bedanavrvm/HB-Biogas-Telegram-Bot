@@ -2219,6 +2219,11 @@
     if (!ok || !data.ok) throw new Error(data.error || 'Portal settings could not be loaded.');
     const personal = data.data?.personal || {};
     state.personalPreference = personal;
+    window.MiniAppTableLayouts?.configure(data.data?.table_catalogue, personal.table_layouts);
+    window.MiniAppTableLayouts?.mount(el('portal-table-layouts'), {
+      load: async () => {const result = await apiFetch('/settings/'); if (!result.ok || !result.data?.ok) throw new Error(result.data?.error || 'Layouts could not load.'); return result.data.data;},
+      save: async payload => {const result = await portalApi.postJson('/settings/', payload, tg); if (!result.ok || !result.data?.ok) throw new Error(result.data?.error || 'Layout could not save.'); return result.data.data;},
+    });
     state.portalSettings = data.data || {};
     const reportEmail = data.data?.report_email || {};
     if (reportEmail.allowed) window.MiniAppReportEmailSettings?.mount(el('portal-report-email-manager'), async payload => {

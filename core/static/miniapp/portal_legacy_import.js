@@ -114,6 +114,8 @@
       const keys=[...new Set([...Object.values(active.state.bindings||{}),...current.flatMap(r=>Object.keys(r.source_values||{}))])];
       const key=active.id+JSON.stringify(keys);
       if(key!==gridColumns){gridApi.setGridOption('columnDefs',columnDefs(keys));gridApi.setFilterModel(null);gridApi.applyColumnState({defaultState:{sort:null}});gridColumns=key;}
+      if(!gridApi.__personalLayout)gridApi.__personalLayout=window.MiniAppTableLayouts?.attach('legacy',gridApi,node('[data-review-grid]'));
+      gridApi.__personalLayout?.refresh();
       gridApi.setGridOption('rowData',current);
     }catch(error){
       reviewMode='cards';lastNotice=`Table could not load. Cards are available; choose Table to retry. ${error.message}`;await renderReview();

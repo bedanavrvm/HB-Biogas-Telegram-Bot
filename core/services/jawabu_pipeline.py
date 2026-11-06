@@ -396,7 +396,7 @@ def reappraisal_required_queue():
 
 # ── Queue filters ─────────────────────────────────────────────────────────────
 
-def jbl_visit_queue(search: str = ''):
+def jbl_visit_queue(search: str = '', *, status=None):
     """
     Stage 2 queue — farmers HB has visited but JBL has not yet called on.
 
@@ -418,6 +418,15 @@ def jbl_visit_queue(search: str = ''):
             | Q(county__icontains=search)
             | Q(branch__icontains=search)
         )
+    selected = set(status if isinstance(status, (list, tuple, set)) else [status]) - {None, ''}
+    if selected and not selected <= {'deposit_pending', 'awaiting_visit'}:
+        return qs.none()
+    if len(selected) == 1:
+        from hb_operations.deposits import deposit_queryset, REQUIRED_DEPOSIT
+        qs = deposit_queryset(qs)
+        sufficient = Q(_deposit_total__gte=REQUIRED_DEPOSIT) | Q(jbl_visit_date__isnull=False)
+        held = Q(jbl_visit_date__isnull=True) & (Q(_deposit_total__lt=REQUIRED_DEPOSIT) | Q(_deposit_total__isnull=True))
+        qs = qs.filter(sufficient if 'awaiting_visit' in selected else held)
     # The operational hand-off starts with the oldest HBG visit. County is
     # not a workflow ordering key and caused records to appear out of sequence.
     return qs.order_by(F('hbg_visit_date').asc(nulls_last=True), 'sign_date', 'customer_name')
@@ -2497,6 +2506,7 @@ def sync_farmer_to_master_sheet(
     *,
     force_date_columns: bool = False,
     failure_context: dict | None = None,
+    existing_row_only: bool = False,
 ) -> bool:
     """
     Sync a farmer's updated pipeline fields to the master Google sheet.
@@ -2580,8 +2590,11 @@ def sync_farmer_to_master_sheet(
         service = GoogleSheetsService.get_instance(sheet_id=sheet_id, sheet_name=sheet_name)
         if not service.is_available():
             logger.warning("Google Sheets service unavailable for master sync")
+            unavailable = getattr(service, 'availability_failure', {}) or {}
+            if failure_context is not None:
+                failure_context['provider_status'] = unavailable.get('provider_status')
             note_failure(
-                phase='connection',
+                phase=unavailable.get('phase', 'connection'),
                 detail=f'The {sheet_name} tab could not be opened. Check its name, spreadsheet access, and Google connection.',
             )
             return False
@@ -2733,6 +2746,9 @@ def sync_farmer_to_master_sheet(
                     note_failure(phase='identity', detail=f'A matching row in {sheet_name} has no distinct National ID; identity review is required.')
                     return False
         if not row_number:
+            if existing_row_only:
+                note_failure(phase='row_missing', detail=f'The previously published row is missing from {sheet_name}; no new row was appended. Review the register before retrying.')
+                return False
             allocation_values = sheet.get_all_values(value_render_option='FORMULA')
             row_number = next_master_append_row(allocation_values, header_lookup, data_start_row)
             row_values = [''] * len(headers)

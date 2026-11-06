@@ -64,15 +64,16 @@
       const source=(key,name,width)=>({colId:key,headerName:name,width,valueGetter:p=>p.data.values[key]||''});
       grid=window.agGrid.createGrid(find('[data-grid]'),{theme:'legacy',rowHeight:32,headerHeight:32,rowData:[],getRowId:p=>String(p.data.id),suppressMovableColumns:true,
         defaultColDef:{resizable:true,sortable:true,filter:'agTextColumnFilter',width:150},columnDefs:[
-          {colId:'approval',headerName:'✓',width:48,pinned:'left',filter:false,sortable:false,cellRenderer:p=>{const box=document.createElement('input');box.type='checkbox';box.checked=p.data.approved;box.disabled=busy||!reviewable(p.data);box.setAttribute('aria-label',`Approve source row ${p.data.source_row}`);box.onchange=()=>{p.data.approved=box.checked;run(async()=>{await saveSelection();renderRows();});};return box;}},
           {field:'source_row',headerName:'Row',width:68,pinned:'left',filter:false,cellRenderer:p=>{const b=document.createElement('button');b.textContent=p.value;b.setAttribute('aria-label',`Compare source row ${p.value}`);b.onclick=()=>details(p.data);return b;}},
-          source('customer_name','Customer',190),source('status','Original status',140),{headerName:'Status',width:100,valueGetter:p=>p.data.proposal.fields.status},
-          source('date_reported','Original reported date',170),{headerName:'Reported date',width:140,valueGetter:p=>p.data.proposal.fields.date_reported?.slice(0,10)},
-          {headerName:'Review',width:100,valueGetter:p=>p.data.committed?'IMPORTED':p.data.proposal.status.toUpperCase()},
-          {headerName:'Issues / warnings',width:340,valueGetter:p=>[...p.data.proposal.issues,...p.data.proposal.warnings,p.data.proposal.commit_error].filter(Boolean).join('; ')},
+          {colId:'approval',headerName:'✓',width:48,pinned:'left',filter:false,sortable:false,cellRenderer:p=>{const box=document.createElement('input');box.type='checkbox';box.checked=p.data.approved;box.disabled=busy||!reviewable(p.data);box.setAttribute('aria-label',`Approve source row ${p.data.source_row}`);box.onchange=()=>{p.data.approved=box.checked;run(async()=>{await saveSelection();renderRows();});};return box;}},
+          source('customer_name','Customer',190),source('status','Original status',140),{colId:'clean_status',headerName:'Status',width:100,valueGetter:p=>p.data.proposal.fields.status},
+          source('date_reported','Original reported date',170),{colId:'clean_date_reported',headerName:'Reported date',width:140,valueGetter:p=>p.data.proposal.fields.date_reported?.slice(0,10)},
+          {colId:'review',headerName:'Review',width:100,valueGetter:p=>p.data.committed?'IMPORTED':p.data.proposal.status.toUpperCase()},
+          {colId:'issues',headerName:'Issues / warnings',width:340,valueGetter:p=>[...p.data.proposal.issues,...p.data.proposal.warnings,p.data.proposal.commit_error].filter(Boolean).join('; ')},
           source('customer_phone','Primary phone',150),source('customer_id','National ID',130),source('complaint_description','Description',300),
           {field:'reference',headerName:'Complaint reference',width:150}],rowClassRules:{'import-row-blocked':p=>p.data.proposal.status==='blocked','import-row-warning':p=>p.data.proposal.status==='warning'}});
     }
+    if(grid&&!grid.__personalLayout)grid.__personalLayout=window.MiniAppTableLayouts?.attach('legacy',grid,find('[data-grid]'));
     grid?.setGridOption('rowData',rows);
     find('[data-page]').textContent=total?`${offset+1}–${Math.min(offset+50,total)} of ${total}`:'No rows';
   }
@@ -133,5 +134,5 @@
   const back=find('[data-back]');back.href=native?`/staff/app/complaints/?workspace=${encodeURIComponent(group)}`:`/complaints/?group_id=${encodeURIComponent(group)}`;
   back.onclick=event=>{if(window.frameElement){event.preventDefault();window.frameElement.remove();}};
   document.addEventListener('visibilitychange',()=>{if(document.hidden)running=false;});
-  if(!group)feedback('Open Legacy import from the required Complaints workspace.',true);else run(index);
+  if(!group)feedback('Open Legacy import from the required Complaints workspace.',true);else run(async()=>{let preferences;if(native)preferences=await request('../preferences/');else {const response=await fetch('/api/complaints/bootstrap/',{method:'POST',headers:{'Content-Type':'application/json','X-Telegram-Init-Data':telegram?.initData||''},body:JSON.stringify({group_id:group})});const data=await response.json();if(!response.ok||!data.ok)throw new Error(data.error||'Preferences could not load.');preferences=data.data;}window.MiniAppTableLayouts?.configure(preferences.table_catalogue,preferences.personal?.table_layouts||preferences.table_layouts);await index();});
 })();

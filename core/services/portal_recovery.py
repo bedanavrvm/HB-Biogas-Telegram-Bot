@@ -112,6 +112,8 @@ def publication_issue(operation, case, *, actor, access):
     context = (operation.metadata or {}).get('failure_context') or {}
     if context.get('detail'):
         row['waiting_reason'] += ' ' + context['detail']
+    if context.get('provider_status'):
+        row['waiting_reason'] += f" Google returned HTTP {context['provider_status']}."
     return row
 
 

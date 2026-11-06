@@ -328,10 +328,11 @@ def insights(preset, queryset, filters, period):
     selection = filters.get('chart_key')
     if selection:
         token = (selection, filters.get('bucket_key', ''), filters.get('series_key', ''))
-        valid = any(c['id'] == token[0] and token[1] in c['bucket_keys'] and any(d['key'] == token[2] for d in c['datasets']) for c in output)
+        valid = any(c['id'] == token[0] for c in output)
         if not valid:
             raise PortalReportingError('That chart selection is unavailable. Clear the selection and try again.')
-        cohort &= membership[token]
+        # A remembered bucket may disappear under narrower filters; keep its empty intersection.
+        cohort &= membership.get(token, set())
     elif filters.get('bucket_key') or filters.get('series_key'):
         raise PortalReportingError('Choose a valid chart selection.')
     if preset == 'pipeline':

@@ -773,7 +773,7 @@ def _portal_queue_queryset(queue_key: str, request, *, params=None):
             qs = jawabu_pipeline.final_review_queue()
         else:
             service = getattr(jawabu_pipeline, config['service'])
-            qs = service(params.get('search', '').strip()) if queue_key == 'jbl' else service()
+            qs = service(params.get('search', '').strip(), status=_portal_filter_values(params, 'status')) if queue_key == 'jbl' else service()
         qs = _apply_county_branch_filters(qs, request, params=params, capability=queue_capability)
     qs = _apply_portal_search(qs, params=params)
     if queue_key == 'my_visits':
@@ -1831,10 +1831,12 @@ def portal_settings(request):
     if actor is None:
         return JsonResponse({'ok': False, 'error': 'Your Portal staff account could not be resolved.'}, status=403)
     from core.services.miniapp_settings import account_summary_payload, preference_payload, update_preference
+    from core.services.table_layouts import catalogue
 
     if request.method == 'GET':
         return JsonResponse({'ok': True, 'data': {
             'personal': preference_payload(actor, 'jawabu_portal'),
+            'table_catalogue': catalogue(actor, 'jawabu_portal', getattr(request, 'portal_access', None)),
             'account': account_summary_payload(
                 actor,
                 'jawabu_portal',
@@ -1878,7 +1880,8 @@ def portal_settings(request):
                 **preferences,
                 'default_filters': {**filters, 'branch': allowed_branches[branch.casefold()]},
             }
-        return JsonResponse({'ok': True, 'data': update_preference(actor, 'jawabu_portal', preferences)})
+        return JsonResponse({'ok': True, 'data': update_preference(actor, 'jawabu_portal', preferences,
+            expected_layouts=payload.get('expected_table_layouts'))})
     except ValueError as exc:
         return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
 
@@ -3589,7 +3592,7 @@ def portal_jbl_queue(request):
     from core.services.jawabu_pipeline import jbl_visit_queue, farmer_to_card
     qs = _apply_portal_ordering(
         _apply_county_branch_filters(
-            jbl_visit_queue(request.GET.get('search', '')), request,
+            jbl_visit_queue(request.GET.get('search', ''), status=_portal_filter_values(request.GET, 'status')), request,
             capability='portal.jbl_queue.view',
         ),
         params=request.GET,
@@ -3617,7 +3620,7 @@ def _portal_queue_filter_options(request, queue_key: str):
     params = request.GET.copy()
     params.pop('county', None)
     params.pop('branch', None)
-    if queue_key in {'deferred', 'all'}:
+    if queue_key in {'deferred', 'all', 'jbl'}:
         params.pop('status', None)
     qs, _config = _portal_queue_queryset(queue_key, request, params=params)
     if qs is None:
@@ -3638,7 +3641,7 @@ def _portal_queue_filter_options(request, queue_key: str):
         'branch': sorted(branches, key=str.casefold),
         'status': [value for value in ('deferred', 'rejected', 'legacy_review')
                    if qs.filter(pk__in=deferred_queue(status=value).values('pk')).exists()]
-                  if queue_key == 'deferred' else [],
+                  if queue_key == 'deferred' else ['deposit_pending', 'awaiting_visit'] if queue_key == 'jbl' else [],
         'has_hbg_visit_date': has_hbg_date,
         'has_jbl_visit_date': has_jbl_date,
     }

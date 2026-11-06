@@ -272,6 +272,7 @@
       onCellValueChanged:event => setRowField(event.data, event.colDef.field, event.newValue),
       onCellEditingStarted:event => setTimeout(() => event.event?.target?.scrollIntoView?.({block:'center', inline:'nearest'}), 80),
     });
+    window.MiniAppTableLayouts?.attach('farmup', gridApi, node('farmup-grid'));
   }
   function renderCarousel() {
     const target = node('farmup-carousel'); if (!target || !active) return;

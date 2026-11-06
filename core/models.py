@@ -3964,6 +3964,7 @@ class UserMiniAppPreference(models.Model):
     workflow = models.CharField(max_length=40, choices=WORKFLOW_CHOICES, db_index=True)
     default_screen = models.CharField(max_length=80, blank=True, default='')
     default_filters = models.JSONField(blank=True, default=dict)
+    table_layouts = models.JSONField(blank=True, default=dict, help_text='Personal column order and frozen prefix, keyed by table. Never grants data access.')
     compact_cards = models.BooleanField(default=False)
     show_business_hours_time = models.BooleanField(default=True)
     alert_mode = models.CharField(max_length=16, choices=ALERT_CHOICES, default=ALERT_IMMEDIATE)

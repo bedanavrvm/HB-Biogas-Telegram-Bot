@@ -5,6 +5,34 @@
   const utils = window.MiniAppUtils || {};
   const telegram = utils.initTelegram ? utils.initTelegram() : window.Telegram?.WebApp;
   const $ = id => document.getElementById(id);
+  let reportOwner = '';
+  function saveComplaintReportState() {
+    if (!reportOwner) return;
+    const fields = {};
+    for (const input of $('globalFilters').elements) if (input.name && !['search', 'query'].includes(input.name)) fields[input.name] = input.type === 'checkbox' ? input.checked : input.value;
+    try {sessionStorage.setItem('complaint-report-session', JSON.stringify({owner:reportOwner,fields,
+      slide:state.reportChartSlide,display:state.reportChartDisplay,granularity:state.reportGranularity,
+      drill:state.reportDrill,charts:window.ComplaintReportCharts?.snapshot()}));} catch (_) {}
+  }
+  async function restoreComplaintReportState() {
+    if (!state.initData || !crypto.subtle) return;
+    reportOwner = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(state.initData+'|'+state.groupId)))).map(byte=>byte.toString(16).padStart(2,'0')).join('');
+    try {
+      const saved = JSON.parse(sessionStorage.getItem('complaint-report-session') || 'null');
+      if (saved?.owner !== reportOwner) return;
+      for (const [name,value] of Object.entries(saved.fields||{})) {
+        const input = $('globalFilters').elements.namedItem(name); if (!input) continue;
+        if (input.type === 'checkbox') input.checked = Boolean(value);
+        else {if (input.tagName === 'SELECT' && value && ![...input.options].some(option=>option.value===value)) input.add(new Option(String(value),String(value)));input.value=String(value);}
+      }
+      state.reportChartSlide = Number(saved.slide)||0; state.reportChartDisplay = saved.display==='list'?'list':'carousel';
+      state.reportGranularity = ['day','week','month','year'].includes(saved.granularity)?saved.granularity:'month';
+      state.reportDrill = saved.drill || null; window.ComplaintReportCharts?.restore(saved.charts);
+      $('complaintChartSelection').hidden=!state.reportDrill;
+      if(state.reportDrill)$('complaintChartSelection').textContent=state.reportDrill.label+' ×';
+      updateReportDateControls();
+    } catch (_) {}
+  }
   const state = {
     groupId: document.body.dataset.groupId || '',
     initData: telegram?.initData || '',
@@ -681,6 +709,7 @@
     try {
       const response = await json('bootstrap/');
       const data = response.data;
+      window.MiniAppTableLayouts?.configure(data.table_catalogue, data.personal?.table_layouts);
       state.capabilities = new Set(data.actor.capabilities || []);
       document.querySelectorAll('[data-required-capability]').forEach(node => {
         node.hidden = !can(node.dataset.requiredCapability);
@@ -703,6 +732,7 @@
       state.locationOptions = data.location_options || state.locationOptions;
       locationSelectOptions($('createCaseForm').elements.county, state.locationOptions.counties, 'Select county');
       setComplaintCategories(data);
+      await restoreComplaintReportState();
       if (!creationDraft && can('complaint.case.create')) creationDraft = utils.bindCreationDraft?.($('createCaseForm'), {
         workflow: 'complaint_create', contextKey: state.groupId, initData: () => state.initData, status: $('createSaveState'),
         collect: () => ({portal_source_key:customerForm.elements.portal_source_key.value,portal_source_label:customerForm.elements.portal_source_label.value}),
@@ -1634,6 +1664,7 @@
   function setChartState(_name, message) { window.ComplaintReportCharts?.state(message); }
   function selectComplaintChart(filters, label) {
     state.reportDrill = { filters, label };
+    saveComplaintReportState();
     const chip = $('complaintChartSelection'); chip.hidden = false; chip.textContent = label + ' ×';
     state.globalPage = 1;
     loadGlobalCases(currentTableFilters(), {reveal: true});
@@ -1653,6 +1684,7 @@
   }
   function clearComplaintChartSelection() {
     state.reportDrill = null; $('complaintChartSelection').hidden = true;
+    saveComplaintReportState();
     state.globalPage = 1; loadGlobalCases(currentTableFilters());
   }
   function renderReportCharts(summary) {
@@ -1667,8 +1699,10 @@
     window.ComplaintReportCharts.render(summary, {
       categoryType: state.categoryChartType, onSelect: selectComplaintChart,
       formatPeriod: formatChartPeriodDate,
+      onStateChange: saveComplaintReportState,
     });
     syncComplaintChartDisplay();
+    saveComplaintReportState();
   }
   function complaintChartSlides() {
     return Array.from($('complaintReportCharts').querySelectorAll('[data-complaint-chart-slide]'));
@@ -1698,7 +1732,6 @@
   }
   function setComplaintChartDisplay(display) {
     state.reportChartDisplay = display === 'list' ? 'list' : 'carousel';
-    state.reportChartSlide = 0;
     try { localStorage.setItem('complaint-report-chart-display', state.reportChartDisplay); } catch (error) {}
     syncComplaintChartDisplay(); utils.haptic?.('light');
   }
@@ -1706,7 +1739,7 @@
     if (state.reportChartDisplay !== 'carousel') return;
     const next = Math.max(0, Math.min(complaintChartSlides().length - 1, state.reportChartSlide + direction));
     if (next === state.reportChartSlide) return;
-    state.reportChartSlide = next; syncComplaintChartDisplay(); utils.haptic?.('light');
+    state.reportChartSlide = next; syncComplaintChartDisplay(); saveComplaintReportState(); utils.haptic?.('light');
   }
   function preserveSelectOptions(select, items, placeholder) {
     const selected = select.value;
@@ -1928,6 +1961,7 @@
       },
     });
     bindReportGridCopy();
+    window.MiniAppTableLayouts?.attach('report', state.reportGridApi, $('complaintReportGrid'));
     state.reportGridZoom?.refresh();
   }
   async function loadGlobalCases(filters, {reveal = false} = {}) {
@@ -2159,7 +2193,7 @@
       return;
     }
     clearTimeout(state.reportSearchTimer); state.reportSearchTimer = null; state.globalPage = 1;
-    state.reportDrill = null; $('complaintChartSelection').hidden = true;
+    saveComplaintReportState();
     closeComplaintReportFilters({ applied: true }); refreshReport();
   });
   $('clearGlobalFiltersBtn').addEventListener('click', () => {
@@ -2239,6 +2273,10 @@
     else telegram?.BackButton?.hide();
   }
   $('complaintSettingsBtn')?.addEventListener('click', () => {
+    window.MiniAppTableLayouts?.mount($('complaintTableLayouts'), {
+      load: async () => (await json('bootstrap/')).data,
+      save: async payload => (await json('settings/personal/', payload)).data,
+    });
     window.MiniAppRecovery?.mount($('complaintRecovery'), {
       prefix: '/api/complaints/', load: page => json('settings/recovery/', {page}),
       request: (endpoint, payload) => json(endpoint.slice('/api/complaints/'.length), payload),

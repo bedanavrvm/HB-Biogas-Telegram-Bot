@@ -3,6 +3,8 @@
   'use strict';
   let charts = [];
   const chosenTypes = {};
+  const hidden = {};
+  const drillChoices = {};
   const hours = value => value == null ? '—' : value < 24 ? `${Number(value.toFixed(1))}h` : `${Number((value / 24).toFixed(1))}d`;
   const readableHours = value => value == null ? 'Unavailable' : `${Number(Number(value).toFixed(2))} hrs (${Number((value / 24).toFixed(1))} days)`;
   function period(label, grouping) {
@@ -69,6 +71,7 @@
         composition: spec.key === 'target', count: spec.rows.length });
       const types = spec.key === 'category' && spec.rows.length <= 8 ? ['bar', 'doughnut', 'pie'] : presentation.allowedTypes;
       const requested = chosenTypes[spec.key] || (spec.key === 'category' ? categoryType : presentation.defaultType);
+      if (['bar','line','doughnut','pie','stacked_bar'].includes(chosenTypes[spec.key]) && !types.includes(chosenTypes[spec.key])) types.push(chosenTypes[spec.key]);
       spec.type = types.includes(requested) ? requested : presentation.defaultType;
       const pie = ['pie', 'doughnut'].includes(spec.type);
       spec.horizontal = !pie && (spec.horizontal || spec.key === 'category');
@@ -89,7 +92,7 @@
         choice.innerHTML = window.MiniAppReportControls.chartTypeIcon(type);
         choice.setAttribute('aria-label', label); choice.title = label;
         choice.setAttribute('aria-pressed', String(type === spec.type));
-        choice.addEventListener('click', () => { chosenTypes[spec.key] = type; menu.open = false; render(summary, options); });
+        choice.addEventListener('click', () => { chosenTypes[spec.key] = type; menu.open = false; render(summary, options); options.onStateChange?.(); });
         typeGroup.appendChild(choice);
       });
       menu.appendChild(typeGroup);
@@ -126,12 +129,16 @@
         onSelect(spec.select(spec.rows[Number(select.value)],Number(series?.value || 0)),`${series?.selectedOptions[0].textContent || slide.querySelector('h3').textContent} · ${select.selectedOptions[0].textContent}`);
       };
       select.addEventListener('change', applySelection);
+      select.value = drillChoices[spec.key]?.bucket || '';
+      select.addEventListener('change', () => {drillChoices[spec.key] = {...drillChoices[spec.key],bucket:select.value}; options.onStateChange?.();});
       choices.append(select); slide.appendChild(choices);
       // Activity has two populations. Provide a keyboard-accessible selector.
       if(spec.key==='activity') {
         const series=document.createElement('select'); series.setAttribute('aria-label','Activity type');
         spec.datasets.forEach((dataset,index)=>{const option=document.createElement('option'); option.value=String(index);option.textContent=dataset.label;series.appendChild(option);});
         series.addEventListener('change', applySelection);
+        series.value = drillChoices[spec.key]?.series || '0';
+        series.addEventListener('change', () => {drillChoices[spec.key] = {...drillChoices[spec.key],series:series.value}; options.onStateChange?.();});
         choices.prepend(series);
       }
       const chartOptions = window.MiniAppReportControls.applyChartMeasurement({responsive:true,maintainAspectRatio:false,animation:false,indexAxis:spec.horizontal?'y':'x',
@@ -149,7 +156,15 @@
       }, {unit:spec.hours?'hours':'complaints', label:spec.hours?'Hours':'Complaint(s)', horizontal:spec.horizontal, color:text});
       chartOptions.plugins.tooltip.callbacks.label = context => spec.hours ? readableHours(context.raw)
         : `${context.dataset.label}: ${new Intl.NumberFormat('en-KE').format(context.raw)} Complaint(s)`;
-      charts.push(new window.Chart(canvas,{
+      chartOptions.plugins.legend.onClick = (_event,item,legend) => {
+        const chart=legend.chart;
+        if(pie)chart.toggleDataVisibility(item.index);else chart.setDatasetVisibility(item.datasetIndex,!chart.isDatasetVisible(item.datasetIndex));
+        chart.update();
+        hidden[spec.key]={series:datasets.filter((_d,i)=>!chart.isDatasetVisible(i)).map(d=>d.label),
+          buckets:pie?rows.filter((_r,i)=>!chart.getDataVisibility(i)).map(r=>r.displayLabel||r.label):hidden[spec.key]?.buckets||[]};
+        options.onStateChange?.();
+      };
+      const chart=new window.Chart(canvas,{
         type:spec.type || 'bar',data:{labels:rows.map(row=>{
           if(row.displayLabel)return row.displayLabel;
           if(timeChart)return formatPeriod(row.label,grouping);
@@ -157,8 +172,13 @@
           return row.label.length>limit?row.label.slice(0,limit-1)+'…':row.label;
         }),datasets},
         options:chartOptions,
-      }));
+      });
+      datasets.forEach((d,i)=>{if(hidden[spec.key]?.series?.includes(d.label))chart.setDatasetVisibility(i,false);});
+      if(pie)rows.forEach((r,i)=>{if(hidden[spec.key]?.buckets?.includes(r.displayLabel||r.label))chart.toggleDataVisibility(i);});
+      chart.update('none');charts.push(chart);
     }
   }
-  window.ComplaintReportCharts = {render,state,hours,readableHours,resize:()=>charts.forEach(chart=>chart.resize())};
+  window.ComplaintReportCharts = {render,state,hours,readableHours,
+    snapshot:()=>({chosenTypes,hidden,drillChoices}),restore:value=>{Object.assign(chosenTypes,value?.chosenTypes);Object.assign(hidden,value?.hidden);Object.assign(drillChoices,value?.drillChoices);},
+    resize:()=>charts.forEach(chart=>chart.resize())};
 })();

@@ -12,9 +12,10 @@ from datetime import timedelta
 import hashlib
 import json
 import math
+import logging
 
 from django.conf import settings
-from django.db.models import Q, Exists, OuterRef, Value, CharField
+from django.db.models import Q, Exists, OuterRef, Value, CharField, Case, When, IntegerField
 from django.db.models.functions import Coalesce, Cast
 from django.db.models.fields.json import KeyTextTransform
 from django.utils import timezone
@@ -27,6 +28,7 @@ MASTER_OPERATION = 'jawabu_master_publish'
 INTERNAL_ORDER_OPERATION = 'jawabu_internal_order_publish'
 SOURCE_MODEL = 'JawabuFarmerMaster'
 PORTAL_PUBLICATION_RUNNER = 'portal_sheet_publications'
+logger = logging.getLogger(__name__)
 
 
 def _with_destination(queryset):
@@ -46,12 +48,30 @@ def _master_blocker(operation):
     if operation.operation_type != MASTER_OPERATION:
         return None
     key = (operation.metadata or {}).get('destination_key', '__legacy__')
-    return _with_destination(IntegrationOperation.objects.filter(
+    older = _with_destination(IntegrationOperation.objects.filter(
         integration=operation.integration, source_model=SOURCE_MODEL, operation_type=MASTER_OPERATION,
         status__in=(IntegrationOperation.STATUS_PENDING, IntegrationOperation.STATUS_RETRYABLE, IntegrationOperation.STATUS_RUNNING),
     )).exclude(source_id__in=_blocked_source_ids()).filter(destination_fifo_key=key).filter(
         Q(created_at__lt=operation.created_at) | Q(created_at=operation.created_at, pk__lt=operation.pk)
-    ).order_by('created_at', 'pk').first()
+    )
+    if _updates_existing_row(operation):
+        older = older.filter(source_id=operation.source_id)
+    return older.order_by('created_at', 'pk').first()
+
+
+def _published_rows():
+    return _with_destination(IntegrationOperation.objects.filter(
+        operation_type=MASTER_OPERATION, status=IntegrationOperation.STATUS_SUCCEEDED,
+        metadata__result__action=MASTER_OPERATION,
+    ))
+
+
+def _updates_existing_row(operation):
+    return operation.operation_type == MASTER_OPERATION and _published_rows().filter(
+        source_model=SOURCE_MODEL, source_id=operation.source_id,
+        destination_fifo_key=(operation.metadata or {}).get('destination_key', '__legacy__'),
+        created_at__lt=operation.created_at,
+    ).exists()
 
 
 def _master_claim_in_order(operation):
@@ -113,13 +133,20 @@ def queued_publication_operations():
            & (Q(next_retry_at__isnull=True) | Q(next_retry_at__lte=now)))
     stale_running = Q(status=IntegrationOperation.STATUS_RUNNING,
                       last_attempt_at__lte=now - timedelta(seconds=lease_seconds))
+    previous_row = _published_rows().filter(source_model=SOURCE_MODEL, source_id=OuterRef('source_id'),
+        destination_fifo_key=OuterRef('destination_fifo_key'), created_at__lt=OuterRef('created_at'))
+    same_case_older = older.filter(source_id=OuterRef('source_id'))
     return _with_destination(IntegrationOperation.objects.filter(
         integration=IntegrationOperation.INTEGRATION_GOOGLE_SHEETS,
         source_model=SOURCE_MODEL,
         operation_type__in=(MASTER_OPERATION, INTERNAL_ORDER_OPERATION),
-    )).exclude(source_id__in=_blocked_source_ids()).annotate(has_earlier=Exists(older)).filter(due | stale_running).filter(
+    )).exclude(source_id__in=_blocked_source_ids()).annotate(
+        has_earlier=Exists(older), has_case_earlier=Exists(same_case_older), existing_row=Exists(previous_row),
+    ).filter(due | stale_running).filter(
         Q(operation_type=INTERNAL_ORDER_OPERATION) | Q(has_earlier=False)
-    ).order_by('created_at', 'pk')
+        | Q(existing_row=True, has_case_earlier=False)
+    ).annotate(update_priority=Case(When(existing_row=True, then=Value(0)), default=Value(1), output_field=IntegerField())
+    ).order_by('update_priority', 'created_at', 'pk')
 
 
 def publication_queue_status() -> dict[str, Any]:
@@ -173,6 +200,15 @@ class PortalIdentityConflictError(PortalPublicationError):
     """A Sheet row is owned by another case; retries cannot resolve it."""
 
     safe_error_code = 'identity_conflict'
+
+
+class PortalRegisterReviewError(PortalPublicationError):
+    """A local register/configuration problem is not a Google service outage."""
+
+    def __init__(self, phase):
+        super().__init__('The register needs configuration or row review.')
+        self.safe_error_code = {'configuration':'sheet_configuration', 'schema':'sheet_schema',
+                                'verify':'sheet_row_changed', 'row_missing':'sheet_row_missing'}[phase]
 
 
 def _targets_for_farmer(farmer=None) -> list[str]:
@@ -407,6 +443,7 @@ def _save_master_failure_context(operation, farmer, context, metadata):
         'fields_checked': bool(context.get('fields_checked')),
         'field_names': fields[:30],
         'detail': str(context.get('detail') or '')[:255],
+        'provider_status': context.get('provider_status'),
     }
     operation.metadata = metadata
     operation.save(update_fields=['metadata', 'updated_at'])
@@ -476,7 +513,8 @@ def attempt_publication(operation: IntegrationOperation, *, max_seconds=20) -> d
         if operation.operation_type == MASTER_OPERATION:
             failure_context: dict[str, Any] = {}
             with external_call_budget(max_seconds):
-                completed = sync_farmer_to_master_sheet(farmer, failure_context=failure_context)
+                completed = sync_farmer_to_master_sheet(farmer, failure_context=failure_context,
+                    existing_row_only=_updates_existing_row(operation))
             if not completed:
                 _record_master_failure_context(operation, farmer, failure_context)
         else:
@@ -485,11 +523,13 @@ def attempt_publication(operation: IntegrationOperation, *, max_seconds=20) -> d
         if not completed:
             if operation.operation_type == MASTER_OPERATION and failure_context.get('phase') == 'identity':
                 raise PortalIdentityConflictError('The Sheet row needs identity review.')
+            if operation.operation_type == MASTER_OPERATION and failure_context.get('phase') in {'configuration', 'schema', 'verify', 'row_missing'}:
+                raise PortalRegisterReviewError(failure_context['phase'])
             # The low-level publisher intentionally keeps Google details in
             # protected logs.  This marker is retryable by the shared policy.
             error = PortalPublicationError('Google register is temporarily unavailable.')
-            if operation.operation_type == MASTER_OPERATION and failure_context.get('provider_status') == 429:
-                error.status_code = 429
+            if operation.operation_type == MASTER_OPERATION and failure_context.get('provider_status'):
+                error.status_code = failure_context['provider_status']
             raise error
         return {'action': operation.operation_type}
 
@@ -505,6 +545,9 @@ def attempt_publication(operation: IntegrationOperation, *, max_seconds=20) -> d
         return {'operation':operation, 'farmer':farmer, 'result':None, 'deferred':True, 'error':False}
     except ExternalOperationError:
         operation.refresh_from_db()
+        context = (operation.metadata or {}).get('failure_context') or {}
+        logger.warning('Portal publication failed: operation=%s code=%s phase=%s provider_status=%s',
+            operation.pk, operation.last_error_code, context.get('phase', ''), context.get('provider_status'))
         return {'operation': operation, 'farmer': farmer, 'result': None, 'error': True}
     operation.refresh_from_db()
     return {'operation': operation, 'farmer': farmer, 'result': result, 'error': False}

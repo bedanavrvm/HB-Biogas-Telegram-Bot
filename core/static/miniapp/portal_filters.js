@@ -40,6 +40,7 @@
   }
 
   const statusLabels = {
+    deposit_pending: 'Deposit Pending', awaiting_visit: 'Awaiting Visit',
     jbl_visit: 'Awaiting visit', credit: 'Awaiting credit analysis',
     final_review: 'Awaiting final review', order: 'Ready for order',
     legacy_review: 'Legacy review', ordered: 'Ordered', deferred: 'Deferred', rejected: 'Rejected', withdrawn: 'Withdrawn',
@@ -94,7 +95,7 @@
     const choices = key => Array.from(new Set(source.map(row => String(row[key] || '').trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b));
     return {
       county: choices('county'), branch: choices('branch'),
-      status: ['all', 'deferred'].includes(queueKey) ? choices('workflow_state').filter(value => statusLabels[value] && (queueKey !== 'deferred' || ['deferred', 'rejected', 'legacy_review'].includes(value))) : [],
+      status: queueKey === 'jbl' ? ['deposit_pending','awaiting_visit'] : ['all', 'deferred'].includes(queueKey) ? choices('workflow_state').filter(value => statusLabels[value] && (queueKey !== 'deferred' || ['deferred', 'rejected', 'legacy_review'].includes(value))) : [],
       has_hbg_visit_date: source.some(row => Boolean(row.hbg_visit_date || row.hbg_visit)),
       has_jbl_visit_date: source.some(row => Boolean(row.jbl_visit_date || row.jbl_visit)),
     };
@@ -173,7 +174,7 @@
       state().filtersByQueue[queueKey] = {
         county: listValue(saved.filters?.county),
         branch: listValue(saved.filters?.branch),
-        status: ['all', 'deferred'].includes(queueKey) ? listValue(saved.filters?.status) : [],
+        status: ['all', 'deferred', 'jbl'].includes(queueKey) ? listValue(saved.filters?.status) : [],
         hbg_visit_date_from: String(saved.filters?.hbg_visit_date_from || ''),
         hbg_visit_date_to: String(saved.filters?.hbg_visit_date_to || ''),
         jbl_visit_date_from: String(saved.filters?.jbl_visit_date_from || ''),
@@ -196,8 +197,8 @@
       const container = form?.querySelector('[data-portal-filter-options="' + key + '"]');
       if (!container) return populateSelect(form?.elements[key], key === 'county' ? state().metaCounties : state().metaBranches, filters[key]);
       const serverOptions = state().queueFilterOptions?.[queueKey];
-      const base = serverOptions && key !== 'status' ? (serverOptions[key] || [])
-        : key === 'county' ? state().metaCounties : key === 'branch' ? state().metaBranches : Object.keys(statusLabels).map(value => ({value, label: statusLabels[value]}));
+      const base = serverOptions && (key !== 'status' || queueKey === 'jbl') ? (serverOptions[key] || []).map(value => key === 'status' ? {value, label:statusLabels[value]} : value)
+        : key === 'county' ? state().metaCounties : key === 'branch' ? state().metaBranches : (queueKey === 'jbl' ? ['deposit_pending','awaiting_visit'] : Object.keys(statusLabels).filter(value=>!['deposit_pending','awaiting_visit'].includes(value))).map(value => ({value, label: statusLabels[value]}));
       const selected = listValue(filters[key]);
       const populated = key === 'status' && queueKey === 'all' ? null : available?.[key];
       // County/branch values are supplied by this authorized queue with both

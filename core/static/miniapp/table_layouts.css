@@ -1,0 +1,10 @@
+.table-layout-editor{display:grid;gap:8px;margin-top:8px;font-size:12px}
+.table-layout-editor p,.table-layout-notice{margin:4px 0;font-size:12px}
+.table-layout-editor ol{list-style:none;padding:0;margin:0;max-height:260px;overflow:auto;border:1px solid #d0d5dd;border-radius:6px}
+.table-layout-editor li{display:flex;align-items:center;gap:4px;padding:3px 6px;border-bottom:1px solid #e4e7ec;min-height:30px}
+.table-layout-editor li span{flex:1;min-width:0}
+.table-layout-editor button{min-height:30px;padding:3px 9px;cursor:pointer}
+.table-layout-editor button:disabled{cursor:default;opacity:.5}
+.table-layout-editor select{max-width:100%;min-height:32px}
+.table-layout-actions{display:flex;flex-wrap:wrap;gap:6px}
+.table-layout-notice{color:inherit;opacity:.8}

@@ -11,23 +11,27 @@
   const svg=name=>`<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${icon(name)}</svg>`;
   const id=()=>crypto.randomUUID?.() || `report-${Date.now()}-${Math.random().toString(16).slice(2)}`;
   const sharedKeys=['branch','county','product','date_mode','month','quarter','year','from','to','granularity','historical_scope'];
-  let sessionKey='', launchKey='', tabFilters={}, sharedFilters={};
+  let sessionKey='', launchKey='', tabFilters={}, sharedFilters={}, tabViews={};
+  const view=()=>tabViews[s.preset] ||= {types:{},hidden:{},chart:''};
+  function rememberView(){
+    const box=root()?.querySelector('#portal-insight-charts');
+    if(box&&s.result?.preset===s.preset){view().chart=box.children[s.index]?.dataset.chart||view().chart;view().types={...s.types};}
+  }
   const selections=value=>Array.isArray(value)?value:value?[value]:[];
   const picked=(value,keys)=>Object.fromEntries(keys.filter(key=>value[key]!==undefined).map(key=>[key,Array.isArray(value[key])?[...value[key]]:String(value[key])]));
   function saveFilters(){
     const next=picked(s.applied,sharedKeys);
-    if(JSON.stringify(next)!==JSON.stringify(sharedFilters))for(const key of Object.keys(tabFilters))tabFilters[key]=picked(tabFilters[key],['stage']);
     sharedFilters=next;
     tabFilters[s.preset]=picked(s.applied,['stage','chart_key','bucket_key','series_key']);
     if(!sessionKey||!launchKey)return;
-    try{sessionStorage.setItem('portal-report-session',JSON.stringify({owner:sessionKey,launch:launchKey,preset:s.preset,shared:sharedFilters,tabs:Object.fromEntries(Object.entries(tabFilters).map(([key,value])=>[key,picked(value,['stage'])]))}));}catch(_){}
+    try{sessionStorage.setItem('portal-report-session',JSON.stringify({owner:sessionKey,launch:launchKey,preset:s.preset,shared:sharedFilters,tabs:tabFilters,views:tabViews}));}catch(_){}
   }
   async function restoreFilters(options, sequence){
     const owner=options.sessionKey||'', launch=options.tg?.initData||'';
     const nextLaunch=launch&&window.crypto?.subtle?Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(launch)))).map(byte=>byte.toString(16).padStart(2,'0')).join(''):'';
     if(sequence!==s.sequence)return false;
     const sameContext=sessionKey===owner&&launchKey===nextLaunch;
-    if(!sameContext){sharedFilters={};tabFilters={};s.applied={};s.search='';s.preset='pipeline';}
+    if(!sameContext){sharedFilters={};tabFilters={};tabViews={};s.types={};s.applied={};s.search='';s.preset='pipeline';}
     sessionKey=owner;launchKey=nextLaunch;
     if(!sessionKey||!launchKey)return sameContext;
     try{
@@ -35,7 +39,9 @@
       if(saved?.owner!==sessionKey||saved?.launch!==launchKey){sessionStorage.removeItem('portal-report-session');return sameContext;}
       sharedFilters=picked(saved.shared||{},sharedKeys);
       if(labels[saved.preset])s.preset=saved.preset;
-      for(const key of Object.keys(labels))if(!tabFilters[key])tabFilters[key]=picked(saved.tabs?.[key]||{},['stage']);
+      for(const key of Object.keys(labels))if(!tabFilters[key])tabFilters[key]=picked(saved.tabs?.[key]||{},['stage','chart_key','bucket_key','series_key']);
+      if(!Object.keys(tabViews).length)tabViews=saved.views||{};
+      s.types={...view().types};
     }catch(_){try{sessionStorage.removeItem('portal-report-session');}catch(_){} }
     return sameContext;
   }
@@ -59,7 +65,7 @@
   }
   function chartMarkup(c){
     const presentation=window.MiniAppReportControls.chartPresentation({id:c.id,temporal:c.type==='line'||['activity','received','invoice_trend'].includes(c.id),composition:['visits','credit','final'].includes(c.id),stacked:c.id==='sla',count:c.labels.length});
-    const types=c.allowed_types||presentation.allowedTypes;
+    const types=[...new Set([...(c.allowed_types||presentation.allowedTypes),...(['bar','line','doughnut','pie','stacked_bar'].includes(s.types[c.id])?[s.types[c.id]]:[])])];
     if(!types.includes(s.types[c.id]))s.types[c.id]=c.default_type||presentation.defaultType;
     return `<article class="portal-insight-chart" data-chart="${esc(c.id)}"><header><h3>${esc(c.title)}${c.type==='line'?` <small class="portal-chart-interval">${esc(s.applied.granularity||'month')}</small>`:''}</h3><details class="portal-chart-settings"><summary aria-label="${esc(c.title)} options" title="Chart options">${svg('settings')}</summary><div role="group" aria-label="${esc(c.title)} chart type">${types.map(t=>`<button type="button" data-type="${t}" data-key="${esc(c.id)}" aria-pressed="${t===s.types[c.id]}">${t[0].toUpperCase()+t.slice(1)}</button>`).join('')}</div>${c.type==='line'?`<div class="portal-chart-period" role="group" aria-label="Time grouping">${['day','week','month','year'].map(g=>`<button type="button" data-granularity="${g}" aria-pressed="${g===(s.applied.granularity||'month')}">${g[0].toUpperCase()+g.slice(1)}</button>`).join('')}</div>`:''}</details><details class="portal-chart-cases"><summary aria-label="View cases" title="View cases">${svg('cases')}</summary><div class="portal-chart-case-options">${c.context?`<p class="portal-chart-context">${esc(c.context)}</p>`:''}${c.sample_counts?`<p class="portal-chart-context">${c.bucket_keys.map((b,i)=>`${esc(c.labels[i])}: ${c.sample_counts[b]||0} samples`).join(' · ')}</p>`:''}<div class="portal-chart-drill"><select data-series aria-label="${esc(c.title)} series">${c.datasets.map(d=>`<option value="${esc(d.key)}">${esc(d.label)}</option>`).join('')}</select><select data-bucket aria-label="${esc(c.title)} cases"><option value="">Choose cases…</option>${c.bucket_keys.map((b,i)=>`<option value="${esc(b)}">${esc(c.labels[i])}</option>`).join('')}</select><button type="button" class="btn btn-secondary" data-action="drill" disabled>Show cases</button></div></div></details></header><div class="portal-chart-canvas"><canvas role="img" aria-label="${esc(c.title)}"></canvas><p class="portal-chart-state" role="status" hidden></p></div>
 </article>`;
@@ -68,7 +74,7 @@
     const target=root();if(!target)return;destroy();const r=s.result;
     const tabs=`<div class="portal-curated-tabs" role="tablist" aria-label="Report sections">${Object.entries(labels).map(([k,l])=>`<button type="button" role="tab" data-preset="${k}" aria-selected="${k===s.preset}" class="${k===s.preset?'active':''}">${l}</button>`).join('')}</div>`;
     if(!r){target.innerHTML=`${tabs}<div class="empty-state" role="status">${s.error?`${esc(s.error)} <button class="btn btn-secondary" data-action="retry">Try again</button><button class="btn btn-secondary" data-action="reset">Reset filters</button>`:'Loading reports…'}</div>`;return;}
-    const f=s.applied,p=r.pagination,selected=r.charts.find(c=>c.id===f.chart_key),selection=selected?.labels[selected.bucket_keys.indexOf(f.bucket_key)]||'';
+    const f=s.applied,p=r.pagination,selected=r.charts.find(c=>c.id===f.chart_key),selection=selected?.labels[selected.bucket_keys.indexOf(f.bucket_key)]||f.bucket_key||'';
     const description=[selections(f.branch).join(', ')||'All branches',selections(f.county).join(', '),selections(f.product).join(', '),selections(f.stage).map(value=>stages[value]||value).join(', ')].filter(Boolean).map(esc).join(' | ');
     const count=['branch','county','product','stage'].filter(key=>selections(f[key]).length).length+(f.date_mode&&f.date_mode!=='all'?1:0);
     const period=r.period?`${fmt(r.period.from,'date')} – ${fmt(r.period.to,'date')}`:'Any time';
@@ -84,13 +90,13 @@
     target.querySelector('.portal-report-filter-fields').classList.add('miniapp-report-filter-fields');
     target.querySelectorAll('.portal-chart-settings').forEach(window.MiniAppReportControls.prepareChartMenu);
     target.querySelectorAll('.portal-insight-chart').forEach(card=>{const c=r.charts.find(item=>item.id===card.dataset.chart),type=s.types[c.id];const note=document.createElement('p');card.appendChild(note);const reading=type==='doughnut'?'Each slice shows a category\'s share. Match its colour to the legend.':['bar','stacked_bar'].includes(type)&&c.type!=='line'?'Read categories down the left and values along the bottom. Longer bars mean larger values.':'Read dates or categories along the bottom and values on the side.';window.MiniAppReportControls.setChartHelp(note,`${c.help||`${c.title}: values show ${c.unit||'cases'} in the selected scope.`} ${reading} Select a bar, point or slice to see its matching cases below.`);note.remove();});
-    const box=target.querySelector('#portal-insight-charts');box.addEventListener('scroll',position,{passive:true});box.addEventListener('keydown',e=>{if(e.target===box&&s.display==='carousel'&&['ArrowLeft','ArrowRight'].includes(e.key)){e.preventDefault();move(e.key==='ArrowRight'?1:-1);}});
-    target.querySelector('dialog').addEventListener('close',()=>{target.querySelector('#portal-report-filters')?.reset();dates();target.querySelector('[data-action="filters"]')?.focus();});if(s.resumeScroll!==null){box.scrollLeft=s.resumeScroll;s.resumeScroll=null;}position();draw();
+    const box=target.querySelector('#portal-insight-charts');box.addEventListener('scroll',()=>{position();rememberView();saveFilters();},{passive:true});box.addEventListener('keydown',e=>{if(e.target===box&&s.display==='carousel'&&['ArrowLeft','ArrowRight'].includes(e.key)){e.preventDefault();move(e.key==='ArrowRight'?1:-1);}});
+    target.querySelector('dialog').addEventListener('close',()=>{target.querySelector('#portal-report-filters')?.reset();dates();target.querySelector('[data-action="filters"]')?.focus();});const remembered=[...box.children].findIndex(card=>card.dataset.chart===view().chart);if(remembered>=0&&s.display==='carousel')box.scrollLeft=remembered*(box.clientWidth+12);else if(s.resumeScroll!==null)box.scrollLeft=s.resumeScroll;s.resumeScroll=null;position();draw();
   }
 
   function resultsMarkup(r) {
     const f=s.applied,p=r.pagination,selected=r.charts.find(c=>c.id===f.chart_key);
-    const selection=selected?.labels[selected.bucket_keys.indexOf(f.bucket_key)]||'';
+    const selection=selected?.labels[selected.bucket_keys.indexOf(f.bucket_key)]||f.bucket_key||'';
     return `<section class="portal-curated-results" tabindex="-1" aria-label="Case results"><label class="portal-report-search"><span class="sr-only">Search cases</span>${svg('search')}<input type="search" id="portal-report-search" maxlength="120" placeholder="Search name or case reference" value="${esc(s.search||f.search||'')}"></label><div class="portal-results-selection">${f.chart_key?`<button type="button" class="portal-chart-selection" data-action="clear" aria-label="Clear chart selection">${esc(selected?.title||'Chart selection')} · ${esc(selection)}${selected?.datasets.length>1?` · ${esc(selected.datasets.find(d=>d.key===f.series_key)?.label||f.series_key)}`:''} ×</button>`:''}</div><div class="portal-results-heading"><div><h2>Cases <small>${r.total_rows.toLocaleString()}</small></h2></div><div class="miniapp-table-zoom" data-miniapp-table-zoom="portal-curated"><button type="button" data-miniapp-table-zoom-out aria-label="Zoom table out">−</button><button type="button" data-miniapp-table-zoom-reset>100%</button><button type="button" data-miniapp-table-zoom-in aria-label="Zoom table in">+</button></div></div>
     ${r.total_rows>r.shown_rows_limit?`<p class="portal-chart-context">Charts cover all matching cases. Table and export show up to ${r.shown_rows_limit.toLocaleString()} cases.</p>`:''}
     <div id="portal-report-grid" class="ag-theme-quartz" aria-label="Report cases" hidden></div><div class="portal-report-table-wrap" data-miniapp-table-zoom-target><table class="portal-report-table"><thead><tr>${r.columns.map(c=>`<th>${esc(c.label)}</th>`).join('')}</tr></thead><tbody>${r.rows.map(row=>`<tr>${r.columns.map(c=>`<td>${c.key==='case_id'&&/^[0-9a-f-]{36}$/.test(row.record_id||'')?`<a href="/portal/cases/${esc(row.record_id)}/">${fmt(row[c.key],c.type)}</a>`:fmt(row[c.key],c.type)}</td>`).join('')}</tr>`).join('')||`<tr><td colspan="${r.columns.length}">No cases match these filters.</td></tr>`}</tbody></table></div>
@@ -144,6 +150,7 @@
       window.agGrid.ModuleRegistry.registerModules([window.agGrid.AllCommunityModule]);
       node.hidden=false;
       s.grid=window.agGrid.createGrid(node,{theme:'legacy',rowData:r.rows,animateRows:false,ensureDomOrder:true,rowHeight:36,headerHeight:36,suppressMovableColumns:true,enableBrowserTooltips:true,overlayNoRowsTemplate:'<span>No cases match these filters.</span>',defaultColDef:{resizable:true,sortable:false,minWidth:130},columnDefs:[{headerName:'#',colId:'row_number',width:48,minWidth:48,maxWidth:48,pinned:'left',resizable:false,valueGetter:p=>((s.result.pagination.page-1)*s.result.pagination.page_size)+p.node.rowIndex+1},...r.columns.map(c=>({field:c.key,headerName:c.label,width:c.key==='customer_name'?190:c.type==='date'?130:c.type==='number'?120:150,valueFormatter:p=>{const value=fmt(p.value,c.type);const el=document.createElement('span');el.innerHTML=value;return el.textContent;},tooltipValueGetter:p=>String(p.value??''),...(c.key==='case_id'?{cellRenderer:p=>{if(!/^[0-9a-f-]{36}$/.test(p.data?.record_id||''))return String(p.value??'');const a=document.createElement('a');a.href=`/portal/cases/${p.data.record_id}/`;a.textContent=String(p.value??'');return a;}}:{})}))]});
+      window.MiniAppTableLayouts?.attach('report.'+s.preset,s.grid,node);
       target.querySelector('.portal-report-table-wrap').hidden=true;
       window.PortalMiniAppHelpers?.bindHoldToCopy?.(node,'.ag-cell');
       const controls=target.querySelector('[data-miniapp-table-zoom]');
@@ -164,14 +171,17 @@
       const horizontal=['bar','stacked_bar'].includes(type)&&c.type!=='line';
       const options={responsive:true,maintainAspectRatio:false,animation:false,indexAxis:horizontal?'y':'x',
         onClick:(_event,elements)=>{if(elements.length){const element=elements[0];drill(c,c.bucket_keys[element.index],c.datasets[element.datasetIndex].key);}},
-        plugins:{legend:{display:pie||datasets.length>1,position:'bottom',labels:{color:text,boxWidth:10}},
+        plugins:{legend:{display:pie||datasets.length>1,position:'bottom',labels:{color:text,boxWidth:10},onClick:(_event,item,legend)=>{const chart=legend.chart;if(pie)chart.toggleDataVisibility(item.index);else chart.setDatasetVisibility(item.datasetIndex,!chart.isDatasetVisible(item.datasetIndex));chart.update();view().hidden[c.id]={series:c.datasets.filter((_d,i)=>!chart.isDatasetVisible(i)).map(d=>d.key),buckets:pie?c.bucket_keys.filter((_b,i)=>!chart.getDataVisibility(i)):view().hidden[c.id]?.buckets||[]};saveFilters();}},
           tooltip:{callbacks:{title:items=>items.length?labels[items[0].dataIndex]:''}}},
         scales:pie?{}:{x:{stacked,beginAtZero:true,ticks:{color:text,maxRotation:0,maxTicksLimit:6},grid:{color:grid}},
           y:{stacked,beginAtZero:true,ticks:{color:text,precision:c.unit==='cases'?0:undefined},grid:{color:grid}}}};
       window.MiniAppReportControls.applyChartMeasurement(options,{unit:c.unit,horizontal,color:text});
       canvas.setAttribute('aria-label',`${c.title}: ${window.MiniAppReportControls.chartMeasurement(c.unit).axisTitle}`);
-      s.charts.push(new window.Chart(canvas,{type:stacked?'bar':type,
-        data:{labels:labels.map(label=>label.length>25?label.slice(0,24)+'…':label),datasets},options}));
+      const chart=new window.Chart(canvas,{type:stacked?'bar':type,
+        data:{labels:labels.map(label=>label.length>25?label.slice(0,24)+'…':label),datasets},options});
+      const hidden=view().hidden[c.id];c.datasets.forEach((d,i)=>{if(hidden?.series?.includes(d.key))chart.setDatasetVisibility(i,false);});
+      if(pie)c.bucket_keys.forEach((b,i)=>{if(hidden?.buckets?.includes(b))chart.toggleDataVisibility(i);});
+      chart.update('none');s.charts.push(chart);
     });
     markSelection();
     if(window.ResizeObserver){s.observer=new ResizeObserver(()=>{s.charts.forEach(c=>c.resize());position();});s.observer.observe(target.querySelector('#portal-insight-charts'));}
@@ -181,6 +191,7 @@
   const drill=(c,bucket,series)=>{if(!bucket)return;clearTimeout(s.searchTimer);return load(1,{...s.applied,search:s.search,chart_key:c.id,bucket_key:bucket,series_key:series},{tableOnly:true,reveal:true});};
   async function load(page=1,filters={},options={}) {
     if(!root())return;
+    rememberView();
     const seq=++s.sequence,preset=s.preset;
     const tableOnly=options.tableOnly&&(filters.search||'')===(s.applied.search||'');
     s.intent={...filters};s.retryOptions=options;s.loading=true;s.error='';
@@ -224,9 +235,9 @@
   document.addEventListener('click',e=>{
     if(!root()?.contains(e.target))return;
     const clear=e.target.closest('[data-clear-filter]');if(clear){const group=clear.closest('[data-filter-group]');group.querySelectorAll('input').forEach(input=>{input.checked=false;});group.querySelector('[data-selection-count]').textContent='All';return;}
-    const preset=e.target.closest('[data-preset]');if(preset){clearTimeout(s.searchTimer);saveFilters();s.preset=preset.dataset.preset;s.result=null;s.applied={...sharedFilters,...(tabFilters[s.preset]||{})};return load(1,{...s.applied,search:s.search});}
-    const display=e.target.closest('[data-display]');if(display){s.display=display.dataset.display;pref(s.display);return render();}
-    const type=e.target.closest('[data-type]');if(type){s.resumeScroll=root().querySelector('#portal-insight-charts').scrollLeft;s.types[type.dataset.key]=type.dataset.type;return render();}
+    const preset=e.target.closest('[data-preset]');if(preset){clearTimeout(s.searchTimer);rememberView();saveFilters();destroy();s.preset=preset.dataset.preset;s.types={...view().types};s.result=null;s.applied={...sharedFilters,...(tabFilters[s.preset]||{})};return load(1,{...s.applied,search:s.search});}
+    const display=e.target.closest('[data-display]');if(display){rememberView();s.display=display.dataset.display;pref(s.display);saveFilters();return render();}
+    const type=e.target.closest('[data-type]');if(type){s.resumeScroll=root().querySelector('#portal-insight-charts').scrollLeft;rememberView();s.types[type.dataset.key]=type.dataset.type;view().types={...s.types};saveFilters();return render();}
     const grouping=e.target.closest('[data-granularity]');if(grouping){s.resumeScroll=root().querySelector('#portal-insight-charts').scrollLeft;const f={...s.applied,granularity:grouping.dataset.granularity};['chart_key','bucket_key','series_key'].forEach(key=>delete f[key]);return load(1,f);}
     const page=e.target.closest('[data-page]');if(page&&!page.disabled)return load(Number(page.dataset.page),s.applied,{tableOnly:true});
     const b=e.target.closest('[data-action]');if(!b)return;const action=b.dataset.action;
@@ -235,8 +246,8 @@
     if(action==='drill'){const card=b.closest('[data-chart]');drill(s.result.charts.find(c=>c.id===card.dataset.chart),card.querySelector('[data-bucket]').value,card.querySelector('[data-series]').value);}
   });
   document.addEventListener('input',e=>{if(e.target.id!=='portal-report-search'||!root()?.contains(e.target))return;clearTimeout(s.searchTimer);s.search=e.target.value;++s.sequence;s.loading=true;s.searchTimer=setTimeout(()=>load(1,{...s.applied,search:s.search}),300);});
-  document.addEventListener('change',e=>{if(!root()?.contains(e.target))return;if(e.target.matches('.portal-report-checks input')){const group=e.target.closest('[data-filter-group]');const count=group.querySelectorAll('input:checked').length;group.querySelector('[data-selection-count]').textContent=count?count+' selected':'All';}if(e.target.matches('[data-historical]')){load(1,{...s.applied,historical_scope:e.target.checked?'include':'exclude',chart_key:'',bucket_key:'',series_key:''});return;}if(e.target.name==='date_mode'||e.target.matches('[data-date] input')){root().querySelector('[name="to"]')?.setCustomValidity('');dates();}if(e.target.matches('[data-bucket]'))e.target.closest('article').querySelector('[data-action="drill"]').disabled=!e.target.value;});
-  document.addEventListener('submit',e=>{if(e.target.id!=='portal-report-filters')return;e.preventDefault();clearTimeout(s.searchTimer);const form=new FormData(e.target);const f={...Object.fromEntries(form),search:s.search,granularity:s.applied.granularity||'month'};for(const key of ['branch','county','product','stage'])f[key]=form.getAll(key);if(f.date_mode==='custom'&&f.from>f.to){e.target.elements.to.setCustomValidity('Choose an end date on or after the start date.');e.target.elements.to.reportValidity();return;}close();load(1,f);});
+  document.addEventListener('change',e=>{if(!root()?.contains(e.target))return;if(e.target.matches('.portal-report-checks input')){const group=e.target.closest('[data-filter-group]');const count=group.querySelectorAll('input:checked').length;group.querySelector('[data-selection-count]').textContent=count?count+' selected':'All';}if(e.target.matches('[data-historical]')){load(1,{...s.applied,historical_scope:e.target.checked?'include':'exclude'});return;}if(e.target.name==='date_mode'||e.target.matches('[data-date] input')){root().querySelector('[name="to"]')?.setCustomValidity('');dates();}if(e.target.matches('[data-bucket]'))e.target.closest('article').querySelector('[data-action="drill"]').disabled=!e.target.value;});
+  document.addEventListener('submit',e=>{if(e.target.id!=='portal-report-filters')return;e.preventDefault();clearTimeout(s.searchTimer);const form=new FormData(e.target);const f={...s.applied,...Object.fromEntries(form),search:s.search,granularity:s.applied.granularity||'month'};for(const key of ['branch','county','product','stage'])f[key]=form.getAll(key);if(f.date_mode==='custom'&&f.from>f.to){e.target.elements.to.setCustomValidity('Choose an end date on or after the start date.');e.target.elements.to.reportValidity();return;}close();load(1,f);});
   const theme=()=>{if(root()&&s.result){destroy(false);draw();}};
   window.PortalMiniAppReports={
     async load(options={}){
@@ -247,7 +258,7 @@
       if(!returning){s.applied={...sharedFilters,...(tabFilters[s.preset]||{})};s.search='';s.page=1;}else s.resumeScroll=s.scroll;
       return load(returning?s.page:1,{...s.applied,...(s.search?{search:s.search}:{})});
     },
-    unmount(){clearTimeout(s.searchTimer);s.origin=root();s.page=s.result?.pagination.page||1;s.scroll=root()?.querySelector('#portal-insight-charts')?.scrollLeft||0;++s.sequence;window.MiniAppReportControls.closeExcelExport();close();destroy();s.tg?.offEvent?.('themeChanged',theme);s.result=null;s.loading=false;},
+    unmount(){clearTimeout(s.searchTimer);rememberView();saveFilters();s.origin=root();s.page=s.result?.pagination.page||1;s.scroll=root()?.querySelector('#portal-insight-charts')?.scrollLeft||0;++s.sequence;window.MiniAppReportControls.closeExcelExport();close();destroy();s.tg?.offEvent?.('themeChanged',theme);s.result=null;s.loading=false;},
     canHandleBack(){return Boolean(document.querySelector('.miniapp-excel-dialog[open]')||root()?.querySelector('dialog')?.open||root()?.querySelector('.miniapp-chart-popover[open]'));},
     handleBack(){if(window.MiniAppReportControls.closeExcelExport())return true;if(window.MiniAppReportControls.closeChartMenus(root()||document))return true;if(!this.canHandleBack())return false;close();return true;}
   };

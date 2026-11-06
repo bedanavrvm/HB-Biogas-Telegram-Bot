@@ -48,10 +48,12 @@ def load_build():
                 raise ValueError
         for row in manifest['sources']:
             name = row['path']
-            if not name.startswith('browser/src/') or '..' in Path(name).parts:
+            shared = name in {'core/static/miniapp/table_layouts.js', 'core/static/miniapp/table_layouts.css'}
+            if (not name.startswith('browser/src/') and not shared) or '..' in Path(name).parts:
                 raise ValueError
             source = root/name
-            if source.is_symlink() or not source.resolve().is_relative_to((root/'browser/src').resolve()):
+            allowed_root = root/'core/static/miniapp' if shared else root/'browser/src'
+            if source.is_symlink() or not source.resolve().is_relative_to(allowed_root.resolve()):
                 raise ValueError
             if hashlib.sha256(source.read_bytes().replace(b'\r\n',b'\n')).hexdigest() != row['sha256']:
                 raise ValueError

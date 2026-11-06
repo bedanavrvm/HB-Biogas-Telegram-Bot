@@ -1369,17 +1369,20 @@ def update_master_sheet_row(
     # are rewritten separately below with USER_ENTERED so they remain typed
     # dates instead of text values with a hidden leading apostrophe.
     payload = []
+    changed_indexes = set()
     for name in dict.fromkeys(changed_headers):
         column = normalized_columns.get(normalize_header(name))
         if column is None:
             column = columns.column(name)
         cell = f'{col_letter(column)}{row_number}'
+        changed_indexes.add(column - 1)
         payload.append({'range': f'{cell}:{cell}', 'values': [[row_values[column - 1]]]})
     if payload:
         sheet.batch_update(payload, value_input_option='RAW')
     write_master_typed_cells(
-        sheet, [(row_number, row_values)], date_indexes or [],
-        datetime_indexes or [], deposit_indexes or [],
+        sheet, [(row_number, row_values)], [index for index in (date_indexes or []) if index in changed_indexes],
+        [index for index in (datetime_indexes or []) if index in changed_indexes],
+        [index for index in (deposit_indexes or []) if index in changed_indexes],
         headers=headers, header_row=header_row,
     )
 

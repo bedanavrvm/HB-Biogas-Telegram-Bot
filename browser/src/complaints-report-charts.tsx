@@ -67,7 +67,8 @@ function period(label: string, grouping: string, from: string, to: string) {
 }
 const blue = token('color.chart.brand'), green = token('color.chart.success');
 
-export function ReportCharts({ summary, view, grouping, from, to, select }: {
+export function ReportCharts({ summary, view, grouping, from, to, select, types={}, setType }: {
+  types?:Record<string,string>; setType?:(key:string,value:string)=>void;
   summary: ReportSummary; view: string; grouping: string; from: string; to: string;
   select: (selection: ReportSelection) => void;
 }) {
@@ -106,7 +107,7 @@ export function ReportCharts({ summary, view, grouping, from, to, select }: {
   const grouped=charts.filter(spec=>spec.rows.filter(row=>row.values.some(value=>value!==null)).length>1),single=charts.filter(spec=>!grouped.includes(spec));
   return <Stack space="space.200">
     {view === 'overview' && summary.by_category.length === 1 && <Text size="small" color="color.text.subtle">Complaint type: {summary.by_category[0].label}</Text>}
-    <Grid xcss={styles.columns} gap="space.200">{grouped.map((spec, index) => <Box key={spec.id} xcss={grouped.length % 2 === 1 && index === grouped.length - 1 ? styles.full : undefined}><Chart spec={spec} select={select} grouping={grouping} /></Box>)}</Grid>{single.map(spec=><Chart key={spec.id} spec={spec} select={select} grouping={grouping}/>)}
+    <Grid xcss={styles.columns} gap="space.200">{grouped.map((spec, index) => <Box key={spec.id} xcss={grouped.length % 2 === 1 && index === grouped.length - 1 ? styles.full : undefined}><Chart spec={spec} select={select} grouping={grouping} chosen={types[spec.id]||''} setChosen={value=>setType?.(spec.id,value)}/></Box>)}</Grid>{single.map(spec=><Chart key={spec.id} spec={spec} select={select} grouping={grouping} chosen={types[spec.id]||''} setChosen={value=>setType?.(spec.id,value)}/>)}
   </Stack>;
 }
 
@@ -124,12 +125,13 @@ function RadialChart({spec,doughnut,select}:{spec:ChartSpec;doughnut:boolean;sel
     return <g key={index} role="button" tabIndex={0} aria-label={`${spec.rows[index].label}: ${complaintCount(value)}. Filter results.`} onClick={()=>select(index,Math.max(0,series))} onKeyDown={event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();select(index,Math.max(0,series));}}}><title>{spec.rows[index].label}: {value}</title><path d={path} fill={colors[index%colors.length]}/>{small&&<line x1={point(middle)[0]} y1={point(middle)[1]} x2={lx} y2={ly} stroke={token('color.border.bold')}/>}<text x={lx} y={ly} textAnchor="middle" dominantBaseline="middle" fill={small?token('color.text'):token('color.text.inverse')}>{value}</text></g>;
   })}{doughnut&&<circle cx="180" cy="130" r="48" fill={token('elevation.surface')}/>}</svg><Inline shouldWrap space="space.150">{spec.rows.map((row,index)=><Inline key={row.label} alignBlock="center" space="space.050"><svg width="14" height="14" aria-hidden="true"><rect width="14" height="14" fill={colors[index%colors.length]}/></svg><Text size="small">{row.label}: {values[index]} ({total?Math.round(values[index]/total*100):0}%)</Text></Inline>)}</Inline></Stack>;
 }
-function Chart({ spec, select, grouping }: { spec: ChartSpec; select: (selection: ReportSelection) => void; grouping: string }) {
+function Chart({ spec, select, grouping, chosen, setChosen }: { chosen:string;setChosen:(value:string)=>void;spec: ChartSpec; select: (selection: ReportSelection) => void; grouping: string }) {
   const root=useRef<HTMLDivElement>(null);
-  const [width,setWidth]=useState(500),[chosen,setChosen]=useState(''),[hover,setHover]=useState(''),[help,setHelp]=useState(false);
+  const [width,setWidth]=useState(500),[hover,setHover]=useState(''),[help,setHelp]=useState(false);
   const original=spec.horizontal?spec.rows.slice(0,10):spec.rows;
   const comparable=original.filter(row=>row.values.some(value=>value!==null)).length;
   const choices=['bar',...(spec.hours?['dot']:[]),...(spec.temporal&&comparable>=8?['line']:[]),...(!spec.hours&&spec.horizontal&&spec.rows.length>1&&spec.rows.length<=8?['doughnut','pie']:[])];
+  if (['bar','dot','line','doughnut','pie'].includes(chosen) && !choices.includes(chosen)) choices.push(chosen);
   const mode=choices.includes(chosen)?chosen:spec.hours?'dot':'bar',radial=mode==='pie'||mode==='doughnut';
   const rows:{point:Point;index:number}[]=original.map((point,index)=>({point,index}));
   // Insert missing temporal observations as gaps, never invented zero durations.

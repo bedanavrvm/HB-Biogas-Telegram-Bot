@@ -36,4 +36,5 @@ def configuration_failure(code):
     return any(part in code for part in (
         'credential', 'permission', 'unauthorized', 'forbidden', 'schema',
         'column', 'not_configured', 'identity_conflict', 'mapping',
+        'http_401', 'http_403', 'sheet_configuration', 'sheet_row_missing', 'sheet_row_changed',
     ))

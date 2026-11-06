@@ -188,6 +188,7 @@ class GoogleSheetsService:
         Prefer get_instance() over constructing directly.
         """
         self._initialized = False
+        self.availability_failure = {}
         self._api_initialized = False
         self._sheet_id = sheet_id or getattr(settings, 'GOOGLE_SHEET_ID', '')
         self._sheet_name = sheet_name or getattr(settings, 'GOOGLE_SHEET_TAB_NAME', '')
@@ -282,6 +283,7 @@ class GoogleSheetsService:
             return
 
         if not self._sheet_id:
+            self.availability_failure = {'phase': 'configuration'}
             logger.warning(
                 "GoogleSheetsService: no sheet_id configured — skipping init"
             )
@@ -329,15 +331,25 @@ class GoogleSheetsService:
                     )
 
             self._initialized = True
+            self.availability_failure = {}
             logger.info(
                 f"GoogleSheetsService initialised for sheet {self._sheet_id}"
             )
 
         except FileNotFoundError:
+            self.availability_failure = {'phase': 'configuration'}
             logger.error(
                 f"Credentials file not found: {self._credentials_file}"
             )
         except Exception as exc:
+            response = getattr(exc, 'response', None)
+            provider_status = getattr(response, 'status_code', None) or getattr(exc, 'status_code', None)
+            try:
+                provider_status = int(provider_status) if provider_status else None
+            except (TypeError, ValueError):
+                provider_status = None
+            configuration = provider_status in {400, 401, 403, 404} or type(exc).__name__ in {'WorksheetNotFound', 'SpreadsheetNotFound', 'DefaultCredentialsError', 'RefreshError'}
+            self.availability_failure = {'phase': 'configuration' if configuration else 'connection', 'provider_status': provider_status}
             logger.error(
                 f"Failed to initialise Google Sheets ({self._sheet_id}): {exc}",
                 exc_info=True,
@@ -346,6 +358,7 @@ class GoogleSheetsService:
     def is_available(self) -> bool:
         """Return True if the service is ready to write."""
         if not _google_sheets_available:
+            self.availability_failure = {'phase': 'configuration'}
             return False
         try:
             self._initialize()

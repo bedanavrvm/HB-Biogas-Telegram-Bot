@@ -431,9 +431,9 @@
     },
     {
       "path": "browser/src/complaints-report-charts.tsx",
-      "sha256": "bf8703b43ae5b1732c0fbaeac01137d4a57328c2528ffcc057419d40cecdca7e",
-      "review_reference": "docs/ui-standard/reviews/2026-11-04-historical-reporting-it-corrections-reset.md",
-      "reason": "User-approved historical reporting, explicit Complaint ID navigation and compact audited IT correction controls. Reuses existing shell, chart, form and filter patterns; native Playwright evidence. No approved baseline or Phase 6 change."
+      "sha256": "4431689887db2d9cc82042aa2f3fb630a76d31d902e9f268efa67dd422d17661",
+      "review_reference": "docs/ui-standard/reviews/2026-11-06-personal-table-layouts-and-publication.md",
+      "reason": "User-authorized personal table layouts, retained report presentation, deposit filters and publication countdown recovery; existing source-bound controls and synthetic browser evidence. No Phase 6 migration or access expansion."
     },
     {
       "path": "core/static/miniapp/portal.css",
@@ -443,9 +443,9 @@
     },
     {
       "path": "core/static/miniapp/portal.js",
-      "sha256": "138b110ee073a20eed0ee8ade0e1f3cfbbc18b1c859633feeefc948bdbd1cea6",
-      "review_reference": "docs/ui-standard/reviews/2026-11-05-portal-sheet-retry-batch.md",
-      "reason": "User-requested concrete Portal Sheet before/after values and one-click selection across pages. Existing compact controls and owning publication scopes, FIFO, cooldown and leases retained. Real signed-Django/PostgreSQL Playwright and local Sheet readback; no approved baseline or Phase 6 change."
+      "sha256": "86b12099ec9ff29f500940b203c05a3c6c1ed33e4b1844b9ac6d882b99a251fb",
+      "review_reference": "docs/ui-standard/reviews/2026-11-06-personal-table-layouts-and-publication.md",
+      "reason": "User-authorized personal table layouts, retained report presentation, deposit filters and publication countdown recovery; existing source-bound controls and synthetic browser evidence. No Phase 6 migration or access expansion."
     },
     {
       "path": "core/static/miniapp/portal_farmer_sheet.js",
@@ -473,9 +473,9 @@
     },
     {
       "path": "core/templates/portal/portal.html",
-      "sha256": "a6962e2f9ab2590e411152bb4c4811024e30cdc3bf35ea017d25c9a866ab71e6",
-      "review_reference": "docs/ui-standard/reviews/2026-11-03-portal-legacy-importer.md",
-      "reason": "User-authorized Master Data-only resumable cutover in the existing compact Portal shell. Source-bound Playwright, PostgreSQL and synthetic provider observations; no baseline or Phase 6 migration changes."
+      "sha256": "fc445728c0919426feb613969d5bdb6c9bda398fa2729141dc41645164403222",
+      "review_reference": "docs/ui-standard/reviews/2026-11-06-personal-table-layouts-and-publication.md",
+      "reason": "User-authorized personal table layouts, retained report presentation, deposit filters and publication countdown recovery; existing source-bound controls and synthetic browser evidence. No Phase 6 migration or access expansion."
     },
     {
       "path": "core/templates/portal/partials/hb_deposit_detail.html",
@@ -647,15 +647,15 @@
     },
     {
       "path": "browser/src/complaints-operations-reports.tsx",
-      "sha256": "ea241f9399f4e1c30affb87127f3682d6a78fcd550ce4fb8e92f6cdd9ea873e6",
-      "review_reference": "docs/ui-standard/reviews/2026-11-04-historical-reporting-it-corrections-reset.md",
-      "reason": "User-approved historical reporting, explicit Complaint ID navigation and compact audited IT correction controls. Reuses existing shell, chart, form and filter patterns; native Playwright evidence. No approved baseline or Phase 6 change."
+      "sha256": "4557f378e6a35a4116f84bcf48f46ac307661adff95ffc5e396a9b3986afee80",
+      "review_reference": "docs/ui-standard/reviews/2026-11-06-personal-table-layouts-and-publication.md",
+      "reason": "User-authorized personal table layouts, retained report presentation, deposit filters and publication countdown recovery; existing source-bound controls and synthetic browser evidence. No Phase 6 migration or access expansion."
     },
     {
       "path": "browser/src/complaints-operations-settings.tsx",
-      "sha256": "47424779628af9606799b2095ba9f8e625b928ac0e55fcc79839553b9e4e35fc",
-      "review_reference": "docs/ui-standard/reviews/2026-11-02-sheet-recovery-legacy-receipts.md",
-      "reason": "User-approved Settings publication diagnostics and safe queued recovery; separate historical JBL receipts in the existing Portal legacy panel. Reuses source-bound patterns with manual Playwright and PostgreSQL evidence; no baseline update or test suite."
+      "sha256": "0487eaecefd168f76f76bd5ebca0008879e6b4ddeb4dfefdde48beecef3047db",
+      "review_reference": "docs/ui-standard/reviews/2026-11-06-personal-table-layouts-and-publication.md",
+      "reason": "User-authorized personal table layouts, retained report presentation, deposit filters and publication countdown recovery; existing source-bound controls and synthetic browser evidence. No Phase 6 migration or access expansion."
     },
     {
       "path": "browser/src/complaints-operations.html",
@@ -671,9 +671,9 @@
     },
     {
       "path": "browser/src/complaints-report-table.tsx",
-      "sha256": "b22e1ae5ca62820a6e553fbd405423006aea8c548e06504e3927087e8ca63107",
-      "review_reference": "docs/ui-standard/reviews/2026-11-04-historical-reporting-it-corrections-reset.md",
-      "reason": "User-approved historical reporting, explicit Complaint ID navigation and compact audited IT correction controls. Reuses existing shell, chart, form and filter patterns; native Playwright evidence. No approved baseline or Phase 6 change."
+      "sha256": "0da8bbad9615dccb887d1d1c19eb7494bcc3b812dd3650e471ebdc542c650750",
+      "review_reference": "docs/ui-standard/reviews/2026-11-06-personal-table-layouts-and-publication.md",
+      "reason": "User-authorized personal table layouts, retained report presentation, deposit filters and publication countdown recovery; existing source-bound controls and synthetic browser evidence. No Phase 6 migration or access expansion."
     },
     {
       "path": "browser/src/complaints-ui.tsx",
@@ -731,15 +731,15 @@
     },
     {
       "path": "core/static/miniapp/miniapp_recovery.js",
-      "sha256": "544ecf444e2759391bc972d5d2dd7edb66ac995c53c33a8038ebddc10e7744cf",
-      "review_reference": "docs/ui-standard/reviews/2026-11-06-portal-paced-sheet-retry.md",
-      "reason": "User-reported pending retries reproduced with real five-second publication pacing. Existing compact retry controls now continue after pacing and offer Stop. FIFO, provider/circuit cooldown, leases and scope remain protected. Source-bound Playwright/PostgreSQL evidence; no approved baseline or Phase 6 change."
+      "sha256": "8ea85841fd5c52182525a30dab93841d91d39c28876bb56bc0ea2acfb01f6c2c",
+      "review_reference": "docs/ui-standard/reviews/2026-11-06-personal-table-layouts-and-publication.md",
+      "reason": "User-authorized personal table layouts, retained report presentation, deposit filters and publication countdown recovery; existing source-bound controls and synthetic browser evidence. No Phase 6 migration or access expansion."
     },
     {
       "path": "core/static/miniapp/portal_curated_reports.js",
-      "sha256": "79a0d41fe40723e2c55b4a4a2b5f9ec6323922e6dc093c341f008ccaa45a1e77",
-      "review_reference": "docs/ui-standard/reviews/2026-11-05-portal-live-legacy-cases-multiselect-reports.md",
-      "reason": "User-authorized compact report multiselect and verified-case continuation during partial legacy import. Real signed Django/PostgreSQL Playwright journeys cover persistence, workflow actions, desktop/mobile and local Sheet readback. Existing shell and patterns retained; no approved baseline, candidate-token or Phase 6 migration changes."
+      "sha256": "a42b31ea0b58f9811310824392c08e75a6949dc0c795db67ba586623ff3da3aa",
+      "review_reference": "docs/ui-standard/reviews/2026-11-06-personal-table-layouts-and-publication.md",
+      "reason": "User-authorized personal table layouts, retained report presentation, deposit filters and publication countdown recovery; existing source-bound controls and synthetic browser evidence. No Phase 6 migration or access expansion."
     },
     {
       "path": "core/static/miniapp/portal_invoices.js",
@@ -887,9 +887,9 @@
     },
     {
       "path": "core/static/miniapp/portal_farmup.js",
-      "sha256": "99b89563ce6b7f10f06fa573dadc4b8db112dc265dd33636bb55f10f2af5daf1",
-      "review_reference": "docs/ui-standard/reviews/2026-10-29-portal-state-recovery.md",
-      "reason": "User-authorized Portal state-recovery correction using existing shell, queues, confirmations, submission sheets, file picker and inline feedback. Manual Playwright with isolated PostgreSQL covers expired-case handoff, uncertain FarmUp saves, invoice correction/follow-up recovery, retained upload errors and configured payment sign-off visibility. No approved baseline, role expansion, candidate tokens or Phase 6 migration."
+      "sha256": "32781efbf8d63da3d500ef2ba5a5271a45cef512639c0459ceb38f5715bef8dd",
+      "review_reference": "docs/ui-standard/reviews/2026-11-06-personal-table-layouts-and-publication.md",
+      "reason": "User-authorized personal table layouts, retained report presentation, deposit filters and publication countdown recovery; existing source-bound controls and synthetic browser evidence. No Phase 6 migration or access expansion."
     },
     {
       "path": "docs/ui-standard/reviews/portal-ux-options-2026-10-29/catalogue.js",
@@ -947,9 +947,9 @@
     },
     {
       "path": "core/static/miniapp/portal_filters.js",
-      "sha256": "3869386d8cfc640a6e5caf801a3928cad1eef752ac6bbdd870607243142870b0",
-      "review_reference": "docs/ui-standard/reviews/2026-10-31-portal-legacy-changeover.md",
-      "reason": "User-approved compact Revisit/map correction and scoped legacy changeover preparation; source-bound manual Playwright evidence, no approved baseline changes or Phase 6 migration."
+      "sha256": "e20abe896ec7b95184b4a75d9ed5ab46a96ebb6cf7b3687108a958c10d543216",
+      "review_reference": "docs/ui-standard/reviews/2026-11-06-personal-table-layouts-and-publication.md",
+      "reason": "User-authorized personal table layouts, retained report presentation, deposit filters and publication countdown recovery; existing source-bound controls and synthetic browser evidence. No Phase 6 migration or access expansion."
     },
     {
       "path": "core/static/miniapp/portal_legacy.js",
@@ -959,9 +959,9 @@
     },
     {
       "path": "core/templates/complaint_cases/app.html",
-      "sha256": "54dbb8836b8816b3491bbce2ec51405004b0e9091415e152629d23c52f82070f",
-      "review_reference": "docs/ui-standard/reviews/2026-11-05-complaints-note-free-corrections.md",
-      "reason": "User-requested removal of the manual Complaints correction reason. Existing compact IT forms, automatic before/after audit, validation and request/revision controls retained. Real signed-Telegram/native MFA Playwright evidence; no approved baseline or Phase 6 change."
+      "sha256": "0c9ad941250dbb1d91062e30fe331925b59274e57871d2fde9a657298c6103f6",
+      "review_reference": "docs/ui-standard/reviews/2026-11-06-personal-table-layouts-and-publication.md",
+      "reason": "User-authorized personal table layouts, retained report presentation, deposit filters and publication countdown recovery; existing source-bound controls and synthetic browser evidence. No Phase 6 migration or access expansion."
     },
     {
       "path": "core/static/miniapp/complaint_cases.css",
@@ -971,9 +971,9 @@
     },
     {
       "path": "core/static/miniapp/complaint_cases.js",
-      "sha256": "7f66b9c24e49fb8747476c568bca6642f848bb6e56a301efb10743329d5a76d7",
-      "review_reference": "docs/ui-standard/reviews/2026-11-05-complaints-note-free-corrections.md",
-      "reason": "User-requested removal of the manual Complaints correction reason. Existing compact IT forms, automatic before/after audit, validation and request/revision controls retained. Real signed-Telegram/native MFA Playwright evidence; no approved baseline or Phase 6 change."
+      "sha256": "b6f244a2ac42b30fd78d1bf188a0e4d4146bbedce3983d7690c3d80059a64751",
+      "review_reference": "docs/ui-standard/reviews/2026-11-06-personal-table-layouts-and-publication.md",
+      "reason": "User-authorized personal table layouts, retained report presentation, deposit filters and publication countdown recovery; existing source-bound controls and synthetic browser evidence. No Phase 6 migration or access expansion."
     },
     {
       "path": "core/static/miniapp/complaint_legacy.css",
@@ -983,15 +983,15 @@
     },
     {
       "path": "core/static/miniapp/complaint_legacy.js",
-      "sha256": "e40e3e9c95f916b144ce2f5d6d6428d18d55231f55c779ab136e6e954105a856",
-      "review_reference": "docs/ui-standard/reviews/2026-11-05-complaints-changeover-sheet-sync.md",
-      "reason": "User-requested Complaints test-data changeover, retained Sheet backup and verified FIFO sync. Existing compact review controls; real signed-Telegram/native-MFA Playwright evidence. No approved baseline or Phase 6 change."
+      "sha256": "6f76b97ea840aec2cb5fd83e389c192fdffee61f859438ee0b2b53be3e3ff944",
+      "review_reference": "docs/ui-standard/reviews/2026-11-06-personal-table-layouts-and-publication.md",
+      "reason": "User-authorized personal table layouts, retained report presentation, deposit filters and publication countdown recovery; existing source-bound controls and synthetic browser evidence. No Phase 6 migration or access expansion."
     },
     {
       "path": "complaint_legacy/templates/complaint_legacy/app.html",
-      "sha256": "a0e18756e9af78be9f7d86532f3355f574be465f7be35e5ca9e14d548a81d1e1",
-      "review_reference": "docs/ui-standard/reviews/2026-11-05-complaints-changeover-sheet-sync.md",
-      "reason": "User-requested Complaints test-data changeover, retained Sheet backup and verified FIFO sync. Existing compact review controls; real signed-Telegram/native-MFA Playwright evidence. No approved baseline or Phase 6 change."
+      "sha256": "b13615bee78b9392552728133f770371c033b07e29e70ce5471dbc76fbbdd8dc",
+      "review_reference": "docs/ui-standard/reviews/2026-11-06-personal-table-layouts-and-publication.md",
+      "reason": "User-authorized personal table layouts, retained report presentation, deposit filters and publication countdown recovery; existing source-bound controls and synthetic browser evidence. No Phase 6 migration or access expansion."
     },
     {
       "path": "browser/src/complaints-detail-page.tsx",
@@ -1013,15 +1013,15 @@
     },
     {
       "path": "browser/src/complaints-operations-workspace.tsx",
-      "sha256": "6ddf05282bea5735fb83f8e982199fe0537e2d91a8b24a7f30a926e176e64180",
-      "review_reference": "docs/ui-standard/reviews/2026-11-05-complaints-note-free-corrections.md",
-      "reason": "User-requested removal of the manual Complaints correction reason. Existing compact IT forms, automatic before/after audit, validation and request/revision controls retained. Real signed-Telegram/native MFA Playwright evidence; no approved baseline or Phase 6 change."
+      "sha256": "a5929fbf8487415a0197a55a04c30849d14c1ea57bc98cb28f3fd51172a98a77",
+      "review_reference": "docs/ui-standard/reviews/2026-11-06-personal-table-layouts-and-publication.md",
+      "reason": "User-authorized personal table layouts, retained report presentation, deposit filters and publication countdown recovery; existing source-bound controls and synthetic browser evidence. No Phase 6 migration or access expansion."
     },
     {
       "path": "core/templates/base_shell.html",
-      "sha256": "7319d8048a9f9a503c44ba15f69f22f3bc4789d7045fdc29b720d923078af096",
-      "review_reference": "docs/ui-standard/reviews/2026-11-06-portal-paced-sheet-retry.md",
-      "reason": "User-reported pending retries reproduced with real five-second publication pacing. Existing compact retry controls now continue after pacing and offer Stop. FIFO, provider/circuit cooldown, leases and scope remain protected. Source-bound Playwright/PostgreSQL evidence; no approved baseline or Phase 6 change."
+      "sha256": "be79c134c7b10cf3594f320787d51f3c1c7952073763a80db8870cffe938c99d",
+      "review_reference": "docs/ui-standard/reviews/2026-11-06-personal-table-layouts-and-publication.md",
+      "reason": "User-authorized personal table layouts, retained report presentation, deposit filters and publication countdown recovery; existing source-bound controls and synthetic browser evidence. No Phase 6 migration or access expansion."
     },
     {
       "path": "core/templates/portal/partials/legacy_import.html",
@@ -1031,9 +1031,9 @@
     },
     {
       "path": "core/static/miniapp/portal_legacy_import.js",
-      "sha256": "976abc2cc516002223a313b7c5b58ab3d53bef368a44478688291ec33b12971d",
-      "review_reference": "docs/ui-standard/reviews/2026-11-05-portal-live-legacy-cases-multiselect-reports.md",
-      "reason": "User-authorized compact report multiselect and verified-case continuation during partial legacy import. Real signed Django/PostgreSQL Playwright journeys cover persistence, workflow actions, desktop/mobile and local Sheet readback. Existing shell and patterns retained; no approved baseline, candidate-token or Phase 6 migration changes."
+      "sha256": "c039c6aa39b725ad4e4d527884e369437e5d2f995dd94c98d4edbad3ce26b2a1",
+      "review_reference": "docs/ui-standard/reviews/2026-11-06-personal-table-layouts-and-publication.md",
+      "reason": "User-authorized personal table layouts, retained report presentation, deposit filters and publication countdown recovery; existing source-bound controls and synthetic browser evidence. No Phase 6 migration or access expansion."
     },
     {
       "path": "core/static/miniapp/portal_legacy_import.css",
@@ -1055,9 +1055,9 @@
     },
     {
       "path": "core/static/miniapp/complaint_report_charts.js",
-      "sha256": "88b625ca525e5fee82653725c2b8f3f877228a565261eb027a37ac551b13f9c3",
-      "review_reference": "docs/ui-standard/reviews/2026-11-04-historical-reporting-it-corrections-reset.md",
-      "reason": "User-approved historical reporting, explicit Complaint ID navigation and compact audited IT correction controls. Reuses existing shell, chart, form and filter patterns; native Playwright evidence. No approved baseline or Phase 6 change."
+      "sha256": "6f8e9b74956a24a5a14837e45ce865c5e54f576c129e9f810bdb9ef6e0ab10f7",
+      "review_reference": "docs/ui-standard/reviews/2026-11-06-personal-table-layouts-and-publication.md",
+      "reason": "User-authorized personal table layouts, retained report presentation, deposit filters and publication countdown recovery; existing source-bound controls and synthetic browser evidence. No Phase 6 migration or access expansion."
     },
     {
       "path": "browser/src/complaints-customer-suggestions.tsx",
@@ -1070,6 +1070,36 @@
       "sha256": "b114e2fab94946074e795d4e05a698492b96d035fe58911179a0e4430f81dbfa",
       "review_reference": "docs/ui-standard/reviews/2026-11-05-portal-live-legacy-cases-multiselect-reports.md",
       "reason": "User-authorized compact report multiselect and verified-case continuation during partial legacy import. Real signed Django/PostgreSQL Playwright journeys cover persistence, workflow actions, desktop/mobile and local Sheet readback. Existing shell and patterns retained; no approved baseline, candidate-token or Phase 6 migration changes."
+    },
+    {
+      "path": "core/templates/portal/partials/queue_tools.html",
+      "sha256": "1f9e9902617a0825f4b7d0639cb64abaf146703a07e5b981f2c2886e376727ba",
+      "review_reference": "docs/ui-standard/reviews/2026-11-06-personal-table-layouts-and-publication.md",
+      "reason": "User-authorized personal table layouts, retained report presentation, deposit filters and publication countdown recovery; existing source-bound controls and synthetic browser evidence. No Phase 6 migration or access expansion."
+    },
+    {
+      "path": "core/static/miniapp/table_layouts.js",
+      "sha256": "70203ea1ab851a8e84e725d93eef336f2adb95cbcf6fef339603087a001239d6",
+      "review_reference": "docs/ui-standard/reviews/2026-11-06-personal-table-layouts-and-publication.md",
+      "reason": "User-authorized personal table layouts, retained report presentation, deposit filters and publication countdown recovery; existing source-bound controls and synthetic browser evidence. No Phase 6 migration or access expansion."
+    },
+    {
+      "path": "core/static/miniapp/table_layouts.css",
+      "sha256": "c5a0037d8aaef867444053ae5249ec328f9e8362a381e884af67b091c760da03",
+      "review_reference": "docs/ui-standard/reviews/2026-11-06-personal-table-layouts-and-publication.md",
+      "reason": "User-authorized personal table layouts, retained report presentation, deposit filters and publication countdown recovery; existing source-bound controls and synthetic browser evidence. No Phase 6 migration or access expansion."
+    },
+    {
+      "path": "core/static/miniapp/table_layouts.d.ts",
+      "sha256": "01983903a061e9c852d3293b7cd4533f0c973c09abe02e7126479bc681ba36dc",
+      "review_reference": "docs/ui-standard/reviews/2026-11-06-personal-table-layouts-and-publication.md",
+      "reason": "User-authorized personal table layouts, retained report presentation, deposit filters and publication countdown recovery; existing source-bound controls and synthetic browser evidence. No Phase 6 migration or access expansion."
+    },
+    {
+      "path": "browser/src/table-layout-settings.tsx",
+      "sha256": "452fcaa1818cd99bffa4e4b635ec8663493a372339aeca33384568331cee650d",
+      "review_reference": "docs/ui-standard/reviews/2026-11-06-personal-table-layouts-and-publication.md",
+      "reason": "User-authorized personal table layouts, retained report presentation, deposit filters and publication countdown recovery; existing source-bound controls and synthetic browser evidence. No Phase 6 migration or access expansion."
     }
   ],
   "source_roots": [

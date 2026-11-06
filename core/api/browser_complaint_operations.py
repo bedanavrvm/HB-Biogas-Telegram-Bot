@@ -414,8 +414,14 @@ def preferences(request, group, actor):
                     or filters.get('status', '') not in {'', 'pending', 'resolved', 'all'}
                     or not isinstance(filters.get('branch', ''), str) or len(filters.get('branch', '')) > 150):
                 raise ValueError
-            update_preference(actor.user, 'complaint_cases', values, expected=body.get('expected'))
-        return JsonResponse(preference_payload(actor.user, 'complaint_cases'))
+            expected = body.get('expected')
+            if isinstance(expected, dict):
+                expected = {key: value for key, value in expected.items() if key != 'table_catalogue'}
+            update_preference(actor.user, 'complaint_cases', values, expected=expected,
+                              expected_layouts=body.get('expected_table_layouts'))
+        from core.services.table_layouts import catalogue
+        return JsonResponse({**preference_payload(actor.user, 'complaint_cases'),
+                             'table_catalogue': catalogue(actor.user, 'complaint_cases', actor.access)})
     except PreferenceConflict as exc:
         return JsonResponse({'error': str(exc)}, status=409)
     except (ValidationError, ValueError, TypeError, AttributeError):

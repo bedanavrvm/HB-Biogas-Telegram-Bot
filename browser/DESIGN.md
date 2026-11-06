@@ -1,5 +1,13 @@
 # Browser design references and application decisions
 
+6 November: account-owned Table Layouts reuse a compact disclosure inside
+Complaints Settings. The first numbering column stays visible and frozen;
+additional left-frozen columns are a contiguous prefix bounded by half the
+viewport. The native build explicitly hashes the shared first-party
+`core/static/miniapp/table_layouts.js` and `.css` sources; no other outside-root
+source is admitted. This does not change browser activation or workflow access.
+See the [source and local evidence](../docs/ui-standard/reviews/2026-11-06-personal-table-layouts-and-publication.md).
+
 The 5 November customer-prefill addition reuses the compact matching-panel
 pattern from TAT inside the existing Complaints creation form. The user approved
 all-branch Portal biodata access for Complaints creators and replacement of

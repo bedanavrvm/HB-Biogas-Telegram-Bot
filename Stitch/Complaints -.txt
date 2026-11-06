@@ -25,6 +25,19 @@ Changes are paused while the legacy import is in progress. Your saved work is sa
 ***********************************************************
 jbl queue - now that cases with pending deposits show up in the queue - we need a filter option to filter based on the status (deposit pending or awaiting visit)
 
-why does changing the filter change the graph that was focused on/unticks things that were selected - ideally changing the filter should only change the data not the setup?
+why does changing the filter change the graph that was focused on/unticks things that were selected - ideally changing the filter should only change the data not the setup? also switching between the tabs should maintain the setup/filters selected
 
 i want you to implement this in the settings and its accessible to everybody - the column ordering in the ag grid tables - other than the first col(with the numbering) - Users should be able to specify which order the columns appear for them and remember it(preference). also add a way in which they can specify which cols will be frozen(obviously the freezing of the col should work the same way excel works(freezing the first  col or up to col x
+
+**********************************************************************************************
+
+In the Revisit cases , the cards should show 
+
+
+i have noted that on clicking a case in the revisit queue then opening its case detail, under jbl visit theres a status dropdown with the options deferred and withdrawn - this is a leak as the right route is to log the jbl visit. What is the purpose of this? is it really justified? If it is then keep it
+
+
+also the log visit page on a case - there are fields that are marked as required but have you considered that that only applies to the +ve status outcomes that proceed with the case? if a negative/terminating status is selected then things like laf upload shouldn't be mandatory as the laf wont be filled - Brainstorm on this and tell me the best solution in order to avoidbeing softlocked by genuine scenarios
+
+
+Also we need to revisit the visit media upload implementation - what if the user has 1 laf combined(front and back page) or one combined id img/doc? how will users upload? for me i thing if the user is capturing via camera then the separation of the pages is good but if they are uploading if the user has combined docs then it gets tricky - thoughts?, whats the best solution? The best way to reduce friction and enhance the user experience?

@@ -59,6 +59,7 @@ async function main() {
   const complaintsDemo = process.argv.includes('--complaints-demo');
   const operations = process.argv.includes('--complaints-operations');
   const productionBrowser = process.argv.includes('--production-browser');
+  const sharedSources = ['table_layouts.js','table_layouts.css'].map(name => path.resolve(root, '../core/static/miniapp', name));
   const complaints = process.argv.includes('--complaints');
   if (complaintsDemo && (operations || complaints || process.argv.includes('--authentication'))) throw new Error('Build the synthetic Complaints demo separately.');
   if (operations && complaints) throw new Error('Build restricted reads and operations separately.');
@@ -89,7 +90,7 @@ async function main() {
   const owners = new Map();
   for (const filename of modules) {
     const relative = path.relative(root, filename).split(path.sep).join('/');
-    if (relative.startsWith('../') || /\.(woff2?|ttf|otf|eot|png|jpe?g|svg|gif|webp|node|wasm)$/i.test(relative)) throw new Error('Excluded external/binary/font/image asset in the browser graph.');
+    if (relative.startsWith('../') && !sharedSources.includes(filename) || /\.(woff2?|ttf|otf|eot|png|jpe?g|svg|gif|webp|node|wasm)$/i.test(relative)) throw new Error('Excluded external/binary/font/image asset in the browser graph.');
     if (authentication && /(?:^|\/)complaints-demo[^/]*\.[jt]sx?$/.test(relative)) throw new Error('Synthetic workflow code is forbidden in the native staff artifact.');
     if (/@atlaskit\/icon[^/]*\/(?:.*\/)?(?:glyph|svgs|core|utility)\/(?:atlassian|jira|confluence|rovo|trello|bitbucket|compass)(?:[/.\-]|$)/i.test(relative)) throw new Error('Excluded brand glyph in the browser graph.');
     if (relative.includes('node_modules/@atlaskit/logo/')) throw new Error('Atlassian logo code is excluded; use company text.');
@@ -123,8 +124,8 @@ async function main() {
     const raw = fs.readFileSync(filename);
     return { name, bytes: raw.length, sha256: crypto.createHash('sha256').update(raw).digest('hex') };
   });
-  const sources = [...modules].filter(filename => filename.startsWith(path.join(root, 'src') + path.sep)).sort().map(filename => ({
-    path: 'browser/' + path.relative(root, filename).split(path.sep).join('/'),
+  const sources = [...modules].filter(filename => filename.startsWith(path.join(root, 'src') + path.sep) || sharedSources.includes(filename)).sort().map(filename => ({
+    path: path.relative(path.dirname(root), filename).split(path.sep).join('/'),
     sha256: crypto.createHash('sha256').update(fs.readFileSync(filename, 'utf8').replace(/\r\n/g, '\n')).digest('hex'),
   }));
   fs.writeFileSync(path.join(dist, 'build-manifest.json'), JSON.stringify({ schemaVersion: 1, demoOnly: !authentication, localComplaintsDemo: complaintsDemo, closedAuthentication: authentication, closedComplaints: complaints, closedComplaintOperations: operations, productionBrowser, assetPrefix: productionBrowser ? '/staff/assets/' : '/', mode: development ? 'development' : 'production', node: process.versions.node, dependencyLock: review.lock_sha256, sources, vendorSources, files, modules: [...modules].map(filename => path.relative(root, filename).split(path.sep).join('/')).sort(), packages: [...owners.keys()].sort(), lockEntries: Object.keys(lock.packages).length - 1 }, null, 2) + '\n');

@@ -132,11 +132,14 @@
       const stop=host.querySelector('[data-stop-retry]');if(stop){stop.hidden=false;stop.disabled=false;}
       while(!stopping) {
         const outcome=await retry(row);
-        if(outcome==='synced'||row.retry_wait?.reason!=='pacing'||!row.retry_wait.seconds)return outcome;
+        if(outcome==='synced'||!['pacing','provider_backoff','circuit_cooldown','fifo','active_worker'].includes(row.retry_wait?.reason)||!row.retry_wait.seconds)return outcome;
         if(stopping)return 'waiting';
-        showProgress(`${label} · Waiting ${row.retry_wait.seconds}s for the Sheet write interval`);
+        const deadline=Date.now()+Math.min(600,Math.max(1,row.retry_wait.seconds))*1000;
         let timer;
-        await new Promise(resolve=>{wakeWait=resolve;timer=window.setTimeout(resolve,Math.max(1,row.retry_wait.seconds)*1000);});
+        await new Promise(resolve=>{wakeWait=resolve;const tick=()=>{const remaining=Math.ceil((deadline-Date.now())/1000);
+          if(stopping||!host.isConnected||remaining<=0){if(!host.isConnected)stopping=true;resolve();return;}
+          showProgress(`${label} · Retry in ${remaining}s · ${row.retry_wait.message||'Waiting for the Sheet write interval.'}`);
+          timer=window.setTimeout(tick,1000);};tick();});
         window.clearTimeout(timer);wakeWait=null;
       }
       return 'waiting';
@@ -190,6 +193,7 @@
           stopping=false;
           host.querySelectorAll('button,input').forEach(node=>{node.disabled=true;});
           const outcome=await retryWithPacing(row,'Retrying Sheet update');
+          showProgress(outcome==='synced'?'1 synced':stopping?'Retry stopped. The update remains queued.':row.retry_wait?.message||'Still queued.');
           notify(outcome==='synced'?'Sheet updated.':stopping?'Retry stopped. The update remains saved and queued.':row.retry_wait?.message||'Still queued: check the waiting reason below.');
           return;
         }
@@ -212,7 +216,7 @@
         if (error.status >= 400 && error.status < 500) keys.delete(row.key);
         notify(error.message || 'The update could not be retried.', 'error');
       }
-      finally { busy = false; button.disabled = false; button.removeAttribute('aria-busy'); options.afterRetry?.(); await refresh(); }
+      finally { busy = false; button.disabled = false; button.removeAttribute('aria-busy'); const stop=host.querySelector('[data-stop-retry]');if(stop)stop.hidden=true;options.afterRetry?.(); await refresh(); }
     });
     if (options.variant==='portal') window.addEventListener('portal:publication-updated',refresh);
     const api = {refresh}; mounts.set(host, api); refresh(); return api;

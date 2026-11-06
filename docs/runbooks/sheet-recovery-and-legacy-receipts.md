@@ -23,7 +23,7 @@ format on their next normal publication; no live bulk rewrite was performed.
 Portal Sheet attempts. A retry batch now waits for that interval and continues
 instead of ending after its first deferred response. **Stop retrying** ends this
 page's loop after the current request; the durable queue remains available to
-the scheduled publisher. Google retry backoff, integration cooldowns, FIFO and
+the request-assisted publisher. Google retry backoff, integration cooldowns, FIFO and
 active leases remain enforced.
 
 An HTTP **202** means unfinished work. The response now includes
@@ -32,7 +32,13 @@ Reasons distinguish `pacing`, `fifo`, `provider_backoff`, `circuit_cooldown`,
 `active_worker` and `legacy_hold`. Portal logs each deferred manual request's
 operation reference, reason, next retry and attempt count. A circuit cooldown
 with no provider attempt is waiting, rather than a newly failed Sheet write.
-Pacing is the only wait automatically repeated by the foreground retry loop.
+The foreground retry loop repeats pacing, provider backoff, circuit cooldown,
+FIFO and active-worker waits with a countdown; it never bypasses those guards.
+Existing-row corrections can pass unrelated inserts, while new-row FIFO and
+same-case revision ordering remain intact. Missing rows stop for review.
+Schema/configuration errors require repair and no longer count as transient
+provider circuit failures. See the
+[local evidence](../ui-standard/reviews/2026-11-06-personal-table-layouts-and-publication.md).
 When another register for the same case is pending, a successful current-register
 write still counts as synced for its own recovery row.
 

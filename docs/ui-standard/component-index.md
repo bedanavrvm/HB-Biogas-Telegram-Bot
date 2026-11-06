@@ -1,5 +1,9 @@
 # Component index and migration hold
 
+Personal Table Layouts, retained report presentation, JBL deposit checkboxes and
+publication retry countdowns reuse current compact settings/filter/recovery
+patterns. [Scope and local evidence](reviews/2026-11-06-personal-table-layouts-and-publication.md).
+
 Portal Sheet retry now waits through the configured write interval, with a
 compact Stop control and specific deferral reasons. See the
 [production-pacing browser record](reviews/2026-11-06-portal-paced-sheet-retry.md).

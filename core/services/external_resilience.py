@@ -88,8 +88,8 @@ class ExternalCircuitOpen(ExternalOperationError):
 
 
 def redacted_error_code(error: Exception) -> str:
-    if getattr(error, 'safe_error_code', None) == 'identity_conflict':
-        return 'identity_conflict'
+    if getattr(error, 'safe_error_code', None) in {'identity_conflict', 'sheet_configuration', 'sheet_schema', 'sheet_row_changed', 'sheet_row_missing'}:
+        return error.safe_error_code
     response = getattr(error, 'response', None)
     status = getattr(response, 'status_code', None) or getattr(error, 'status_code', None)
     if status:

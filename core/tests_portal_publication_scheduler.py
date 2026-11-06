@@ -21,6 +21,23 @@ from core.services.jawabu_master import ensure_master_system_headers, update_mas
 
 
 class QuotaRetryTests(TestCase):
+    def test_register_review_does_not_trip_provider_circuit(self):
+        from core.services.external_resilience import is_transient_external_error, redacted_error_code
+        from core.services.portal_publication import PortalRegisterReviewError
+        for phase in ('configuration', 'schema', 'verify', 'row_missing'):
+            error = PortalRegisterReviewError(phase)
+            self.assertFalse(is_transient_external_error(error))
+            self.assertTrue(redacted_error_code(error).startswith('sheet_'))
+
+    def test_initialization_preserves_permission_and_quota_failures(self):
+        from core.services.sheets import GoogleSheetsService
+        for status, phase in ((403, 'configuration'), (429, 'connection')):
+            error = type('ProviderError', (RuntimeError,), {'status_code': status})('synthetic')
+            with patch('core.services.sheets.Credentials.from_service_account_file', side_effect=error):
+                service = GoogleSheetsService(sheet_id='synthetic', sheet_name='Master Data')
+                self.assertFalse(service.is_available())
+                self.assertEqual(service.availability_failure, {'phase': phase, 'provider_status': status})
+
     def test_429_waits_at_least_one_minute(self):
         error = type('QuotaError', (RuntimeError,), {'status_code': 429})('quota')
         self.assertGreaterEqual(retry_after_seconds(error, attempt=1, random_value=lambda: 0), 60)
@@ -59,6 +76,29 @@ class DrainPortalPublicationsTests(TestCase):
             metadata={'workflow_revision': self.farmer.workflow_revision},
             max_attempts=4,
         )[0]
+
+    def test_existing_row_update_passes_unrelated_append_but_keeps_case_order(self):
+        from core.services.portal_publication import queued_publication_operations, _master_claim_in_order
+        self.operation.status = IntegrationOperation.STATUS_SUCCEEDED
+        self.operation.metadata['result'] = {'action': MASTER_OPERATION}
+        self.operation.save()
+        def reserve(key, source_id):
+            return reserve_operation(integration=IntegrationOperation.INTEGRATION_GOOGLE_SHEETS,
+                operation_type=MASTER_OPERATION, deduplication_key=key,
+                source_model=SOURCE_MODEL, source_id=source_id)[0]
+        append = reserve('new-row', 'unrelated')
+        append.next_retry_at = timezone.now() + timedelta(minutes=2)
+        append.save()
+        later_append = reserve('later-new-row', 'another')
+        update = reserve('existing-row-update', str(self.farmer.pk))
+        later_update = reserve('later-case-update', str(self.farmer.pk))
+        self.assertEqual(list(queued_publication_operations().values_list('pk', flat=True)), [update.pk])
+        self.assertTrue(_master_claim_in_order(update))
+        self.assertFalse(_master_claim_in_order(later_update))
+        self.assertFalse(_master_claim_in_order(later_append))
+        self.operation.metadata['destination_key'] = 'different-sheet'
+        self.operation.save()
+        self.assertFalse(queued_publication_operations().filter(pk=update.pk).exists())
 
     @patch('core.management.commands.drain_portal_publications.attempt_publication')
     def test_dry_run_never_calls_google(self, attempt):

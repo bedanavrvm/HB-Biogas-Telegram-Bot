@@ -48,6 +48,20 @@ someone next opens Portal. There is no cron job or unattended scheduler.
 The supplied `start.sh` permits a bounded Google attempt up to 120 seconds
 and keeps a second web thread available. Confirm the deployed service uses it.
 
+Previously published case corrections can advance ahead of unrelated new-case
+imports. The publisher requires evidence of a real successful write to the same
+destination, preserves order between revisions of that case, and only updates
+an existing row. A missing row stops for review rather than being appended.
+New rows still use destination FIFO.
+
+Explicit retry displays a countdown and resumes after pacing, provider backoff,
+cooldown, FIFO or an active worker. Stop or leaving the screen ends the page's
+loop without removing queued work. Bad headers, missing published rows and
+configuration/permission failures need review; they no longer masquerade as
+transient Google outages. Recovery shows the safe failure category and HTTP
+status when available. A cooldown entry alone does not identify the original
+provider failure.
+
 For diagnosis, inspect the queue without external calls:
 
 ```sh

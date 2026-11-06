@@ -119,6 +119,7 @@ def preference_payload(user, workflow: str) -> dict[str, Any]:
             'workflow': workflow,
             'default_screen': '',
             'default_filters': {},
+            'table_layouts': {},
             'compact_cards': False,
             'show_business_hours_time': True,
             'alert_mode': UserMiniAppPreference.ALERT_IMMEDIATE,
@@ -127,6 +128,7 @@ def preference_payload(user, workflow: str) -> dict[str, Any]:
         'workflow': workflow,
         'default_screen': preference.default_screen,
         'default_filters': preference.default_filters or {},
+        'table_layouts': preference.table_layouts or {},
         'compact_cards': preference.compact_cards,
         'show_business_hours_time': preference.show_business_hours_time,
         'alert_mode': preference.alert_mode,
@@ -153,9 +155,15 @@ class PreferenceConflict(ValueError):
 
 
 @transaction.atomic
-def update_preference(user, workflow: str, payload: dict[str, Any], *, expected=None) -> dict[str, Any]:
+def update_preference(user, workflow: str, payload: dict[str, Any], *, expected=None, expected_layouts=None) -> dict[str, Any]:
     if workflow not in WORKFLOW_SCREENS:
         raise ValueError('Unknown Mini App preference scope.')
+    preference, _ = UserMiniAppPreference.objects.select_for_update().get_or_create(user=user, workflow=workflow)
+    before = preference_payload(user, workflow)
+    if expected_layouts is not None and expected_layouts != before['table_layouts']:
+        raise PreferenceConflict('Table layouts changed elsewhere. Reload saved layouts before saving. Your edits are retained.')
+    supplied = payload
+    payload = {**before, **payload}
     default_screen = str(payload.get('default_screen') or '').strip()
     if default_screen and default_screen not in WORKFLOW_SCREENS[workflow]:
         raise ValueError('Select a valid landing screen.')
@@ -166,12 +174,13 @@ def update_preference(user, workflow: str, payload: dict[str, Any], *, expected=
     alert_mode = str(payload.get('alert_mode') or UserMiniAppPreference.ALERT_IMMEDIATE)
     if alert_mode not in dict(UserMiniAppPreference.ALERT_CHOICES):
         raise ValueError('Select a valid non-critical alert mode.')
-    preference, _ = UserMiniAppPreference.objects.select_for_update().get_or_create(user=user, workflow=workflow)
-    before = preference_payload(user, workflow)
+    if 'table_layouts' in payload:
+        from core.services.table_layouts import normalise_layouts
+        preference.table_layouts = normalise_layouts(payload['table_layouts'], workflow)
     preference.default_screen = default_screen
     preference.default_filters = clean_filters
     preference.compact_cards = _normalise_boolean(payload.get('compact_cards'), field='Compact cards')
-    if 'show_business_hours_time' in payload:
+    if 'show_business_hours_time' in supplied:
         if workflow == 'tat_tracker':
             from core.services.tat_presentation import business_time_enabled
             if not business_time_enabled():
@@ -191,7 +200,7 @@ def update_preference(user, workflow: str, payload: dict[str, Any], *, expected=
             raise PreferenceConflict('Preferences changed elsewhere. Your edits are retained. Reload saved preferences before saving.')
     preference.save(update_fields=[
         'default_screen', 'default_filters', 'compact_cards',
-        'show_business_hours_time', 'alert_mode', 'updated_at',
+        'show_business_hours_time', 'alert_mode', 'table_layouts', 'updated_at',
     ])
     after = preference_payload(user, workflow)
     record_event(
