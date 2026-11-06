@@ -21,3 +21,10 @@ kcu 288b dorcas kiburu
 Portal reports - some filter options could be checkboxes instead of limiting to one option for more filtering control
 
 Changes are paused while the legacy import is in progress. Your saved work is safe. IT can resume and complete the import from Legacy import. - this blocker shows up when i try to edit an imported(historic) case at the confirmed continuation. Why is it blocking ? i know that the import is not fully imported but cases that have already been imported and synced should be editable/acted upon by the miniapp actions
+
+***********************************************************
+jbl queue - now that cases with pending deposits show up in the queue - we need a filter option to filter based on the status (deposit pending or awaiting visit)
+
+why does changing the filter change the graph that was focused on/unticks things that were selected - ideally changing the filter should only change the data not the setup?
+
+i want you to implement this in the settings and its accessible to everybody - the column ordering in the ag grid tables - other than the first col(with the numbering) - Users should be able to specify which order the columns appear for them and remember it(preference). also add a way in which they can specify which cols will be frozen(obviously the freezing of the col should work the same way excel works(freezing the first  col or up to col x

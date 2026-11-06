@@ -73,7 +73,7 @@ def storage_rows(actor, access):
 
 def publication_issue(operation, case, *, actor, access):
     from core.services.external_resilience import operation_lease_seconds
-    from core.services.portal_publication import _targets_for_farmer, _master_claim_in_order
+    from core.services.portal_publication import _targets_for_farmer, publication_deferral
     from core.services.jawabu_case_reference import display_case_reference
     from portal_legacy.fence import case_blocked
     setup = configuration_failure(operation.last_error_code)
@@ -97,14 +97,12 @@ def publication_issue(operation, case, *, actor, access):
         waiting = 'The previous worker stopped reporting. Retry can safely reclaim this update.'
     elif operation.status == 'running':
         waiting = 'A worker is updating this row now.'
-    elif operation.next_retry_at and operation.next_retry_at > timezone.now():
-        waiting = 'Retry cooldown until ' + timezone.localtime(operation.next_retry_at).strftime('%d-%b %H:%M:%S EAT') + '.'
-    elif not _master_claim_in_order(operation):
-        waiting = 'Waiting behind earlier updates to this register (FIFO).'
     elif operation.status == 'dead_letter':
         waiting = 'Automatic attempts stopped. Retry starts a new attempt and retains the failed history.'
     else:
-        waiting = 'No Sheet attempt has started. Retry runs it now.' if not operation.attempts else 'Ready to sync. Retry runs a Sheet attempt now.'
+        deferral = publication_deferral(operation, farmer=case)
+        waiting = deferral['waiting_reason'] if deferral['deferred_reason'] != 'queued' else (
+            'No Sheet attempt has started. Retry runs it now.' if not operation.attempts else 'Ready to sync. Retry runs a Sheet attempt now.')
     row = issue(operation.pk, display_case_reference(case.pk), detail=case.customer_name or 'Unnamed case',
         status='Configuration required' if setup else 'Retrying' if operation.status == 'running' else 'Waiting' if operation.status in {'pending', 'retryable_failure'} else 'Needs review',
         action=action, steps=(['Ask Portal IT to check Sheet access and the named columns for this case.',

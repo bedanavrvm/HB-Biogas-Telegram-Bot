@@ -30,7 +30,7 @@
   function mount(host, options) {
     if (!host) return null;
     if (mounts.has(host)) { const current = mounts.get(host); current.refresh(); return current; }
-    let page = 1, busy = false, rows = [], sequence = 0, progress = '';
+    let page = 1, busy = false, rows = [], sequence = 0, progress = '', stopping = false, wakeWait = null;
     const keys = new Map(), selected = new Map();
     host.classList.add('miniapp-recovery');
     host.innerHTML = '<header><h2>App status</h2><button type="button" data-check aria-label="Check app status" title="Check status">↻</button></header><div data-recovery-content aria-live="polite"></div>';
@@ -71,7 +71,7 @@
           });
         }
         if (rows.some(row=>row.batch_retry) || selected.size) {
-          content.insertAdjacentHTML('afterbegin', `<div class="recovery-batch"><label class="recovery-select"><input type="checkbox" data-select-page aria-label="Select displayed Sheet updates">Select displayed</label><button type="button" data-retry-selected ${selected.size?'':'disabled'}>Retry selected (${selected.size})</button><small data-batch-progress role="status">${escape(progress)}</small></div>`);
+          content.insertAdjacentHTML('afterbegin', `<div class="recovery-batch"><label class="recovery-select"><input type="checkbox" data-select-page aria-label="Select displayed Sheet updates">Select displayed</label><button type="button" data-retry-selected ${selected.size?'':'disabled'}>Retry selected (${selected.size})</button><button type="button" data-stop-retry hidden>Stop retrying</button><small data-batch-progress role="status">${escape(progress)}</small></div>`);
           updateSelection();
         } else if (progress) content.insertAdjacentHTML('afterbegin',`<p data-batch-progress role="status">${escape(progress)}</p>`);
         if (paging.pages > 1) content.insertAdjacentHTML('beforeend', `<nav aria-label="App status pages"><button type="button" data-page="${page-1}" aria-label="Previous status page" ${page === 1 ? 'disabled' : ''}>‹</button><span>${page} / ${escape(paging.pages)} · ${escape(paging.total)} updates</span><button type="button" data-page="${page+1}" aria-label="Next status page" ${page >= paging.pages ? 'disabled' : ''}>›</button></nav>`);
@@ -113,28 +113,47 @@
           const error=new Error(data?.error||data?.message||'The update could not be retried.');error.status=result.status;throw error;
         }
         keys.delete(row.key);
+        row.retry_wait = {reason:data?.deferred_reason, seconds:Number(data?.retry_after_seconds||0), message:data?.waiting_reason||''};
         if (data?.operation_id&&data.operation_id!==row.key&&selected.has(row.key)) {
           selected.delete(row.key);selected.set(data.operation_id,{...row,key:data.operation_id,action:{...action,payload:{...action.payload,operation_id:data.operation_id}}});
         }
         if(data?.case?.sync_status==='failed'||data?.needs_attention||data?.attempt_failed)throw new Error('The Sheet update still needs attention. Its latest failure is shown below.');
-        if(data?.publication ? data.publication.status==='synced' : data?.case?.sync_status==='success'||data?.status==='succeeded') { selected.delete(row.key);selected.delete(data?.operation_id);return 'synced'; }
+        if(data?.publication ? data.publication.operations?.some(operation=>operation.id===data.operation_id&&operation.status==='synced') : data?.case?.sync_status==='success'||data?.status==='succeeded') { selected.delete(row.key);selected.delete(data?.operation_id);return 'synced'; }
         return 'waiting';
       } catch(error) {
         if(error.status>=400&&error.status<500) keys.delete(row.key);
         throw error;
       }
     }
+    function showProgress(message) {
+      progress=message;const status=host.querySelector('[data-batch-progress]');if(status)status.textContent=progress;
+    }
+    async function retryWithPacing(row, label) {
+      const stop=host.querySelector('[data-stop-retry]');if(stop){stop.hidden=false;stop.disabled=false;}
+      while(!stopping) {
+        const outcome=await retry(row);
+        if(outcome==='synced'||row.retry_wait?.reason!=='pacing'||!row.retry_wait.seconds)return outcome;
+        if(stopping)return 'waiting';
+        showProgress(`${label} · Waiting ${row.retry_wait.seconds}s for the Sheet write interval`);
+        let timer;
+        await new Promise(resolve=>{wakeWait=resolve;timer=window.setTimeout(resolve,Math.max(1,row.retry_wait.seconds)*1000);});
+        window.clearTimeout(timer);wakeWait=null;
+      }
+      return 'waiting';
+    }
     async function retrySelected() {
       if(busy||!selected.size)return;
-      busy=true;const batch=[...selected.values()].sort((a,b)=>Number(a.retry_replacement)-Number(b.retry_replacement)||String(a.queued_at||'').localeCompare(String(b.queued_at||''))||a.key.localeCompare(b.key));
+      busy=true;stopping=false;const batch=[...selected.values()].sort((a,b)=>Number(a.retry_replacement)-Number(b.retry_replacement)||String(a.queued_at||'').localeCompare(String(b.queued_at||''))||a.key.localeCompare(b.key));
       let completed=0,waiting=0,failed=0;
       host.querySelectorAll('button,input').forEach(node=>{node.disabled=true;});
       try {
         for (const [index,row] of batch.entries()) {
-          try { (await retry(row))==='synced'?completed++:waiting++; } catch (_) { failed++; }
-          progress=`${index+1}/${batch.length} checked · ${completed} synced · ${waiting} waiting · ${failed} failed`;
-          const status=host.querySelector('[data-batch-progress]');if(status)status.textContent=progress;
+          if(stopping)break;
+          try { (await retryWithPacing(row,`${completed}/${batch.length} synced`))==='synced'?completed++:waiting++; }
+          catch (error) { failed++;if(error.status===401||error.status===403)stopping=true; }
+          showProgress(`${index+1}/${batch.length} checked · ${completed} synced · ${waiting} waiting · ${failed} failed`);
         }
+        if(stopping)showProgress(`Stopped · ${completed} synced · ${batch.length-completed-failed} waiting · ${failed} failed`);
         notify(progress,failed?'warning':'info');
       } finally {
         busy=false;host.querySelectorAll('button,input').forEach(node=>{node.disabled=false;});
@@ -144,6 +163,7 @@
     host.addEventListener('click', async event => {
       const button = event.target.closest('button');
       if (!button || button.disabled) return;
+      if(button.hasAttribute('data-stop-retry')) { stopping=true;wakeWait?.();showProgress('Stopping after the current request…');return; }
       if (busy) return;
       if (button.hasAttribute('data-retry-selected')) return retrySelected();
       if (button.hasAttribute('data-check')) return refresh();
@@ -167,8 +187,10 @@
       try {
         if (!row.batch_retry && !await dialog(action.label, `<p>${escape(action.confirmation)}</p>`, action.label)) return;
         if (row.batch_retry) {
-          const outcome=await retry(row);
-          notify(outcome==='synced'?'Sheet updated.':'Still queued: check the waiting reason below.');
+          stopping=false;
+          host.querySelectorAll('button,input').forEach(node=>{node.disabled=true;});
+          const outcome=await retryWithPacing(row,'Retrying Sheet update');
+          notify(outcome==='synced'?'Sheet updated.':stopping?'Retry stopped. The update remains saved and queued.':row.retry_wait?.message||'Still queued: check the waiting reason below.');
           return;
         }
         button.disabled = true;

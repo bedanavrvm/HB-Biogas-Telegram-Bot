@@ -731,9 +731,9 @@
     },
     {
       "path": "core/static/miniapp/miniapp_recovery.js",
-      "sha256": "0251966b3840e45fe2b1e1817a2cdcf127996108355ad51a6e2bdc5b8d3a4713",
-      "review_reference": "docs/ui-standard/reviews/2026-11-05-portal-sheet-retry-batch.md",
-      "reason": "User-requested concrete Portal Sheet before/after values and one-click selection across pages. Existing compact controls and owning publication scopes, FIFO, cooldown and leases retained. Real signed-Django/PostgreSQL Playwright and local Sheet readback; no approved baseline or Phase 6 change."
+      "sha256": "544ecf444e2759391bc972d5d2dd7edb66ac995c53c33a8038ebddc10e7744cf",
+      "review_reference": "docs/ui-standard/reviews/2026-11-06-portal-paced-sheet-retry.md",
+      "reason": "User-reported pending retries reproduced with real five-second publication pacing. Existing compact retry controls now continue after pacing and offer Stop. FIFO, provider/circuit cooldown, leases and scope remain protected. Source-bound Playwright/PostgreSQL evidence; no approved baseline or Phase 6 change."
     },
     {
       "path": "core/static/miniapp/portal_curated_reports.js",
@@ -1019,9 +1019,9 @@
     },
     {
       "path": "core/templates/base_shell.html",
-      "sha256": "b63259c03d5ecfa18537057f3bf02a808e6576330e4f5cef157fec62a1957707",
-      "review_reference": "docs/ui-standard/reviews/2026-11-05-portal-sheet-retry-batch.md",
-      "reason": "User-requested concrete Portal Sheet before/after values and one-click selection across pages. Existing compact controls and owning publication scopes, FIFO, cooldown and leases retained. Real signed-Django/PostgreSQL Playwright and local Sheet readback; no approved baseline or Phase 6 change."
+      "sha256": "7319d8048a9f9a503c44ba15f69f22f3bc4789d7045fdc29b720d923078af096",
+      "review_reference": "docs/ui-standard/reviews/2026-11-06-portal-paced-sheet-retry.md",
+      "reason": "User-reported pending retries reproduced with real five-second publication pacing. Existing compact retry controls now continue after pacing and offer Stop. FIFO, provider/circuit cooldown, leases and scope remain protected. Source-bound Playwright/PostgreSQL evidence; no approved baseline or Phase 6 change."
     },
     {
       "path": "core/templates/portal/partials/legacy_import.html",

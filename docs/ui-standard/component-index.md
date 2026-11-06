@@ -1,5 +1,9 @@
 # Component index and migration hold
 
+Portal Sheet retry now waits through the configured write interval, with a
+compact Stop control and specific deferral reasons. See the
+[production-pacing browser record](reviews/2026-11-06-portal-paced-sheet-retry.md).
+
 Legacy Credit Analysis and current pipeline status reuse the existing detail
 fields, badges and progress strip. The shared backend labels historical unknowns
 as Legacy and honors the confirmed continuation; see the

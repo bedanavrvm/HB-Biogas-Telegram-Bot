@@ -11,6 +11,7 @@ from typing import Any
 from datetime import timedelta
 import hashlib
 import json
+import math
 
 from django.conf import settings
 from django.db.models import Q, Exists, OuterRef, Value, CharField
@@ -19,7 +20,7 @@ from django.db.models.fields.json import KeyTextTransform
 from django.utils import timezone
 
 from core.models import IntegrationOperation
-from core.services.external_resilience import ExternalOperationError, execute_operation, reserve_operation, operation_lease_seconds, external_call_budget
+from core.services.external_resilience import ExternalCircuitOpen, ExternalOperationError, execute_operation, reserve_operation, operation_lease_seconds, external_call_budget
 
 
 MASTER_OPERATION = 'jawabu_master_publish'
@@ -41,16 +42,57 @@ def _blocked_source_ids():
         legacy_source_id=Cast('pk', CharField())).values('legacy_source_id')
 
 
-def _master_claim_in_order(operation):
+def _master_blocker(operation):
     if operation.operation_type != MASTER_OPERATION:
-        return True
+        return None
     key = (operation.metadata or {}).get('destination_key', '__legacy__')
-    return not _with_destination(IntegrationOperation.objects.filter(
+    return _with_destination(IntegrationOperation.objects.filter(
         integration=operation.integration, source_model=SOURCE_MODEL, operation_type=MASTER_OPERATION,
         status__in=(IntegrationOperation.STATUS_PENDING, IntegrationOperation.STATUS_RETRYABLE, IntegrationOperation.STATUS_RUNNING),
     )).exclude(source_id__in=_blocked_source_ids()).filter(destination_fifo_key=key).filter(
         Q(created_at__lt=operation.created_at) | Q(created_at=operation.created_at, pk__lt=operation.pk)
-    ).exists()
+    ).order_by('created_at', 'pk').first()
+
+
+def _master_claim_in_order(operation):
+    return _master_blocker(operation) is None
+
+
+def publication_deferral(operation, *, farmer=None):
+    """Explain a pending operation without exposing another case or contacting Google."""
+    from core.models import IntegrationCircuitState
+    from portal_legacy.fence import case_blocked
+    now = timezone.now()
+    reason, message, due = '', '', None
+    if operation.status == IntegrationOperation.STATUS_SUCCEEDED:
+        return {'deferred':False, 'deferred_reason':'', 'waiting_reason':'', 'retry_after_seconds':0, 'next_retry_at':None}
+    if farmer is not None and case_blocked(farmer):
+        reason, message = 'legacy_hold', 'This case is held by an unfinished legacy changeover.'
+    else:
+        circuit = IntegrationCircuitState.objects.filter(integration=operation.integration).first()
+        if circuit and circuit.status in {circuit.STATUS_OPEN, circuit.STATUS_HALF_OPEN} and circuit.next_probe_at and circuit.next_probe_at > now:
+            reason, message, due = 'circuit_cooldown', 'Google publishing is cooling down after integration failures.', circuit.next_probe_at
+        elif operation.next_retry_at and operation.next_retry_at > now:
+            reason = 'pacing' if operation.status == IntegrationOperation.STATUS_PENDING and not operation.last_error_code else 'provider_backoff'
+            message = 'Waiting for the Sheet write interval.' if reason == 'pacing' else 'Waiting for the scheduled retry after the last Google failure.'
+            due = operation.next_retry_at
+        elif operation.status == IntegrationOperation.STATUS_RUNNING:
+            reason, message = 'active_worker', 'Another worker is processing this update.'
+            due = (operation.last_attempt_at or operation.updated_at) + timedelta(seconds=operation_lease_seconds())
+        elif operation.status == IntegrationOperation.STATUS_DEAD_LETTER:
+            reason, message = 'needs_attention', 'Automatic attempts stopped; review the recorded failure before retrying.'
+        else:
+            blocker = _master_blocker(operation)
+            if blocker:
+                reason, message = 'fifo', 'An earlier update must finish before this register can advance.'
+                due = blocker.next_retry_at
+            else:
+                reason, message = 'queued', 'The update remains queued for the publisher.'
+    if due and due > now:
+        message += ' Next attempt after ' + timezone.localtime(due).strftime('%d-%b %H:%M:%S EAT') + '.'
+    return {'deferred':True, 'deferred_reason':reason, 'waiting_reason':message,
+            'retry_after_seconds':max(1, math.ceil((due-now).total_seconds())) if due else 5,
+            'next_retry_at':due.isoformat() if due else None}
 
 
 def queued_publication_operations():
@@ -458,6 +500,9 @@ def attempt_publication(operation: IntegrationOperation, *, max_seconds=20) -> d
             paced_operation_types=(MASTER_OPERATION, INTERNAL_ORDER_OPERATION),
             claim_guard=_master_claim_in_order,
         )
+    except ExternalCircuitOpen:
+        operation.refresh_from_db()
+        return {'operation':operation, 'farmer':farmer, 'result':None, 'deferred':True, 'error':False}
     except ExternalOperationError:
         operation.refresh_from_db()
         return {'operation': operation, 'farmer': farmer, 'result': None, 'error': True}

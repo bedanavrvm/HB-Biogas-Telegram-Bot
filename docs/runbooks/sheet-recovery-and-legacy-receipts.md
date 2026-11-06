@@ -19,6 +19,28 @@ format on their next normal publication; no live bulk rewrite was performed.
 
 ## Portal Sheet retries (5 November 2026)
 
+6 November correction: production enforces a five-second interval between
+Portal Sheet attempts. A retry batch now waits for that interval and continues
+instead of ending after its first deferred response. **Stop retrying** ends this
+page's loop after the current request; the durable queue remains available to
+the scheduled publisher. Google retry backoff, integration cooldowns, FIFO and
+active leases remain enforced.
+
+An HTTP **202** means unfinished work. The response now includes
+`deferred_reason`, `waiting_reason`, `retry_after_seconds` and `next_retry_at`.
+Reasons distinguish `pacing`, `fifo`, `provider_backoff`, `circuit_cooldown`,
+`active_worker` and `legacy_hold`. Portal logs each deferred manual request's
+operation reference, reason, next retry and attempt count. A circuit cooldown
+with no provider attempt is waiting, rather than a newly failed Sheet write.
+Pacing is the only wait automatically repeated by the foreground retry loop.
+When another register for the same case is pending, a successful current-register
+write still counts as synced for its own recovery row.
+
+The original batch verification disabled spacing and missed the production
+timing issue. The corrected Playwright journey uses the actual five-second
+setting and measures PostgreSQL attempt times. Evidence and the failed baseline:
+`test-results/portal-paced-retry/` and `test-results/portal-paced-retry-before.log`.
+
 In Portal **Settings → App status**, Sheet rows show the readable case reference,
 customer, destination and field values: **last recorded Sheet value → current
 saved value**. Unknown previous values remain explicitly unrecorded; they are

@@ -4345,6 +4345,11 @@ def portal_publication_attempt(request):
     operation.refresh_from_db()
     farmer.refresh_from_db()
     payload = publication_payload(farmer)
+    from core.services.portal_publication import publication_deferral
+    deferral = publication_deferral(operation, farmer=farmer)
+    if manual_retry and deferral['deferred']:
+        logger.info('Portal publication deferred: operation=%s reason=%s next_retry_at=%s attempts=%s',
+                    operation.pk, deferral['deferred_reason'], deferral['next_retry_at'], operation.attempts)
     return JsonResponse({
         'ok': True,
         'operation_id': str(operation.pk),
@@ -4353,10 +4358,10 @@ def portal_publication_attempt(request):
         'retryable': operation.status == IntegrationOperation.STATUS_RETRYABLE,
         'needs_attention': operation.status == IntegrationOperation.STATUS_DEAD_LETTER,
         'requeued': requeued,
-        'deferred': bool(attempt_result and attempt_result.get('deferred')),
+        **deferral,
         'attempt_failed': bool(attempt_result and attempt_result.get('error')),
         'superseded': bool(attempt_result and attempt_result.get('superseded')),
-        'circuit_retry_at': None,
+        'circuit_retry_at': deferral['next_retry_at'] if deferral['deferred_reason'] == 'circuit_cooldown' else None,
     }, status=202 if operation.status in {
         IntegrationOperation.STATUS_PENDING,
         IntegrationOperation.STATUS_RUNNING,
