@@ -24,8 +24,15 @@
   The final focused run executes 135 checks: 133 pass and two PostgreSQL-only
   deposit/concurrency checks skip on SQLite. Ruff, Django checks, migration
   drift and whitespace checks pass. Production inspection is read-only.
-  Production deployment and any status-only Sheet refresh require separate
-  approval; this code does not bulk-rewrite existing cells on deployment.
+  The user explicitly approved merging and deploying both branches. Code
+  d5d7cb3e became live on Render at 04:57:42 UTC on 10 November. The separate
+  status-only refresh updated 3,979 existing cells and verified all 3,980 case
+  labels, unchanged canonical/source facts, headers and other Sheet cells.
+  All 253 unapproved import rows remain under review. No migrations, configuration
+  changes, workflow actions or Telegram sends were needed. The code itself does
+  not bulk-rewrite existing cells on deployment. Repository CI still reports
+  artifact-audit and browser-review failures also present on the preceding
+  production commit; the focused status/publication checks pass.
 
 ## 10 November 2026 - Publish saved Portal status changes during legacy review
 

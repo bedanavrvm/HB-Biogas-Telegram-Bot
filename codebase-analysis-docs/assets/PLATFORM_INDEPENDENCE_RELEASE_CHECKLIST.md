@@ -1,7 +1,11 @@
 # Platform-independence phase, merge and deployment checklist
 
-## 10 November: bounded Portal Sheet status catalogue (local, pending release)
+## 10 November: bounded Portal Sheet status catalogue (released)
 
+- [x] Authority/source: the user explicitly requested merging the fix and feature
+  branches to main and production deployment. The fix was already an ancestor
+  of main; the feature merged by fast-forward. Code d5d7cb3e is pushed to main,
+  based on the previously deployed 353f831f. No unrelated branch was merged.
 - [x] Scope: twelve approved labels for the existing Current Pipeline State
   column; an issued legacy order number establishes historical approval and
   moves to Installation in Progress. Approved — Order Processing means awaiting
@@ -15,21 +19,34 @@
   skips; Ruff, Django checks and whitespace checks pass. Network blocked for
   synthetic tests. A prior local overlapping-run SQLite lock was corrected by
   serializing test runs; the final combined run passed with the two skips.
-- [x] Read-only impact preview: 3,980 existing cases, 3,979 status cells need
-  normalization; 144 historical ordered cases move to Installation in Progress.
-  Headers, UUID bindings and all other cells have retained comparison hashes.
-  The 253 unapproved source rows remain under review. No production write.
+- [x] Impact preview and live readback: 3,979 existing status cells updated in
+  three RAW single-column ranges; all 3,980 case labels verified. Historical
+  orders without physical completion now enter Installation in Progress (302
+  cases total in that label). Headers, UUID bindings, other cells, canonical
+  and retained source facts, and import-session hashes remain unchanged. The
+  253 unapproved rows remain under review. Private plan and completion receipt
+  retain comparison hashes and the bounded write response; no customer data
+  or credentials are committed. No business actions or Telegram sends replayed.
 - [x] Telegram/UI compatibility: no template, JavaScript, signed-launch,
   permission or business-transition changes. Negative progress-strip rendering
   remains a separate known gap. Platform-independence/browser rollout gates do
   not apply to this display-only patch; no browser activation is included.
 - [x] Monitor/rollback plan: verify status-only changes, retained case/import
-  fingerprints and unchanged other Sheet cells after a separately approved
-  rollout. Revert application code for future projections if needed; restoring
+  fingerprints and unchanged other Sheet cells after the approved rollout.
+  Revert to 353f831f for future projections if needed; restoring
   prior Sheet labels is an explicit external action, not an implied code rollback.
-- [ ] Production deployment, status-only refresh/readback and real staff smoke
-  test. No live integration acceptance or PostgreSQL concurrency stress claimed.
-- [ ] Full repository suite and remote CI: not run for this bounded display change.
+- [x] Production deploy dep-dbpa726417fc739epjn0 became live at 04:57:42 UTC.
+  Existing automatic deployment and release pre/post-checks used; no new
+  migrations, configuration, dependencies or backup-policy changes. API/ops
+  health return 200 and the API database probe passes; unauthenticated Portal
+  metadata remains denied. No post-live runtime error logs in the sampled window.
+- [ ] Real signed staff smoke test, physical-device acceptance and PostgreSQL
+  concurrency stress: not performed or claimed for this display-only release.
+- [ ] Whole-repository CI is not green. The artifact audit, downstream synthetic
+  UI capture and browser-review checks fail as on the preceding 353f831f release;
+  their workflow/browser/audit inputs are unchanged. PostgreSQL CI was still
+  running at release verification. No baseline, dependency or audit bypass added.
+  Run: https://github.com/bedanavrvm/HB-Biogas-Telegram-Bot/actions/runs/42758776607
 
 ## 27 October: conditional production Complaints browser release
 

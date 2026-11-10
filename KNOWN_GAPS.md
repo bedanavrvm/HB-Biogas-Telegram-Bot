@@ -18,10 +18,14 @@ Supported interim handling: consult retained historical source facts and use
 Legacy Continuation only when the stage is supported by reviewed evidence.
 Do not change an unspecified historical outcome into a credit decision or
 manufacture prior approvals from an installed/commissioned unit. A separate
-compact Sheet catalogue is now implemented locally and pending release: known
-outcomes remain visible, while detailed Mini App labels and action gates stay
-unchanged. The negative progress graphic still needs its separate correction.
-No UI, workflow state, approval, source row or ongoing import review was changed.
+compact Sheet catalogue was released in d5d7cb3e at 04:57:42 UTC on 10 November.
+The approved status-only refresh updated 3,979 cells and verified all 3,980
+case labels: known outcomes are visible in the Sheet, while detailed Mini App
+labels and action gates stay unchanged. An issued order displays Installation
+in Progress unless installation/commissioning completion is recorded; Approved
+— Order Processing means awaiting an order number. The negative progress
+graphic still needs its separate correction. No UI, workflow state, approval,
+source row or ongoing import review was changed; all 253 unapproved rows remain.
 
 ## Complaints browser production commissioning - 27 October 2026
 
