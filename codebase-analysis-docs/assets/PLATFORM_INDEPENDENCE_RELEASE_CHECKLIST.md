@@ -1,5 +1,35 @@
 # Platform-independence phase, merge and deployment checklist
 
+## 10 November: bounded Portal Sheet status catalogue (local, pending release)
+
+- [x] Scope: twelve approved labels for the existing Current Pipeline State
+  column; the user's legacy order-number rule establishes historical approval
+  for display. Known installation/commissioning still takes precedence.
+- [x] Owning workflow: Portal publication only. Initial import and later
+  publication share the helper. Mini App detailed labels, action gates, source
+  facts, existing approval/signature evidence and ongoing import review remain.
+- [x] Schema/configuration/dependencies: none. No new status column, dropdown,
+  service, schedule, authority, package or migration. Migration drift check passes.
+- [x] Verification: 133 focused SQLite checks, 131 passed/two PostgreSQL-only
+  skips; Ruff, Django checks and whitespace checks pass. Network blocked for
+  synthetic tests. One local overlapping-run SQLite lock was corrected by
+  running the publishing regressions after the main suite; all 17 then passed.
+- [x] Read-only impact preview: 3,980 existing cases, 3,979 status cells need
+  normalization; 144 historical ordered cases show Approved — Order Processing.
+  Headers, UUID bindings and all other cells have retained comparison hashes.
+  The 253 unapproved source rows remain under review. No production write.
+- [x] Telegram/UI compatibility: no template, JavaScript, signed-launch,
+  permission or business-transition changes. Negative progress-strip rendering
+  remains a separate known gap. Platform-independence/browser rollout gates do
+  not apply to this display-only patch; no browser activation is included.
+- [x] Monitor/rollback plan: verify status-only changes, retained case/import
+  fingerprints and unchanged other Sheet cells after a separately approved
+  rollout. Revert application code for future projections if needed; restoring
+  prior Sheet labels is an explicit external action, not an implied code rollback.
+- [ ] Production deployment, status-only refresh/readback and real staff smoke
+  test. No live integration acceptance or PostgreSQL concurrency stress claimed.
+- [ ] Full repository suite and remote CI: not run for this bounded display change.
+
 ## 27 October: conditional production Complaints browser release
 
 - [x] User-authorized implementation: ADR 0075; same-origin native routes and

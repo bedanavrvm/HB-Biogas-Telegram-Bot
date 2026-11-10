@@ -58,7 +58,7 @@ OPERATIONAL_FIELDS: dict[str, tuple[PublicationField, ...]] = {
         _field("jbl_visit_date", "JawabuFarmerMaster.jbl_visit_date", ("JBL Visit Date", "Jawabu Visit Date"), "workflow"),
         _field("jbl_officer", "JawabuFarmerMaster.jbl_officer", ("JBL Officer", "JBL BRO"), "workflow"),
         _field("jbl_visit_status", "JawabuFarmerMaster.jbl_visit_status", ("JBL Visit Status", "Jawabu Comment After Visit"), "workflow"),
-        _field("current_pipeline_state", "derived.current_pipeline_state_label", ("Current Pipeline State",), "workflow"),
+        _field("current_pipeline_state", "derived.sheet_pipeline_status", ("Current Pipeline State",), "workflow"),
         _field("jbl_visit_comment", "JawabuFarmerMaster.jbl_visit_comment", ("JBL Visit Comment", "Jawabu Visit Comment", "BRO Comment"), "workflow"),
         _field("case_comment_history", "JawabuCaseComment chronological projection", ("Additional Comments",), "workflow"),
         _field("lead_source", "JawabuFarmerMaster.lead_source", ("Lead Source",), "workflow"),

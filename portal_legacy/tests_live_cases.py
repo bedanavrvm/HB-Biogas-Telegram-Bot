@@ -41,6 +41,33 @@ class LiveImportedCasesTests(LegacyHTTPMixin, TestCase):
         return self.client.post(reverse(name,kwargs=kwargs),json.dumps(body),content_type='application/json',
             HTTP_X_REQUEST_ID=str(uuid.uuid4()),**self.headers)
 
+    def test_reported_rejection_publishes_without_inventing_a_stage_or_finishing_review(self):
+        for source in ('Master Data', 'Eco-conserve'):
+            with self.subTest(source=source):
+                sheet = self.book.service(sheet_name=source)._sheet
+                sheet.cells[1].extend(['No.', 'Current Pipeline State'])
+                sheet.cells[2] = []
+                phone, national_id = ('712345678', '12345678') if source == 'Master Data' else ('713345678', '32345678')
+                data = workbook_bytes([
+                    [2, 'SYNTHETIC REJECTED', phone, national_id, 'Rejected'],
+                    [3, 'SYNTHETIC HELD', '711111111', '87654321', 'Approved'],
+                ], headers=['Source Row', 'Customer Name', 'Primary Phone', 'National ID', 'Legacy Outcome'])
+                upload = self.cleanup(self.stage(data, source=source))
+                first = self.rows(upload)[0]
+                upload = self.request('select', {'rows': [{'id': first['id'], 'approved': True}]}, upload=upload)['upload']
+                upload = self.finish(self.request('commit', upload=upload)['upload'], 'committing')
+                upload = self.finish(self.request('sync_rows', upload=upload)['upload'], 'syncing_rows')
+                row = LegacyRow.objects.select_related('farmer').get(draft_versions__pk=first['id'])
+                self.assertEqual(row.farmer.workflow_state, 'legacy_review')
+                self.assertEqual(row.farmer.credit_decision, '')
+                self.assertFalse(row.continuation_confirmed)
+                self.assertFalse(row.farmer.pipeline_events.exists())
+                self.assertEqual(sheet.cells[2][sheet.cells[1].index('Current Pipeline State')], 'REJECTED')
+                saved = LegacyUpload.objects.get(pk=upload['id'])
+                self.assertTrue(saved.frozen)
+                self.assertEqual(saved.phase, 'ready')
+                self.assertEqual(saved.drafts.filter(legacy__isnull=True).count(), 1)
+
     @contextmanager
     def google_client_reads(self, sheet, *, before_verify=None):
         """Use the pinned SDK's real padding/rendering above synthetic provider IO."""

@@ -2389,6 +2389,7 @@ def master_projection_fields(farmer):
     from core.services.sheet_publication import aliases_for
     from core.services.requisition_partners import master_order_reference
     from core.services.jawabu_validation import normalize_date_text, parse_business_date
+    from core.services.portal_sheet_status import sheet_pipeline_status
     hbg_visit_date = farmer.hbg_visit_date or parse_business_date(farmer.sign_date)
     def candidates(field_name, *fallback):
         return list(dict.fromkeys((*aliases_for('jawabu_master', field_name), *fallback)))
@@ -2408,7 +2409,7 @@ def master_projection_fields(farmer):
         'hb_deposit_date': (candidates('hb_deposit_date'), _date_text(farmer.hb_deposit_date)),
         'jbl_officer': (candidates('jbl_officer'), _smart_sheet_label(farmer.jbl_officer)),
         'jbl_visit_status': (candidates('jbl_visit_status'), farmer.jbl_visit_status),
-        'current_pipeline_state': (candidates('current_pipeline_state'), current_pipeline_state_label(farmer)),
+        'current_pipeline_state': (candidates('current_pipeline_state'), _smart_sheet_label(sheet_pipeline_status(farmer))),
         'jbl_visit_comment': (candidates('jbl_visit_comment'), _attributed_sheet_comment(farmer.jbl_visit_comment, farmer.jbl_visit_date, farmer.jbl_officer, 'JBL Officer')),
         'case_comment_history': (candidates('case_comment_history'), master_comment_history(farmer)),
         'hbg_visit_comment': (candidates('hbg_visit_comment'), farmer.comments),
@@ -3018,6 +3019,7 @@ def _datetime_text(value) -> str:
 def internal_order_projection_fields(farmer, *, record_id='', now_text=''):
     """One field plan for internal-order publication and its recovery preview."""
     from core.services.sheet_publication import aliases_for
+    from core.services.portal_sheet_status import sheet_pipeline_status
     fields = {}
 
     def candidates(field_name, *fallback):
@@ -3057,7 +3059,7 @@ def internal_order_projection_fields(farmer, *, record_id='', now_text=''):
     # overwrite a value maintained independently in the order Sheet.
     put(candidates('hbg_visit_comment'), farmer.comments)
     put(candidates('jbl_visit_comment'), _attributed_sheet_comment(farmer.jbl_visit_comment, farmer.jbl_visit_date, farmer.jbl_officer, 'JBL Officer'))
-    put(candidates('current_pipeline_state'), _smart_sheet_label(current_pipeline_state_label(farmer)))
+    put(candidates('current_pipeline_state'), _smart_sheet_label(sheet_pipeline_status(farmer)))
     put(candidates('credit_decision'), _smart_sheet_label(credit_decision_label(farmer)))
     put(candidates('imab_created'), _smart_sheet_label(farmer.imab_created))
     put(candidates('customer_no'), farmer.customer_no)

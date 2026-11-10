@@ -21,6 +21,16 @@ The other register's cases and sheet are preserved.
 
 ## Historical credit and current status
 
+The Sheet's overall `Current Pipeline State` now has a compact twelve-value
+catalogue shared by initial loading and later publication. Rejected and Deferred
+reported outcomes remain visible when their decision stage is unknown;
+explicit physical completion remains visible with date warnings in the Mini App.
+Unqualified historical approval without an order number and conflicting facts
+remain Legacy. A recorded legacy order number implies historical approval and
+displays Approved — Order Processing until later physical progress is known.
+Handover evidence, the action gate and outstanding import review do not
+change. See the [status meanings](../operations/portal-sheet-publication.md#compact-current-pipeline-status).
+
 Imported cases without a recorded credit decision display **Legacy** in Credit
 Analysis and its Sheet projection. Recorded decisions remain intact. Legacy is
 a presentation marker, not an operational credit decision or approval; unknown

@@ -1,5 +1,30 @@
 # Changelog
 
+## 10 November 2026 - Compact Portal Sheet statuses
+
+- Use the twelve agreed overall statuses in the existing Current Pipeline State
+  column for Master Data and Eco-conserve, during initial imports and later
+  publication. Keep detailed stage/reason and reappraisal information in the
+  Mini App; no added column, dropdown or change to Mini App interactions.
+- Display explicit historical rejection, deferral, opted-out routes and physical
+  completion without inventing their missing approval stage or timeline. Keep
+  conflicting facts and unspecified historical approval without an order number
+  as Legacy. A legacy order number establishes historical approval for the
+  Approved — Order Processing label; accepted scans and HB handover remain
+  separate. Original source, case state and outstanding import review remain intact.
+- Apply Pending Minimum Deposit only before the JBL visit. Credit approval alone
+  remains Under Review; only established final approval enters Approved — Order
+  Processing. Closed installations share Cancelled/Withdrawn, with their precise
+  explanation retained in the Mini App.
+- Cover the catalogue, deposit threshold, current-over-historical precedence,
+  unknown/conflicting history, initial signed imports, same-row publication,
+  formula preservation and unchanged workflow authority using synthetic tests.
+  Final focused runs execute 133 checks: 131 pass and two PostgreSQL-only
+  deposit/concurrency checks skip on SQLite. Ruff, Django checks, migration
+  drift and whitespace checks pass. Production inspection is read-only.
+  Production deployment and any status-only Sheet refresh require separate
+  approval; this code does not bulk-rewrite existing cells on deployment.
+
 ## 10 November 2026 - Publish saved Portal status changes during legacy review
 
 - Compare Google Sheet row snapshots with equivalent trailing blank padding.

@@ -20,6 +20,52 @@ tab starts at row 2. A row containing any value or formula is occupied, even
 when its customer name is blank. Existing identified cases update in place;
 rows are never automatically moved or compacted.
 
+## Compact current pipeline status
+
+`Current Pipeline State` remains the existing backend-owned column in both
+registers. It publishes only these twelve labels (in uppercase, as other
+short Sheet labels do). No extra status column or dropdown is added. The
+catalogue is `core.services.portal_sheet_status.PortalSheetStatus`.
+
+| Status | Meaning |
+| --- | --- |
+| Awaiting JBL Visit | Waiting for the JBL visit after meeting the deposit requirement. |
+| Pending Minimum Deposit | Before the JBL visit, the recorded HB deposit is below KES 5,000 or unknown. |
+| Under Review | Credit analysis or Head of Rural review is outstanding. Credit approval alone stays here. |
+| Deferred | Temporarily held or rescheduled; stage, reason and reappraisal timing are in the Mini App. |
+| Rejected | A current or explicit historical rejection, without inventing an unknown rejection stage. |
+| Cancelled/Withdrawn | A cancellation, withdrawal or closed installation; the exact reason remains in the Mini App. |
+| Opted for Other | The customer chose cash or another partner; the chosen route remains in the Mini App. |
+| Approved — Order Processing | Final approval is established, including historical approval evidenced by a legacy order number; preparation, signing or order handover remains outstanding. |
+| Installation in Progress | HB installation work is open after release or an explicit historical handover. |
+| Installed — Awaiting Commissioning | Installation is recorded complete and commissioning remains outstanding. |
+| Commissioned | Current or explicit historical commissioning is recorded complete. |
+| Legacy | Retained facts do not establish a consistent current position. |
+
+Initial legacy loading and later publication use the same status mapping.
+Known reported outcomes remain visible even when the historical decision
+stage is unknown. Date warnings stay in the Mini App and do not hide otherwise
+explicit installation/commissioning facts. Conflicting outcomes and fulfilment,
+or conflicting linked sources, still display Legacy.
+
+An unqualified historical Approved without a decision stage or order number
+stays Legacy until reviewed continuation establishes its meaning. The business
+accepts a recorded legacy order number as evidence that the case was approved;
+it displays Approved — Order Processing until later physical progress is known.
+HB handover and signed-order evidence remain separate. None of these labels creates an
+approval event, HB action, actor, decision date or workflow transition. Minimum
+deposit checks apply only to the pre-visit stage; they never move installed or
+commissioned cases backwards. Unknown historical credit continues to use its
+separate Legacy credit marker; these twelve values are the overall status.
+
+The Mini App retains its detailed stage labels, comments and review warnings.
+Existing Sheet rows adopt the compact label through publication; deploying
+code alone does not rewrite all rows. A separately approved refresh must write
+only the existing Current Pipeline State cells, match immutable Master Record
+IDs, preserve other fields/formulas and initial-import checkpoints, and verify
+the resulting labels by readback. Do not rerun business actions or finish
+outstanding imports to refresh this display.
+
 Visible **Case ID** is the Portal's readable `JBL-…` reference. The immutable
 UUID belongs in hidden **Master Record ID**, which remains the ownership key
 for updates, retries and reset deletion. Legacy imports follow this same split;

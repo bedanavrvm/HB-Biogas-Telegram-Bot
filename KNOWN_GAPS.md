@@ -1,5 +1,28 @@
 # Known Gaps and Verified Workarounds
 
+## Portal historical outcomes and negative case progress - 10 November 2026
+
+Read-only production inspection at commit 353f831f confirms that the generic
+Legacy review projection hides known reported outcomes when a decision stage
+is unresolved. The 641 affected cases include 189 reported rejections, 244
+deferrals/on-hold outcomes and 185 approvals. Imported credit decisions are
+not established by these unqualified overall outcomes. Chronology/conflict
+warnings also share the same generic label and need a specific explanation.
+
+Executing the source-bound caseStageFlow JavaScript with synthetic records
+reproduces credit rejection/deferral as completed credit with Head of Rural
+current. Withdrawn-at-credit retains an active clock. The renderer has no
+explicit rejected/deferred visual state and receives no deferred_stage.
+
+Supported interim handling: consult retained historical source facts and use
+Legacy Continuation only when the stage is supported by reviewed evidence.
+Do not change an unspecified historical outcome into a credit decision or
+manufacture prior approvals from an installed/commissioned unit. A separate
+compact Sheet catalogue is now implemented locally and pending release: known
+outcomes remain visible, while detailed Mini App labels and action gates stay
+unchanged. The negative progress graphic still needs its separate correction.
+No UI, workflow state, approval, source row or ongoing import review was changed.
+
 ## Complaints browser production commissioning - 27 October 2026
 
 ADR 0075 adds conditional real routes, the native production build and existing-

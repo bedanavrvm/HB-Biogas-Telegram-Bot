@@ -1,5 +1,12 @@
 # ADR 0016: Master Data current pipeline state
 
+**10 November 2026 display amendment:** The user approved a compact twelve-value
+Sheet catalogue, including Under Review, while retaining detailed Mini App stage
+labels. The [current mapping and historical-evidence rules](../operations/portal-sheet-publication.md#compact-current-pipeline-status)
+supersede the original display-label table below. Canonical workflow, approval,
+deposit, payment and legacy-continuation rules are unchanged by this amendment.
+Code implementation and publication to production remain separate release steps.
+
 **Status:** Accepted for code merge and local/staging validation; production
 migration application and Apps Script deployment require separate release approval.
 
