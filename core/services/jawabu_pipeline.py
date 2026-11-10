@@ -112,8 +112,8 @@ def current_workflow_state(farmer: JawabuFarmerMaster) -> str:
 
 
 def credit_decision_label(farmer: JawabuFarmerMaster) -> str:
-    """Label unknown historical credit without inventing a workflow decision."""
-    if (farmer.source == 'portal_legacy' and farmer.credit_decision in {'', 'Pending'}
+    """Distinguish imported credit history from an actual Portal review."""
+    if (farmer.source == 'portal_legacy'
             and not farmer.credit_decided_at and not farmer.credit_decided_by
             and farmer.legacy_records.filter(committed_at__isnull=False).exists()
             and not farmer.pipeline_events.filter(action__in=['credit_decision_recorded', 'jbl_visit_completed']).exists()):

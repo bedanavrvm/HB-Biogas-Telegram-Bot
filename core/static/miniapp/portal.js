@@ -532,9 +532,10 @@
 
   function creditBadge(farmer) {
     if (portalHelpers.creditBadge) return portalHelpers.creditBadge(farmer);
-    if (!farmer.credit_decision) return '';
+    const decision = farmer.credit_decision_label || farmer.credit_decision;
+    if (!decision) return '';
     const map = { Approved: 'badge-green', Rejected: 'badge-red', Deferred: 'badge-orange', Pending: 'badge-grey', 'Exemption Approved': 'badge-green' };
-    return `<span class="badge ${map[farmer.credit_decision] || 'badge-grey'}">${farmer.credit_decision}</span>`;
+    return `<span class="badge ${map[decision] || 'badge-grey'}">${escapeHtml(decision)}</span>`;
   }
 
   function finalDecisionBadge(farmer) {
@@ -1505,16 +1506,18 @@
     const location = escapeHtml(locationValue === '-' ? 'Location not provided' : locationValue);
     const phone = escapeHtml(f.primary_phone || 'Phone not provided');
     const status = escapeHtml(f.current_pipeline_state || 'In Progress');
+    const creditLabel = f.credit_decision_label || f.credit_decision;
+    const creditStyle = creditLabel === 'Legacy' ? 'badge-grey' : 'badge-green';
     const badges = [];
     if (f.unit_number) badges.push(`<span class="badge badge-grey">Unit ${escapeHtml(f.unit_number)}</span>`);
     if (f.reappraisal_required) badges.push(`<span class="badge badge-red">Reappraisal required since ${escapeHtml(f.deferred_until || '')}</span>`);
     if (qKey === 'credit' && f.jbl_visit_status) badges.push(`<span class="badge badge-orange">${escapeHtml(f.jbl_visit_status)}</span>`);
-    if (qKey === 'final' && f.credit_decision) badges.push(`<span class="badge badge-green">${escapeHtml(f.credit_decision)}</span>`);
+    if (qKey === 'final' && f.credit_decision) badges.push(`<span class="badge ${creditStyle}">${escapeHtml(creditLabel)}</span>`);
     if (qKey === 'requisition' && f.final_decision) badges.push(`<span class="badge badge-green">Final: ${escapeHtml(f.final_decision)}</span>`);
     if (qKey === 'all') {
       if (f.order_number) badges.push(`<span class="badge badge-green">Order: ${escapeHtml(f.order_number)}</span>`);
       else if (f.final_decision) badges.push(`<span class="badge badge-green">Final: ${escapeHtml(f.final_decision)}</span>`);
-      else if (f.credit_decision && f.credit_decision !== 'Pending') badges.push(`<span class="badge badge-green">${escapeHtml(f.credit_decision)}</span>`);
+      else if (f.credit_decision && f.credit_decision !== 'Pending') badges.push(`<span class="badge ${creditStyle}">${escapeHtml(creditLabel)}</span>`);
       else if (f.jbl_visit_status) badges.push(`<span class="badge badge-orange">${escapeHtml(f.jbl_visit_status)}</span>`);
     }
     return `<div class="operational-queue-card-content">

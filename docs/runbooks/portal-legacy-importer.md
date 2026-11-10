@@ -36,13 +36,19 @@ order number.
 Handover evidence, the action gate and outstanding import review do not
 change. See the [status meanings](../operations/portal-sheet-publication.md#compact-current-pipeline-status).
 
-Imported cases without a recorded credit decision display **Legacy** in Credit
-Analysis and its Sheet projection. Recorded decisions remain intact. Legacy is
-a presentation marker, not an operational credit decision or approval; unknown
-decision dates/actors stay blank. A source workbook containing that marker can
-be imported again without inventing a credit decision. Once actual app visit or
-credit-decision activity exists, its current pending/recorded decision takes
-precedence over the historical marker.
+Committed initial imports display **Legacy** in Credit Analysis, credit badges,
+order previews and the Sheet credit projection until actual Portal review
+activity exists. This includes historical Approved, Rejected and Deferred values:
+their original decisions remain stored and their actual pipeline outcomes stay
+visible. For example, an imported rejected case has Credit Decision **Legacy**
+and Current Pipeline State **Rejected**. Legacy is a presentation marker, not
+an operational credit decision or approval; unknown decision dates/actors stay
+blank. A source workbook containing that marker can be imported again without
+inventing a credit decision. Once actual app visit or credit-decision activity
+exists, its current pending/recorded decision takes precedence. Existing recorded
+decision actors/dates are also respected. Legacy is never added as a decision
+staff can submit. Existing Sheet rows require normal publication to refresh;
+deploying this formatter alone does not rewrite all imported cases.
 
 Confirming a continuation immediately updates the displayed current pipeline
 status and stage number from the canonical workflow state. Missing historical

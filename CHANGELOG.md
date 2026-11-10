@@ -1,5 +1,16 @@
 # Changelog
 
+## 10 November 2026 - Legacy credit decision provenance
+
+- Display Legacy for committed initial-import credit history, including known
+  historical approval, rejection and deferral, until an actual Portal visit or
+  credit decision is recorded. Preserve native decisions and their actors/dates.
+- Use the shared label in case details, queue badges, order previews and both
+  register projections. Historical rejection remains Rejected in the pipeline;
+  the label never changes stored credit facts, routing or approval authority.
+- No migration, configuration, dependency or permission change. Existing Sheet
+  rows refresh through normal publication after an approved deployment.
+
 ## 10 November 2026 - Reviewed legacy workbook amendments
 
 - Compare equivalent fulfilment statuses, staff-label separator spacing and

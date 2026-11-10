@@ -12,7 +12,7 @@ compact Stop control and specific deferral reasons. See the
 [production-pacing browser record](reviews/2026-11-06-portal-paced-sheet-retry.md).
 
 Legacy Credit Analysis and current pipeline status reuse the existing detail
-fields, badges and progress strip. The shared backend labels historical unknowns
+fields, badges and progress strip. The shared backend labels imported credit history
 as Legacy and honors the confirmed continuation; see the
 [source and browser record](reviews/2026-11-05-portal-legacy-credit-and-current-status.md).
 

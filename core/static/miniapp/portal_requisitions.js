@@ -123,7 +123,7 @@
         <td>${deps.escapeHtml(caps(farmer.customer_name || '-'))}</td>
         <td data-miniapp-phone>${deps.escapeHtml(farmer.primary_phone || '-')}</td>
         <td>${deps.escapeHtml(farmer.national_id || '-')}</td>
-        <td>${deps.escapeHtml(caps(farmer.credit_decision || '-'))}</td>
+        <td>${deps.escapeHtml(caps(farmer.credit_decision_label || farmer.credit_decision || '-'))}</td>
         <td>${deps.escapeHtml(caps(farmer.final_decision_comment || ''))}</td>
         <td>${deps.escapeHtml(caps(farmer.county || '-'))}</td>
         <td>${deps.escapeHtml(caps(preview.location || '-'))}</td>
