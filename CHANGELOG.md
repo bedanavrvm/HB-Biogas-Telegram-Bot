@@ -11,9 +11,13 @@
 - Retain bounded source-conflict findings through normal validation and display
   them in existing Case 360 Data Quality and the read-only quality report.
   Identity edits clear the prior review selection and require fresh approval.
-- No schema, configuration, dependency, permission or frontend change. The
-  reviewed production import and deployment require separate operator approval;
-  see `docs/runbooks/portal-legacy-quality-review.md`.
+- Deployed `1953568f` and completed the separately approved 242-row production
+  import: 239 Master Data and three Eco-conserve rows, with verified Sheet
+  receipts and unchanged existing cases/cells. Three initial rows remain held.
+  Refreshed the stale Eco-conserve header checkpoint after the earlier HB Deposit
+  Date addition; preserve all existing publication receipts and values.
+- No schema, configuration, dependency, permission or frontend change. See
+  `docs/runbooks/portal-legacy-quality-review.md`.
 
 ## 10 November 2026 - Consistent live register status capitalization
 

@@ -1,5 +1,30 @@
 # Historical Portal identity and source review
 
+## Verified production result — 10 November 2026
+
+After explicit approval, commit `1953568f` was merged and deployed. The native
+run imported 239 Master Data rows and three Eco-conserve rows. All 242 have
+verified publication receipts; all 3,988 previous cases and Sheet rows retain
+their pre-import values. The total is 4,230 cases. The new cases retain 187
+missing-ID warnings, 55 potential-additional-unit findings without confirmed
+customer links, and 32 source/contact findings. Two unnamed records and one
+identical unit repeat remain held. The separate 90 November candidates were
+not imported by this operation.
+
+Eco-conserve initially stopped because its saved 55-column checkpoint predated
+the reviewed HB Deposit Date addition. Read-only header review confirmed exactly
+that one appended column, with no missing or reordered existing headers. An
+audited native rescan refreshed UUID bindings and empty-row allocation, retained
+all old receipts, and published only the three saved cases. Eco-conserve is
+complete; Master Data remains available with its three explicit holds.
+
+Pre/post-deploy checks had no readiness errors or pending migrations; 118 focused
+PostgreSQL tests passed before deployment. Private completion evidence retains
+the approved plan, case/Sheet checks and backup receipts. The full database
+export connection failed; the verified prior full archive plus a fresh,
+transaction-consistent snapshot of Portal models/import evidence/number registers
+and exact pre-write Sheet cells were retained. No destructive reset was used.
+
 This procedure covers Master Data and Eco-conserve only. Django remains the
 workflow source of truth. Private workbooks, identities and case-level decisions
 belong in the retained private review evidence, never this repository.
