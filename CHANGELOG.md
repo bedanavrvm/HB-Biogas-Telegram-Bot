@@ -1,5 +1,20 @@
 # Changelog
 
+## 10 November 2026 - Historical identity and additional-unit review
+
+- Allow explicitly reviewed initial-import rows with missing IDs to retain a
+  visible Data Quality warning without inventing an identity.
+- Add an explicit potential-additional-unit selection for historical repeated
+  IDs. Preserve the reported ID without creating a confirmed customer link or
+  allocating a customer unit number. Existing confirmed-unit imports retain
+  their current behavior.
+- Retain bounded source-conflict findings through normal validation and display
+  them in existing Case 360 Data Quality and the read-only quality report.
+  Identity edits clear the prior review selection and require fresh approval.
+- No schema, configuration, dependency, permission or frontend change. The
+  reviewed production import and deployment require separate operator approval;
+  see `docs/runbooks/portal-legacy-quality-review.md`.
+
 ## 10 November 2026 - Consistent live register status capitalization
 
 - Apply the existing uppercase Sheet convention to Credit Decision during

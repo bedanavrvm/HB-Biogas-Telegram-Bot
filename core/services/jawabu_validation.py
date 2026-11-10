@@ -15,6 +15,11 @@ from core.services.identifiers import normalize_kenyan_phone, normalize_national
 from core.services.jawabu_customer_quality import national_id_quality_message, product_quality_message
 
 
+# These are explicit historical review findings, not format-check results.
+# Only an audited review may resolve them; normal validation must retain them.
+LEGACY_REVIEW_CODES = frozenset({'potential_additional_unit', 'legacy_source_conflict'})
+
+
 class JawabuValidationError(ValueError):
     def __init__(self, errors: dict[str, str]):
         self.errors = errors
@@ -140,6 +145,11 @@ def canonicalize_farmer(
             # Historical/exceptional IDs must be reviewable rather than forcing
             # staff to enter a made-up value just to pass a hard form rule.
             errors['national_id'] = message
+    elif farmer.source == 'portal_legacy':
+        errors['national_id'] = (
+            'Historical National ID is missing; ask Portal IT to verify and correct the ID '
+            'before identity-dependent processing.'
+        )
 
     for field_name in ('primary_phone', 'secondary_phone'):
         raw = getattr(farmer, field_name)
@@ -207,6 +217,8 @@ def refresh_data_quality_issues(farmer: JawabuFarmerMaster) -> list[dict[str, st
         for field in errors
     }
     for issue in farmer.data_quality_issues.filter(active=True):
+        if farmer.source == 'portal_legacy' and issue.code in LEGACY_REVIEW_CODES:
+            continue
         if (issue.field_name, issue.code) not in active_keys:
             issue.active = False
             issue.resolved_at = now
@@ -239,7 +251,7 @@ def validation_warnings(
         farmer, strict=False, product_catalog=product_catalog,
         branch_catalog=branch_catalog, county_catalog=county_catalog,
     )
-    return [
+    warnings = [
         {
             'field': field,
             'code': _quality_code(field),
@@ -248,3 +260,10 @@ def validation_warnings(
         }
         for field, message in errors.items()
     ]
+    if farmer.pk and farmer.source == 'portal_legacy':
+        warnings.extend(
+            {'field': issue.field_name, 'code': issue.code, 'severity': issue.severity, 'message': issue.message}
+            for issue in farmer.data_quality_issues.all()
+            if issue.active and issue.code in LEGACY_REVIEW_CODES
+        )
+    return warnings

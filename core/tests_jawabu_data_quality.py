@@ -77,6 +77,18 @@ class JawabuDataQualityTests(TestCase):
         self.assertNotIn('duplicate_active_identity', report['by_code'])
         self.assertNotIn('duplicate_active_customer_no', report['by_code'])
 
+    def test_legacy_review_findings_are_reported_read_only_without_affecting_native_intake(self):
+        from core.models import JawabuDataQualityIssue
+        from core.services.jawabu_validation import validation_warnings
+        native=JawabuFarmerMaster.objects.create(customer_name='Native incomplete draft',national_id='')
+        legacy=JawabuFarmerMaster.objects.create(customer_name='Historical case',source='portal_legacy',national_id='')
+        JawabuDataQualityIssue.objects.create(farmer=legacy,field_name='national_id',code='potential_additional_unit',message='Ask Portal IT to verify this potential additional unit.')
+        self.assertFalse(validation_warnings(native))
+        report=active_jawabu_quality_report()
+        self.assertEqual(report['by_code']['potential_additional_unit'],1)
+        self.assertEqual(report['by_code']['review_required'],1)
+        self.assertEqual(JawabuDataQualityIssue.objects.count(),1)
+
     def test_product_codes_are_normalized_to_access_scope_keys(self):
         product = OperationalProduct(name='Micro Asset', code='MICRO ASSET')
 

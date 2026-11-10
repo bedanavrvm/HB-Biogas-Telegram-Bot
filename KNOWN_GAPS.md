@@ -1,5 +1,22 @@
 # Known Gaps and Verified Workarounds
 
+## Historical Portal identity review - 10 November 2026
+
+The deployed importer accepts blank historical IDs, but its ordinary validation
+does not surface a blank-ID warning. Manually added source-review findings can
+also be cleared during format validation. The prepared patch adds historical
+blank-ID warnings and retains the two explicit historical-review codes in the
+existing Data Quality view; deployment is pending operator approval.
+
+The focused private review accounts for 245 remaining initial rows: 242 were
+successfully rehearsed, while two unnamed records and one identical unit repeat
+remain held. Of 330 previously held November rows, 240 correlate with initial
+source evidence. The remaining 90 have a separate review: 81 cleaned additive
+intake candidates and nine evidence holds. They must not be replayed as updates
+to an unrelated case or included in a destructive cutover. The production data
+has not been changed by this review. See the
+[operator procedure](docs/runbooks/portal-legacy-quality-review.md).
+
 ## Portal historical outcomes and negative case progress - 10 November 2026
 
 Read-only production inspection at commit 353f831f confirms that the generic

@@ -48,10 +48,10 @@ def active_jawabu_quality_report(*, limit: int = 100) -> dict[str, Any]:
     valid_national_ids = 0
     normalized_primary_phones = 0
 
-    for farmer in JawabuFarmerMaster.objects.filter(status='active').only(
+    for farmer in JawabuFarmerMaster.objects.filter(status='active').prefetch_related('data_quality_issues').only(
         'id', 'national_id', 'primary_phone', 'secondary_phone', 'county', 'branch',
         'customer_no', 'payment_product', 'sign_date', 'actual_receipts', 'latitude',
-        'longitude', 'repayment_date', 'repayment_tenor',
+        'longitude', 'repayment_date', 'repayment_tenor', 'source',
     ):
         total += 1
         if farmer.national_id and not national_id_quality_message(farmer.national_id):

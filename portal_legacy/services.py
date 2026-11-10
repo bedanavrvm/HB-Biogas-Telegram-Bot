@@ -221,7 +221,8 @@ def _hb_baseline(row, farmer, actor):
 
 
 @transaction.atomic
-def commit_row(row_id, *, expected_revision, request_key, actor, access, existing_case_id='', separate_unit_note=''):
+def commit_row(row_id, *, expected_revision, request_key, actor, access, existing_case_id='', separate_unit_note='',
+               potential_additional_unit=False, review_flags=None):
     owner = LegacyRow.objects.select_related('batch__group').get(pk=row_id)
     authorize(actor, access, owner.batch.group, branch=owner.values.get('branch', ''), product=owner.values.get('payment_product', ''))
     # Serialize imports without blocking unrelated case FK inserts into the same group.
@@ -239,6 +240,11 @@ def commit_row(row_id, *, expected_revision, request_key, actor, access, existin
     if any('invalid amount' in issue for issue in proposal['issues']):
         raise ValueError('Resolve invalid monetary values before committing this row.')
     fields = proposal['fields']
+    review_flags = validated_review_flags(review_flags)
+    if not isinstance(potential_additional_unit, bool):
+        raise ValueError('Potential additional unit must be an explicit boolean.')
+    if potential_additional_unit and (existing_case_id or not fields.get('national_id') or not str(separate_unit_note or '').strip()):
+        raise ValueError('A potential additional unit requires its reported National ID and a review note, without an existing-case link.')
     if existing_case_id:
         farmer = JawabuFarmerMaster.objects.select_for_update().get(pk=existing_case_id, group_configuration=row.batch.group)
         authorize(actor, access, row.batch.group, farmer=farmer)
@@ -280,7 +286,7 @@ def commit_row(row_id, *, expected_revision, request_key, actor, access, existin
                 from django.core.exceptions import ValidationError
                 if not isinstance(exc, ValidationError): raise
                 raise ValueError(f'{field}: value does not meet the canonical field format/length.') from exc
-    if fields.get('national_id'):
+    if fields.get('national_id') and not potential_additional_unit:
         from core.models import JawabuCustomer
         from django.db.models import Max
         matches = list(JawabuCustomer.objects.select_for_update().filter(national_id=fields['national_id']))
@@ -303,9 +309,49 @@ def commit_row(row_id, *, expected_revision, request_key, actor, access, existin
     row.farmer = farmer; row.proposal = proposal; row.committed_at = timezone.now()
     row.continuation_confirmed = proposal['state'] != 'legacy_review'; row.revision += 1; row.save()
     _hb_baseline(row, farmer, actor)
+    if potential_additional_unit:
+        review_flags.append({
+            'field': 'national_id', 'code': 'potential_additional_unit',
+            'message': 'Potential additional unit: the reported National ID is repeated. '
+                       'No customer identity or unit relationship has been confirmed. '
+                       'Ask Portal IT to verify whether this is another unit, a repeated entry or an incorrect ID.',
+        })
+    from core.models import JawabuDataQualityIssue
+    for flag in review_flags:
+        JawabuDataQualityIssue.objects.update_or_create(
+            farmer=farmer, field_name=flag['field'], code=flag['code'],
+            defaults={'message': flag['message'], 'severity': 'warning', 'active': True, 'resolved_at': None},
+        )
+    from core.services.jawabu_validation import refresh_data_quality_issues
+    refresh_data_quality_issues(farmer)
     LegacyEvent.objects.create(row=row, actor=actor, request_key=request_key, action='imported',
-                              payload={'state': proposal['state'], 'evidence': proposal['evidence'], 'source_hash': row.source_hash, 'separate_unit_note': separate_unit_note})
+                              payload={'state': proposal['state'], 'evidence': proposal['evidence'], 'source_hash': row.source_hash,
+                                       'separate_unit_note': separate_unit_note, 'potential_additional_unit': potential_additional_unit,
+                                       'review_flags': review_flags})
     return row
+
+
+def validated_review_flags(flags):
+    """Bounded source-review findings; never arbitrary model fields or authority."""
+    if flags is None:
+        return []
+    if not isinstance(flags, list) or len(flags) > 40:
+        raise ValueError('Provide at most 40 historical source-review flags.')
+    result = []
+    seen = set()
+    for flag in flags:
+        if not isinstance(flag, dict) or set(flag) != {'field', 'code', 'message'}:
+            raise ValueError('A source-review flag requires a field, code and message.')
+        field, code, message = flag['field'], flag['code'], flag['message']
+        if (not isinstance(field, str) or not re.fullmatch(r'[a-z][a-z0-9_]{0,79}', field)
+                or code != 'legacy_source_conflict' or not isinstance(message, str)
+                or not message.strip() or len(message) > 2000):
+            raise ValueError('Invalid historical source-review flag.')
+        if (field, code) in seen:
+            raise ValueError('Source-review flags must have distinct field/code pairs.')
+        seen.add((field, code))
+        result.append({'field': field, 'code': code, 'message': message.strip()})
+    return result
 
 
 @transaction.atomic

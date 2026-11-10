@@ -201,6 +201,7 @@ def inspect_rows(upload,offset=0,filter_by='all'):
     return {'rows':rows,'total':total,'offset':offset}
 
 
+@transaction.atomic
 def select(upload,body):
     if upload.mode=='updates':
         from .updates import select as update_select
@@ -213,8 +214,14 @@ def select(upload,body):
         for item in body.get('rows',[])[:50]:
             draft=drafts.get(str(item['id']))
             if draft is None:continue
+            review={}
+            if 'potential_additional_unit' in item:
+                if not isinstance(item['potential_additional_unit'],bool):raise ValueError('Potential additional unit must be an explicit boolean.')
+                review['potential_additional_unit']=item['potential_additional_unit']
+            if 'review_flags' in item:
+                review['review_flags']=services.validated_review_flags(item['review_flags'])
             upload.drafts.filter(pk=item['id'],legacy__isnull=True).exclude(proposal__review_status='blocked').update(approved=bool(item.get('approved')),reconciliation={
-                **draft.reconciliation,'existing_case_id':str(item.get('existing_case_id','')),'note':str(item.get('note',''))[:2000]})
+                **draft.reconciliation,**review,'existing_case_id':str(item.get('existing_case_id','')),'note':str(item.get('note',''))[:2000]})
 
 
 @transaction.atomic
@@ -238,6 +245,7 @@ def edit(upload,body,actor,access):
         'before':{key:draft.values.get(key,'') for key in changes},'after':changes})
     if set(changes)&{'national_id','branch','payment_product'}:
         audit.pop('existing_case_id',None);audit.pop('note',None)
+        audit.pop('potential_additional_unit',None);audit.pop('review_flags',None)
     draft.values=values;draft.proposal=review_proposal(values);draft.approved=False;draft.reconciliation=audit;draft.save()
     upload.state.pop('projection',None)
     save(upload)
@@ -337,7 +345,8 @@ def commit_step(upload,actor,access):
                     defaults={'source_hash':upload.digest,'values':draft.values,'proposal':draft.proposal})
                 if row.values!=draft.values:raise ValueError('This source row already has different facts. Reconcile its existing provenance.')
                 saved=services.commit_row(row.pk,expected_revision=row.revision,request_key='legacy:'+str(upload.pk)+':'+str(draft.pk),actor=actor,access=access,
-                    existing_case_id=draft.reconciliation.get('existing_case_id',''),separate_unit_note=draft.reconciliation.get('note',''))
+                    existing_case_id=draft.reconciliation.get('existing_case_id',''),separate_unit_note=draft.reconciliation.get('note',''),
+                    potential_additional_unit=draft.reconciliation.get('potential_additional_unit',False),review_flags=draft.reconciliation.get('review_flags'))
                 draft.legacy=saved;draft.save(update_fields=['legacy'])
                 results.append({'id':draft.pk,'ok':True})
         except ValueError as exc:
