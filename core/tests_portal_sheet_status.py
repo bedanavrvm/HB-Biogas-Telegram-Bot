@@ -1,6 +1,7 @@
 """Synthetic register status contracts, separate from workflow authority."""
 from datetime import date, timedelta
 from decimal import Decimal
+from itertools import zip_longest
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
@@ -78,7 +79,7 @@ class PortalSheetStatusTests(TestCase):
                     self.assertEqual(master_projection_fields(farmer)['credit_decision'][1], 'Legacy')
                     headers = ['Credit Decision', 'Staff formula']
                     self.assertEqual(record_values(row, headers, 1, existing=['old', '=SUM(1,2)']),
-                                     ['Legacy', '=SUM(1,2)'])
+                                     ['LEGACY', '=SUM(1,2)'])
                     if decision == 'Rejected':
                         self.assertEqual(sheet_pipeline_status(farmer), 'Rejected')
                         self.assertEqual(current_pipeline_state_label(farmer), 'Rejected — Credit')
@@ -303,6 +304,71 @@ class PortalSheetStatusTests(TestCase):
             projected = record_values(row, headers, 1, existing=['=SUM(1,2)', 'old label', 'SYNTHETIC'])
             self.assertEqual(projected[0], '=SUM(1,2)')
             self.assertEqual(projected[1], 'REJECTED')
+
+    @patch('core.services.sheets.GoogleSheetsService.get_instance')
+    def test_initial_and_later_publication_share_uppercase_credit_and_hb_statuses(self, get_service):
+        from core.models import LiveSheetRecordChange
+        from core.services.jawabu_pipeline import sync_farmer_to_master_sheet
+        from core.tests import FakeJawabuService, FakeMasterDataSheet
+
+        for source in ('Master Data', 'Eco-conserve'):
+            for installation, readiness, report, commissioning in [
+                ('open', 'not_ready', '', 'unknown'),
+                ('installed', '', 'no', 'not_commissioned'),
+                ('installed', '', 'yes', 'commissioned'),
+            ]:
+                with self.subTest(source=source, commissioning=commissioning):
+                    farmer, row = self.legacy(source=source, state='ordered', order_number='HB-12')
+                    farmer.credit_decision = 'Pending'
+                    farmer.installation_status = installation.title()
+                    farmer.save(update_fields=['credit_decision', 'installation_status'])
+                    action = HomeBiogasAction.objects.create(
+                        farmer=farmer, legacy_origin=row, source_order_number='HB-12',
+                        source_requisition_version=1, installation_status=installation,
+                        readiness_status=readiness, installation_report_status=report,
+                        commissioning_status=commissioning,
+                        pending_commissioning_comment='Waiting for access; keep original wording.',
+                    )
+                    headers = ['No.', 'Customer Name', 'National ID', 'Master Record ID',
+                               'Current Pipeline State', 'Credit Decision', 'Installation Status',
+                               'Readiness Status', 'Installation Report Submitted to Jawabu', 'Commissioning Status',
+                               'Pending Commissioning Comments', 'Staff formula']
+                    expected = {
+                        'Credit Decision': 'LEGACY',
+                        'Installation Status': action.get_installation_status_display().upper(),
+                        'Readiness Status': action.get_readiness_status_display().upper() if readiness else '',
+                        'Installation Report Submitted to Jawabu': action.get_installation_report_status_display().upper() if report else '',
+                        'Commissioning Status': action.get_commissioning_status_display().upper(),
+                    }
+                    initial = record_values(row, headers, 1, existing=[''] * 11 + ['=SUM(1,2)'])
+                    for header, value in expected.items():
+                        self.assertEqual(initial[headers.index(header)], value)
+                    self.assertEqual(initial[10], action.pending_commissioning_comment)
+                    self.assertEqual(initial[11], '=SUM(1,2)')
+
+                    sheet = FakeMasterDataSheet(headers)
+                    sheet.values = [headers, [1, 'SYNTHETIC', '', str(farmer.pk),
+                                             'LEGACY', 'Pending', 'Installed', 'Not ready',
+                                             'Yes', 'Commissioned', '', '=SUM(1,2)']]
+                    get_service.return_value = FakeJawabuService(sheet)
+                    self.assertTrue(sync_farmer_to_master_sheet(farmer))
+                    published_headers = sheet.values[0]
+                    for header, value in expected.items():
+                        self.assertEqual(sheet.values[1][published_headers.index(header)], value)
+                    self.assertEqual(sheet.values[1][published_headers.index('Pending Commissioning Comments')],
+                                     action.pending_commissioning_comment)
+                    self.assertEqual(sheet.values[1][published_headers.index('Staff formula')], '=SUM(1,2)')
+                    saved = list(sheet.values[1])
+                    events = LiveSheetRecordChange.objects.count()
+                    self.assertTrue(sync_farmer_to_master_sheet(farmer))
+                    self.assertTrue(all(before == after for before, after in zip_longest(
+                        saved, sheet.values[1], fillvalue='',
+                    )))
+                    self.assertEqual(LiveSheetRecordChange.objects.count(), events)
+                    farmer.refresh_from_db(); action.refresh_from_db(); row.refresh_from_db()
+                    self.assertEqual(farmer.credit_decision, 'Pending')
+                    self.assertEqual(action.commissioning_status, commissioning)
+                    self.assertEqual(row.values, {'customer_name': 'SYNTHETIC HISTORY', 'order_number': 'HB-12'})
 
     @patch('core.services.sheets.GoogleSheetsService.get_instance')
     def test_normal_publication_updates_existing_row_and_preserves_formula(self, get_service):

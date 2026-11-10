@@ -2360,6 +2360,7 @@ def _smart_sheet_label(value: Any) -> str:
 MASTER_UPPERCASE_TEXT_FIELDS = frozenset({
     'jbl_visit_status', 'current_pipeline_state', 'lead_source',
     'hbg_contract_name', 'contract_type', 'installation_status',
+    'readiness_status', 'installation_report_status', 'commissioning_status',
     'actual_receipts_currency', 'credit_decision', 'imab_created',
     'payment_product', 'repayment_tenor', 'deferred_stage', 'final_decision',
 })

@@ -1,5 +1,15 @@
 # Changelog
 
+## 10 November 2026 - Consistent live register status capitalization
+
+- Apply the existing uppercase Sheet convention to Credit Decision during
+  initial legacy projection and to HB readiness, installation-report and
+  commissioning labels during both initial and later publication.
+- Keep Mini App labels, stored decisions, source evidence and comments unchanged.
+  A bounded live repair checks all imported rows for stale PENDING credit cells;
+  the previous five-case selection did not cover historical blank decisions.
+- No schema, configuration, permission, dependency or UI change.
+
 ## 10 November 2026 - Legacy credit decision provenance
 
 - Display Legacy for committed initial-import credit history, including known

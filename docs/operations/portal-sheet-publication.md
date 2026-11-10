@@ -27,6 +27,17 @@ registers. It publishes only these twelve labels (in uppercase, as other
 short Sheet labels do). No extra status column or dropdown is added. The
 catalogue is `core.services.portal_sheet_status.PortalSheetStatus`.
 
+Credit Decision and the structured HB installation, readiness, installation-report
+and commissioning labels follow the same uppercase convention in both initial
+legacy projection and later case publication. Comments, retained source values
+and Mini App labels keep their original case. Committed initial-import credit
+history publishes LEGACY until native Portal visit/credit activity or a recorded
+credit actor/date takes precedence. A release-time repair must examine every
+imported case's existing Sheet credit cell, including blank historical decisions;
+selecting only cases with a nonblank stored verdict misses older PENDING cells.
+Correct those labels by immutable Master Record ID without rewriting workflow
+decisions or replaying whole-row publication.
+
 | Status | Meaning |
 | --- | --- |
 | Awaiting JBL Visit | Waiting for the JBL visit after meeting the deposit requirement. |

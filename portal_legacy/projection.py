@@ -74,7 +74,7 @@ def confirm(upload,body):
 def record_values(legacy,headers,ordinal,existing=None):
     from .services import effective_values
     values=effective_values(legacy)
-    from core.services.jawabu_pipeline import master_projection_fields
+    from core.services.jawabu_pipeline import MASTER_UPPERCASE_TEXT_FIELDS, _smart_sheet_label, master_projection_fields
     from core.services.jawabu_case_reference import display_case_reference
     from core.services.jawabu_validation import parse_business_date
     from .workbook import token
@@ -82,6 +82,7 @@ def record_values(legacy,headers,ordinal,existing=None):
     corrected=set(legacy.farmer.field_provenance.values_list('field_name',flat=True))
     for name,(aliases,value) in fields.items():
         if value is None:value=''
+        if name in MASTER_UPPERCASE_TEXT_FIELDS:value=_smart_sheet_label(value)
         if name in {'county','sub_county','village','ward','branch','system_branch','landmark'}:value=str(value).upper()
         if name.endswith('_date') and value:
             parsed=parse_business_date(value)
