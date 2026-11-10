@@ -3,19 +3,20 @@
 ## 10 November: bounded Portal Sheet status catalogue (local, pending release)
 
 - [x] Scope: twelve approved labels for the existing Current Pipeline State
-  column; the user's legacy order-number rule establishes historical approval
-  for display. Known installation/commissioning still takes precedence.
+  column; an issued legacy order number establishes historical approval and
+  moves to Installation in Progress. Approved — Order Processing means awaiting
+  the order number. Known installation/commissioning completion takes precedence.
 - [x] Owning workflow: Portal publication only. Initial import and later
   publication share the helper. Mini App detailed labels, action gates, source
   facts, existing approval/signature evidence and ongoing import review remain.
 - [x] Schema/configuration/dependencies: none. No new status column, dropdown,
   service, schedule, authority, package or migration. Migration drift check passes.
-- [x] Verification: 133 focused SQLite checks, 131 passed/two PostgreSQL-only
+- [x] Verification: 135 focused SQLite checks, 133 passed/two PostgreSQL-only
   skips; Ruff, Django checks and whitespace checks pass. Network blocked for
-  synthetic tests. One local overlapping-run SQLite lock was corrected by
-  running the publishing regressions after the main suite; all 17 then passed.
+  synthetic tests. A prior local overlapping-run SQLite lock was corrected by
+  serializing test runs; the final combined run passed with the two skips.
 - [x] Read-only impact preview: 3,980 existing cases, 3,979 status cells need
-  normalization; 144 historical ordered cases show Approved — Order Processing.
+  normalization; 144 historical ordered cases move to Installation in Progress.
   Headers, UUID bindings and all other cells have retained comparison hashes.
   The 253 unapproved source rows remain under review. No production write.
 - [x] Telegram/UI compatibility: no template, JavaScript, signed-launch,

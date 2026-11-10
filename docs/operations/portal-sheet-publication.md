@@ -36,8 +36,8 @@ catalogue is `core.services.portal_sheet_status.PortalSheetStatus`.
 | Rejected | A current or explicit historical rejection, without inventing an unknown rejection stage. |
 | Cancelled/Withdrawn | A cancellation, withdrawal or closed installation; the exact reason remains in the Mini App. |
 | Opted for Other | The customer chose cash or another partner; the chosen route remains in the Mini App. |
-| Approved — Order Processing | Final approval is established, including historical approval evidenced by a legacy order number; preparation, signing or order handover remains outstanding. |
-| Installation in Progress | HB installation work is open after release or an explicit historical handover. |
+| Approved — Order Processing | Final approval is established and the case is awaiting its order number. |
+| Installation in Progress | An order number has been issued; the case is in the installation phase, including waiting for installation to begin. |
 | Installed — Awaiting Commissioning | Installation is recorded complete and commissioning remains outstanding. |
 | Commissioned | Current or explicit historical commissioning is recorded complete. |
 | Legacy | Retained facts do not establish a consistent current position. |
@@ -50,8 +50,10 @@ or conflicting linked sources, still display Legacy.
 
 An unqualified historical Approved without a decision stage or order number
 stays Legacy until reviewed continuation establishes its meaning. The business
-accepts a recorded legacy order number as evidence that the case was approved;
-it displays Approved — Order Processing until later physical progress is known.
+accepts a recorded legacy order number as evidence that the case was approved
+and order processing has finished. It displays Installation in Progress until
+installation or commissioning completion is known. Approved — Order Processing
+is reserved for approved cases still awaiting an order number.
 HB handover and signed-order evidence remain separate. None of these labels creates an
 approval event, HB action, actor, decision date or workflow transition. Minimum
 deposit checks apply only to the pre-visit stage; they never move installed or

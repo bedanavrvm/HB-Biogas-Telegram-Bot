@@ -27,7 +27,9 @@ reported outcomes remain visible when their decision stage is unknown;
 explicit physical completion remains visible with date warnings in the Mini App.
 Unqualified historical approval without an order number and conflicting facts
 remain Legacy. A recorded legacy order number implies historical approval and
-displays Approved — Order Processing until later physical progress is known.
+completed order processing: it displays Installation in Progress until later
+physical completion is known. Approved — Order Processing means awaiting the
+order number.
 Handover evidence, the action gate and outstanding import review do not
 change. See the [status meanings](../operations/portal-sheet-publication.md#compact-current-pipeline-status).
 

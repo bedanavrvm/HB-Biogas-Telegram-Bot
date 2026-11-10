@@ -75,10 +75,14 @@ class PortalSheetStatusTests(TestCase):
         for state in ('credit', 'final_review'):
             farmer = self.case(workflow_state=state, credit_decision='Approved', deposit_paid_hbg=None)
             self.assertEqual(sheet_pipeline_status(farmer), 'Under Review')
-        for state, extra in [('order', {'final_decision': 'Approved'}),
-                             ('ordered', {'order_number': 'HB-1'})]:
-            farmer = self.case(workflow_state=state, **extra)
-            self.assertEqual(sheet_pipeline_status(farmer), 'Approved — Order Processing')
+        farmer = self.case(workflow_state='order', final_decision='Approved')
+        self.assertEqual(sheet_pipeline_status(farmer), 'Approved — Order Processing')
+
+    def test_issued_order_moves_to_installation_instead_of_waiting_for_an_order(self):
+        for state in ('order', 'ordered'):
+            farmer = self.case(workflow_state=state, final_decision='Approved', order_number='HB-1')
+            self.assertEqual(sheet_pipeline_status(farmer), 'Installation in Progress')
+            self.assertFalse(HomeBiogasAction.objects.filter(farmer=farmer).exists())
 
     def test_halts_collapse_without_changing_detailed_miniapp_labels(self):
         farmer = self.case(workflow_state='deferred', deferred_stage='credit',
@@ -165,20 +169,35 @@ class PortalSheetStatusTests(TestCase):
         farmer, _ = self.legacy(state='credit', legacy_outcome='Rejected')
         self.assertEqual(sheet_pipeline_status(farmer), 'Under Review')
         farmer, _ = self.legacy(state='ordered', order_number='HB-1')
-        self.assertEqual(sheet_pipeline_status(farmer), 'Approved — Order Processing')
+        self.assertEqual(sheet_pipeline_status(farmer), 'Installation in Progress')
 
     def test_legacy_order_number_establishes_historical_approval_without_fabricating_evidence(self):
         for source in ('Master Data', 'Eco-conserve'):
             for state in ('legacy_review', 'ordered'):
                 with self.subTest(source=source, state=state):
                     farmer, row = self.legacy(source=source, state=state, order_number='HB-12')
-                    self.assertEqual(sheet_pipeline_status(farmer), 'Approved — Order Processing')
+                    self.assertEqual(sheet_pipeline_status(farmer), 'Installation in Progress')
                     self.assertEqual(farmer.final_decision, '')
                     self.assertIsNone(farmer.final_decided_at)
                     self.assertEqual(farmer.final_decided_by, '')
                     self.assertFalse(farmer.pipeline_events.exists())
                     self.assertFalse(HomeBiogasAction.objects.filter(farmer=farmer).exists())
                     self.assertEqual(farmer.workflow_state, state)
+
+    def test_ordered_legacy_physical_progress_controls_both_sheet_projections(self):
+        for source in ('Master Data', 'Eco-conserve'):
+            for physical, commissioning, expected in [
+                ('', '', 'INSTALLATION IN PROGRESS'),
+                ('Installed', 'Not Commissioned', 'INSTALLED — AWAITING COMMISSIONING'),
+                ('Installed', 'Commissioned', 'COMMISSIONED'),
+            ]:
+                with self.subTest(source=source, physical=physical, commissioning=commissioning):
+                    farmer, row = self.legacy(source=source, order_number='HB-12',
+                                             installation_status=physical, commissioning_status=commissioning)
+                    self.assertEqual(master_projection_fields(farmer)['current_pipeline_state'][1], expected)
+                    self.assertEqual(record_values(row, ['Current Pipeline State'], 1), [expected])
+                    self.assertFalse(HomeBiogasAction.objects.filter(farmer=farmer).exists())
+                    self.assertEqual(farmer.workflow_state, 'legacy_review')
 
     def test_accepted_source_amendment_is_used_without_rewriting_original(self):
         farmer, row = self.legacy(legacy_outcome='Rejected')

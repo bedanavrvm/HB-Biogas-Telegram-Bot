@@ -9,17 +9,19 @@
 - Display explicit historical rejection, deferral, opted-out routes and physical
   completion without inventing their missing approval stage or timeline. Keep
   conflicting facts and unspecified historical approval without an order number
-  as Legacy. A legacy order number establishes historical approval for the
-  Approved — Order Processing label; accepted scans and HB handover remain
-  separate. Original source, case state and outstanding import review remain intact.
+  as Legacy. A legacy order number establishes historical approval and completed
+  order processing: the case moves to Installation in Progress unless already
+  installed/commissioned. Approved — Order Processing is reserved for approved
+  cases awaiting an order number. Accepted scans and HB handover remain separate.
+  Original source, case state and outstanding import review remain intact.
 - Apply Pending Minimum Deposit only before the JBL visit. Credit approval alone
-  remains Under Review; only established final approval enters Approved — Order
-  Processing. Closed installations share Cancelled/Withdrawn, with their precise
-  explanation retained in the Mini App.
+  remains Under Review; established final approval without an order number enters
+  Approved — Order Processing. Closed installations share Cancelled/Withdrawn,
+  with their precise explanation retained in the Mini App.
 - Cover the catalogue, deposit threshold, current-over-historical precedence,
   unknown/conflicting history, initial signed imports, same-row publication,
   formula preservation and unchanged workflow authority using synthetic tests.
-  Final focused runs execute 133 checks: 131 pass and two PostgreSQL-only
+  The final focused run executes 135 checks: 133 pass and two PostgreSQL-only
   deposit/concurrency checks skip on SQLite. Ruff, Django checks, migration
   drift and whitespace checks pass. Production inspection is read-only.
   Production deployment and any status-only Sheet refresh require separate

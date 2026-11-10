@@ -38,7 +38,8 @@ def _reported_legacy_status(farmer):
         outcome = proposal['outcome'].strip().upper()
         physical = str(values.get('installation_status') or '').strip().upper()
         commissioning = str(values.get('commissioning_status') or '').strip().upper()
-        later_facts = bool(proposal['fields'].get('order_number') or physical == 'INSTALLED'
+        has_order = bool(farmer.order_number or proposal['fields'].get('order_number'))
+        later_facts = bool(has_order or physical == 'INSTALLED'
                            or commissioning == 'COMMISSIONED')
         negative = {'REJECTED', 'DEFERRED / ON HOLD', 'WITHDRAWN', 'CANCELLED',
                     'CLIENT WITHDREW', 'OPTED FOR CASH', 'OPTED FOR OTHER PARTNER'}
@@ -55,12 +56,10 @@ def _reported_legacy_status(farmer):
             status = PortalSheetStatus.INSTALLED
         elif physical == 'CLOSED':
             status = PortalSheetStatus.CANCELLED
-        elif physical == 'OPEN' and proposal['fields'].get('order_number'):
+        elif has_order:
+            # An issued order has finished order processing. Its next phase
+            # is installation, even when the start date is not recorded.
             status = PortalSheetStatus.INSTALLING
-        elif proposal['fields'].get('order_number'):
-            # The business accepts a retained legacy order number as evidence
-            # of historical approval, without supplying its actor/date/scan.
-            status = PortalSheetStatus.ORDER_PROCESSING
         elif outcome == 'REJECTED':
             status = PortalSheetStatus.REJECTED
         elif outcome == 'DEFERRED / ON HOLD' or outcome == 'RESCHEDULED':
@@ -86,8 +85,8 @@ def sheet_pipeline_status(farmer):
 
     Mini App reads retain their detailed current_pipeline_state_label. A
     retained historical outcome can be displayed while its action gate stays
-    closed. A legacy order number establishes historical approval for this
-    label, without creating a modern approval event or signed-order evidence.
+    closed. A legacy order number establishes historical approval and the
+    installation phase, without creating an approval event or signed scan.
     """
     from core.services.jawabu_pipeline import current_workflow_state
     from hb_operations.deposits import deposit_state
@@ -126,11 +125,11 @@ def sheet_pipeline_status(farmer):
 
     if state in {'credit', 'final_review'}:
         return PortalSheetStatus.UNDER_REVIEW
-    if state == 'order':
-        return PortalSheetStatus.ORDER_PROCESSING
     if state == 'ordered' or farmer.order_number:
-        # Legacy order numbers imply historical approval. HB handover and
-        # accepted signed-order evidence remain separately governed.
+        # The installation phase includes waiting for installation to begin.
+        # HB handover and accepted signed-order evidence remain governed.
+        return PortalSheetStatus.INSTALLING
+    if state == 'order':
         return PortalSheetStatus.ORDER_PROCESSING
     if state == 'jbl_visit':
         if farmer.jbl_visit_status in {'Rescheduled', 'Deferred / On Hold'}:
