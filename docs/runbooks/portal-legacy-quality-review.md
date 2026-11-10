@@ -74,6 +74,53 @@ customers.
 - An exact repeat of identity, contacts and unit facts needs evidence of a
   distinct unit before another operational case is created.
 
+## Explicit historical pre-visit statuses
+
+An explicit JBL/Jawabu To Schedule Visit, Awaiting JBL Visit or Pending Minimum
+Deposit outcome can establish `jbl_visit` during initial loading when a valid,
+nonfuture HBG visit/sign date is present. A recorded JBL visit, downstream
+stage/decision, order/payment reference, installation/commissioning evidence or
+conflicting comment keeps the source from creating a new visit. Valid later
+decisions and fulfilment facts retain their existing precedence. Blank status
+or unqualified approval never establishes a visit by absence of a JBL date.
+
+Queue membership and deposit eligibility are distinct. Blank/zero HB deposits
+and totals below KES 5,000 appear under Deposit Pending, with visit logging
+disabled. Sufficient recorded HB deposits appear under Awaiting Visit. JBL
+receipts never satisfy the HB deposit gate. Credit Decision stays Legacy until
+actual native visit/credit activity; no historical decision actor/date is added.
+
+For already committed cases, do not rerun import, modify source cells or include
+all Legacy review cases in the queue. After approval of the exact reviewed
+selection, use `portal_legacy.services.confirm_stage` with `state='jbl_visit'`,
+the current LegacyRow revision, an explanatory source-review note, the current
+authorized Portal actor/access, and a stable per-case request key. Recheck the
+case revision and all decision/physical facts under locks before the call. This
+records a current review event and reserves normal UUID-bound Sheet publication;
+it does not claim a historical visit or credit decision occurred. Replaying the
+same request must retain one confirmation and one pipeline event.
+
+Retain private before/after canonical fields, source hashes, revisions and exact
+Sheet cells. Keep unrelated fields, identity findings and held imports unchanged;
+resume native publication with its existing freshness checks and pacing, then
+verify the queue filters and Legacy credit labels independently. Code rollback
+does not undo reviewed stage confirmations. If evidence changes or a later staff
+action exists, stop and use the owning audited correction workflow; never
+delete cases or erase history as rollback.
+
+The private 10 November pre-visit review selects seven existing Master Data
+cases. All remain deposit-held: the expected global queue after correction is
+eight Deposit Pending and zero Awaiting Visit cases. Three cases with completed
+JBL dates and one already confirmed queue case are excluded. The separate
+November additive candidates and three initial source holds remain outside this
+operation. This describes a prepared repair, not completed production execution.
+
+Within the separately reviewed November additive candidates, 16 have supported
+pre-visit source evidence and 14 have at least KES 5,000 recorded HB deposit.
+They are not existing-case stage corrections. Review exact unit identity and
+approve their separate additive intake before importing; never turn an unrelated
+existing case into one of these candidates to fill the visit queue.
+
 ## Prepared review and evidence
 
 The private 10 November review has 245 initial holds. The reviewed native plan

@@ -28,6 +28,7 @@ ALIASES = {token(alias): f.name for f in OPERATIONAL_FIELDS['jawabu_master'] for
 DATES = {'hbg_visit_date', 'jbl_visit_date', 'requisition_date', 'hb_deposit_date', 'invoice_date', 'installation_date', 'commissioning_date'}
 MONEY = {'invoice_amount', 'discount', 'deposit_paid_hbg', 'legacy_deposit_paid_jbl'}
 JBL_RECEIPT_HEADERS = {'depositpaidtojbl', 'depositjbl', 'legacydepositpaidjbl'}
+PREVISIT_OUTCOMES = {'jbltoschedulevisit', 'jawabutoschedulevisit', 'awaitingjblvisit', 'pendingminimumdeposit'}
 
 
 def bind_headers(headers):
@@ -202,6 +203,23 @@ def propose(values):
     if physical in {'INSTALLED', 'CLOSED'} or commissioned == 'commissioned':
         state = 'ordered'; evidence.append('Explicit reported physical completion')
     if physical == 'OPEN' and fields.get('order_number'): evidence.append('Explicit installation pending with recorded order')
+    if token(outcome) in PREVISIT_OUTCOMES and state == 'legacy_review':
+        # A pending-visit label establishes the next action only when no later
+        # facts contradict it. Deposits determine eligibility in the owning
+        # workflow; a source label must never waive the minimum amount.
+        later_facts = any(values.get(key) not in ('', '-', None) for key in (
+            'jbl_visit_date', 'order_number', 'payment_number', 'requisition_date',
+            'installation_date', 'commissioning_date', 'installation_status', 'commissioning_status',
+        )) or any(token(values.get(key)) not in {'', 'pending', 'legacy'} for key in (
+            'jbl_visit_status', 'credit_decision', 'final_decision',
+        ))
+        hbg_date = fields.get('hbg_visit_date')
+        if (stage in (None, 'jbl_visit') and hbg_date and hbg_date <= timezone.localdate().isoformat()
+                and not later_facts and not any(issue.startswith('Comment decisions need reconciliation') for issue in issues)):
+            state = stage = 'jbl_visit'
+            evidence.append('Explicit historical pre-visit status with HBG date and no later workflow facts')
+        else:
+            issues.append('Pending JBL visit needs reconciliation with the visit date, decision stage or later workflow facts.')
     chronology_issue = False
     if physical == 'INSTALLED' or commissioned == 'commissioned':
         for field in ('installation_date', 'commissioning_date'):

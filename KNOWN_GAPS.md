@@ -1,5 +1,39 @@
 # Known Gaps and Verified Workarounds
 
+## Legacy pre-visit queue classification - 10 November 2026
+
+Read-only production review at `1953568f` found one visit-queue case, held for
+the HB minimum deposit, and zero actionable Awaiting Visit cases. Seven
+published legacy cases have explicit pre-visit source evidence, an HBG visit
+date and no completed JBL visit or later workflow facts, but remain in
+`legacy_review`. Three other pending-visit source labels conflict with actual
+JBL visit dates and must not create revisits. The remaining reviewed source
+case is already correctly in the queue.
+
+The prepared parser correction recognizes explicit JBL/Jawabu To Schedule Visit,
+Awaiting JBL Visit and Pending Minimum Deposit labels for future initial loads.
+It retains ambiguous/conflicting cases for review and never changes deposits,
+recorded decisions or completed visits. Existing committed cases require an
+audited Legacy Continuation action; code deployment alone does not reclassify
+them. All seven reviewed corrections remain deposit-held, so their expected
+global queue is eight Deposit Pending and zero Awaiting Visit cases. Current
+staff scope and selected filters still apply.
+
+The separate November source review contains 16 additional pre-visit candidates,
+including 14 with at least KES 5,000 recorded HB deposit. All 16 have source
+evidence consistent with the corrected pre-visit parser. They remain outside
+the completed initial import and the seven existing-case correction plan;
+source consistency alone does not establish a distinct new operational unit.
+
+Eight new synthetic tests pass through both register imports, publication,
+deposit eligibility, conflicting evidence and idempotent continuation. The
+158-test SQLite regression run has 156 passes, one existing PostgreSQL-only
+skip and one identity-review duplicate-example failure reproduced unchanged
+on baseline `c5098f26`. That baseline failure is outside this parser change;
+PostgreSQL regression validation has not been rerun for this patch. Production
+deployment and the seven reviewed corrections remain pending explicit approval.
+See the [operator procedure](docs/runbooks/portal-legacy-quality-review.md).
+
 ## Historical Portal identity review - 10 November 2026
 
 Release `1953568f` is deployed with historical blank-ID warnings and durable
