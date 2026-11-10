@@ -108,12 +108,22 @@ does not undo reviewed stage confirmations. If evidence changes or a later staff
 action exists, stop and use the owning audited correction workflow; never
 delete cases or erase history as rollback.
 
-The private 10 November pre-visit review selects seven existing Master Data
-cases. All remain deposit-held: the expected global queue after correction is
-eight Deposit Pending and zero Awaiting Visit cases. Three cases with completed
-JBL dates and one already confirmed queue case are excluded. The separate
-November additive candidates and three initial source holds remain outside this
-operation. This describes a prepared repair, not completed production execution.
+The approved 10 November pre-visit repair is complete at release `1bf68903`.
+Seven existing Master Data cases received one audited continuation confirmation
+and one native publication each. Independent read-only checks confirm eight
+Deposit Pending and zero Awaiting Visit cases, all 4,230 Sheet credit labels
+LEGACY, unchanged protected target fields/findings and unchanged full hashes on
+the other 4,223 cases. Pipeline status and publication timestamps changed on the
+seven Sheet rows; dates/amounts on five rows changed scalar type with exactly
+equal calendar dates and numeric values. Google throttled the last update; native
+backoff completed all seven publication operations without resetting an operation
+or creating another case/event. The operator job's strict final cell-type check
+stopped after publication; independent read-only verification resolved the type
+differences and completed acceptance, retaining the original failed job receipt.
+Three completed-visit cases and the already confirmed queue case
+were excluded. The separate November candidates and three initial source holds
+remain outside this operation. No migration, configuration or permission change
+was needed; both pre/post-deploy readiness and public health checks passed.
 
 Within the separately reviewed November additive candidates, 16 have supported
 pre-visit source evidence and 14 have at least KES 5,000 recorded HB deposit.

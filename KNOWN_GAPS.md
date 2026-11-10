@@ -2,41 +2,53 @@
 
 ## Legacy pre-visit queue classification - 10 November 2026
 
-Read-only production review at `1953568f` found one visit-queue case, held for
-the HB minimum deposit, and zero actionable Awaiting Visit cases. Seven
-published legacy cases have explicit pre-visit source evidence, an HBG visit
-date and no completed JBL visit or later workflow facts, but remain in
-`legacy_review`. Three other pending-visit source labels conflict with actual
-JBL visit dates and must not create revisits. The remaining reviewed source
-case is already correctly in the queue.
+Release `1bf68903` is merged and deployed after explicit approval. The initial
+audit found seven published cases with explicit pre-visit source evidence,
+an HBG visit date and no completed JBL visit or later workflow facts, left in
+`legacy_review`. All seven now have audited Legacy Continuation confirmations
+and successful native UUID-bound Sheet publication. No completed-visit case
+was promoted into a revisit.
 
-The prepared parser correction recognizes explicit JBL/Jawabu To Schedule Visit,
-Awaiting JBL Visit and Pending Minimum Deposit labels for future initial loads.
-It retains ambiguous/conflicting cases for review and never changes deposits,
-recorded decisions or completed visits. Existing committed cases require an
-audited Legacy Continuation action; code deployment alone does not reclassify
-them. All seven reviewed corrections remain deposit-held, so their expected
-global queue is eight Deposit Pending and zero Awaiting Visit cases. Current
-staff scope and selected filters still apply.
+The parser recognizes explicit JBL/Jawabu To Schedule Visit, Awaiting JBL Visit
+and Pending Minimum Deposit labels for future initial loads, retaining ambiguous
+or conflicting facts for review. Existing committed cases were corrected through
+the owning service rather than automatically reclassified on deployment.
+The verified global queue is eight Deposit Pending and zero Awaiting Visit
+cases. Current staff scope and selected filters still apply; deposits below
+KES 5,000 continue to block visit logging.
+
+Independent read-only verification confirms 4,230 canonical cases and unique
+Sheet UUIDs, all 4,230 Sheet credit labels LEGACY, unchanged protected fields and
+data-quality findings on the seven corrected cases, and unchanged complete
+field hashes on the other 4,223 cases. Current Pipeline State and Last Updated
+At changed on the seven Sheet rows. Dates and amounts on five rows acquired
+native Sheet scalar types with exactly equal calendar dates and numeric values.
+Three initial source rows remain held. Google rate-limited the last publication;
+native backoff completed all seven operations without resetting checkpoints or
+creating another case/event. The operator job stopped on its final strict
+cell-type comparison; independent read-only DB/Sheet verification established
+all conversions were equivalent and completed acceptance. The failed outer-job
+receipt is retained rather than relabelled as successful.
 
 The separate November source review contains 16 additional pre-visit candidates,
 including 14 with at least KES 5,000 recorded HB deposit. All 16 have source
-evidence consistent with the corrected pre-visit parser. They remain outside
-the completed initial import and the seven existing-case correction plan;
-source consistency alone does not establish a distinct new operational unit.
+evidence consistent with the corrected parser, but remain outside this approved
+operation. Source consistency alone does not prove a distinct new unit.
 
-Eight new synthetic tests pass through both register imports, publication,
+Eight focused synthetic tests pass through both register imports, publication,
 deposit eligibility, conflicting evidence and idempotent continuation. The
 158-test SQLite regression run has 156 passes, one existing PostgreSQL-only
 skip and one identity-review duplicate-example failure reproduced unchanged
-on baseline `c5098f26`. That baseline failure is outside this parser change;
-PostgreSQL regression validation has not been rerun for this patch. Production
-deployment and the seven reviewed corrections remain pending explicit approval.
+on baseline `c5098f26`. PostgreSQL regression tests were not rerun for this
+patch. Native pre/post-deploy checks found no readiness errors or pending
+migrations; both public health endpoints returned 200. No schema, configuration,
+dependency, permission or browser-admission change was needed. Private evidence
+retains approval, source-bound jobs, before fields/cells and independent readback.
 See the [operator procedure](docs/runbooks/portal-legacy-quality-review.md).
 
 ## Historical Portal identity review - 10 November 2026
 
-Release `1953568f` is deployed with historical blank-ID warnings and durable
+Earlier release `1953568f` introduced historical blank-ID warnings and durable
 source-conflict/potential-unit findings in the existing Data Quality view.
 The approved production run imported and verified 242 rows, retaining 187
 missing-ID warnings, 55 unconfirmed-unit findings and 32 source/contact findings.
