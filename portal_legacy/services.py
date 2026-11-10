@@ -154,7 +154,7 @@ def _existing_collision(row, fields):
     return False
 
 
-def _retain_numbers(row, actor, *, allow_occupied=False):
+def _retain_numbers(row, actor, *, allow_occupied=False, request_key=None):
     from requisitions.models import OrderSequenceState, OrderNumberClaim
     from payments.models import PaymentSequenceState, PaymentNumberClaim
     for field, sequence_model, claim_model in [('order_number', OrderSequenceState, OrderNumberClaim),
@@ -182,7 +182,7 @@ def _retain_numbers(row, actor, *, allow_occupied=False):
         event_model = OrderSequenceEvent if field == 'order_number' else PaymentSequenceEvent
         event_model.objects.create(sequence=sequence, action='legacy_import', number_before=before,
             number_after=sequence.next_number, revision_after=sequence.revision, actor=actor,
-            reason=sequence.adjustment_reason, request_id='legacy:'+str(row.pk))
+            reason=sequence.adjustment_reason, request_id=(request_key or 'legacy:'+str(row.pk)))
 
 
 def require_finance_reconciled(group_id):

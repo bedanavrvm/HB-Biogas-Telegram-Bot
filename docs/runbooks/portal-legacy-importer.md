@@ -1,5 +1,8 @@
 # Portal legacy register importer
 
+For source cleaning, initial-review holds and safe later amendments, see
+[reviewed workbook amendments](portal-reviewed-workbook-amendments.md).
+
 ## Updating previously imported cases
 
 Use **Update Existing Cases** in the upload form to compare a newer raw workbook
