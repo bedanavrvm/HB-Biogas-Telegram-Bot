@@ -443,9 +443,9 @@
     },
     {
       "path": "core/static/miniapp/portal.js",
-      "sha256": "86b12099ec9ff29f500940b203c05a3c6c1ed33e4b1844b9ac6d882b99a251fb",
-      "review_reference": "docs/ui-standard/reviews/2026-11-06-personal-table-layouts-and-publication.md",
-      "reason": "User-authorized personal table layouts, retained report presentation, deposit filters and publication countdown recovery; existing source-bound controls and synthetic browser evidence. No Phase 6 migration or access expansion."
+      "sha256": "1ab13d6db52abba0c0d154d6242276135d515f9a22d12d3b3b9f94ee2f5e394f",
+      "review_reference": "docs/ui-standard/reviews/2026-11-05-portal-legacy-credit-and-current-status.md#10-november-include-known-historical-credit-outcomes",
+      "reason": "User-confirmed Legacy credit label for committed initial imports, including historical approval/rejection/deferral. Existing case fields, neutral badges and order preview consume the shared label; stored decisions, pipeline, forms and native review precedence remain intact. Script cache versions advance; no design baseline or Phase 6 migration."
     },
     {
       "path": "core/static/miniapp/portal_farmer_sheet.js",
@@ -467,9 +467,9 @@
     },
     {
       "path": "core/templates/portal/partials/farmer_card.html",
-      "sha256": "ccc4d945a04b80102f93b8e6409dcf5b06bec0230b7397fa72b7883e46956c64",
-      "review_reference": "codebase-analysis-docs/assets/HB_DEPOSITS.md#ui-candidate-and-evidence",
-      "reason": "User-approved HB Deposits/JBL hold candidate reuses existing HB/Portal shell, forms, queue and Activity patterns. Source-faithful synthetic mobile light/dark, failure/retry, permissions and eligibility evidence is documented; not human design approval or baseline migration."
+      "sha256": "a75fe0343f118cc24217e15d747a2ebce10a70a821df9aa59a514d5dd51649ae",
+      "review_reference": "docs/ui-standard/reviews/2026-11-05-portal-legacy-credit-and-current-status.md#10-november-include-known-historical-credit-outcomes",
+      "reason": "User-confirmed Legacy credit label for committed initial imports, including historical approval/rejection/deferral. Existing case fields, neutral badges and order preview consume the shared label; stored decisions, pipeline, forms and native review precedence remain intact. Script cache versions advance; no design baseline or Phase 6 migration."
     },
     {
       "path": "core/templates/portal/portal.html",
@@ -1115,9 +1115,27 @@
     },
     {
       "path": "core/templates/base_shell.html",
-      "sha256": "345fe8af4065d84d8f55a065127e03a20496bdaa56d79a9ac709393e1c63264f",
-      "review_reference": "docs/ui-standard/reviews/2026-11-06-legacy-update-import.md",
-      "reason": "Approved non-destructive update mode: changes-only comparison, field selection, matching/new-case consent and resumable publication. Existing components and synthetic browser evidence; no design migration."
+      "sha256": "7173570e2651eb7fc8e57e85687212ee035cacc21a2ade42d0849673a8b6689a",
+      "review_reference": "docs/ui-standard/reviews/2026-11-05-portal-legacy-credit-and-current-status.md#10-november-include-known-historical-credit-outcomes",
+      "reason": "User-confirmed Legacy credit label for committed initial imports, including historical approval/rejection/deferral. Existing case fields, neutral badges and order preview consume the shared label; stored decisions, pipeline, forms and native review precedence remain intact. Script cache versions advance; no design baseline or Phase 6 migration."
+    },
+    {
+      "path": "core/services/jawabu_pipeline.py",
+      "sha256": "2f715771ce187850c2160ed05c62629eeffc16e09325549935081c52e02247a4",
+      "review_reference": "docs/ui-standard/reviews/2026-11-05-portal-legacy-credit-and-current-status.md#10-november-include-known-historical-credit-outcomes",
+      "reason": "User-confirmed Legacy credit label for committed initial imports, including historical approval/rejection/deferral. Existing case fields, neutral badges and order preview consume the shared label; stored decisions, pipeline, forms and native review precedence remain intact. Script cache versions advance; no design baseline or Phase 6 migration."
+    },
+    {
+      "path": "core/static/miniapp/portal_helpers.js",
+      "sha256": "4d00049df79a5b4661ba07291a3efa98b90250894ff580ddc2e833e1b0e9c53a",
+      "review_reference": "docs/ui-standard/reviews/2026-11-05-portal-legacy-credit-and-current-status.md#10-november-include-known-historical-credit-outcomes",
+      "reason": "User-confirmed Legacy credit label for committed initial imports, including historical approval/rejection/deferral. Existing case fields, neutral badges and order preview consume the shared label; stored decisions, pipeline, forms and native review precedence remain intact. Script cache versions advance; no design baseline or Phase 6 migration."
+    },
+    {
+      "path": "core/static/miniapp/portal_requisitions.js",
+      "sha256": "363d617234158f2bdf88a278c4e8939996187cf3a5f99f59b26faa645856b7da",
+      "review_reference": "docs/ui-standard/reviews/2026-11-05-portal-legacy-credit-and-current-status.md#10-november-include-known-historical-credit-outcomes",
+      "reason": "User-confirmed Legacy credit label for committed initial imports, including historical approval/rejection/deferral. Existing case fields, neutral badges and order preview consume the shared label; stored decisions, pipeline, forms and native review precedence remain intact. Script cache versions advance; no design baseline or Phase 6 migration."
     }
   ],
   "source_roots": [

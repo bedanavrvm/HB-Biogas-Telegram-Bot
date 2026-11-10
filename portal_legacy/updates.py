@@ -73,8 +73,11 @@ def equivalent(key, value):
         return normalize_kenyan_phone(text) or text.casefold()
     if key == 'national_id':
         return validate_kenyan_national_id(text) or text.casefold()
-    if key in {'installation_status', 'commissioning_status', 'readiness_status', 'installation_report_status'}:
+    if key == 'hb_sales_person':
         return token(text)
+    if key in {'installation_status', 'commissioning_status', 'readiness_status', 'installation_report_status'}:
+        from .cleaning import status_value
+        return token(status_value(key, text))
     return text.casefold()
 
 
@@ -88,6 +91,8 @@ def effective_values(row):
 
 def parsed_values(values):
     normalized = {key: str(equivalent(key, value)) if key in MONEY and value not in ('', '-', None) else value for key, value in values.items()}
+    from .cleaning import STATUS_ALIASES, status_value
+    normalized.update({key: status_value(key, value) for key, value in values.items() if key in STATUS_ALIASES})
     return propose(normalized)
 
 
@@ -202,6 +207,13 @@ def compare(draft, matches, explicit=''):
                 continue
             if key == 'village' and equivalent(key, raw) == equivalent(key, baseline.get('legacy:Location detail')):
                 continue
+            if key in {'order_number', 'payment_number'}:
+                from .cleaning import reference_value
+                try:
+                    if reference_value(key, raw, matches.upload.source_sheet) == reference_value(key, current, matches.upload.source_sheet):
+                        continue
+                except ValueError:
+                    pass
             if equivalent(key, raw) == equivalent(key, current):
                 continue
             error = next((i for i in candidate['issues'] if i.startswith(key + ':')), '')
@@ -210,7 +222,7 @@ def compare(draft, matches, explicit=''):
             if row is None and key not in {f.name for f in case._meta.fields if not f.is_relation}:
                 error = 'This is an app-created case. Use its owning workflow for this field.'
             proposal['changes'][key] = {'before': literal(current), 'after': literal(raw), 'error': error,
-                'app_conflict': key in baseline and equivalent(key, raw) == equivalent(key, baseline[key])}
+                'app_conflict': key in baseline and equivalent(key, current) != equivalent(key, baseline[key])}
         proposal['kind'] = 'changed' if proposal['changes'] else 'unchanged'
         proposal['state'] = case.workflow_state
         proposal['case_revision'] = case.workflow_revision
@@ -409,9 +421,11 @@ def apply_fields(farmer, row, selected, actor, request_id):
         from payments.models import PaymentBatchCase
         if RequisitionBatch.objects.filter(farmer_ids__contains=[str(farmer.pk)]).exists() or ParsedInvoice.objects.filter(matched_farmer=farmer).exists() or PaymentBatchCase.objects.filter(farmer=farmer).exists():
             raise ValueError('This case has live order/invoice/payment evidence. Use its owning workflow for financial corrections.')
-        from types import SimpleNamespace
+        from copy import copy
         if row is None:raise ValueError('Use the owning workflow to change financial references on an app-created case.')
-        services._retain_numbers(SimpleNamespace(proposal=parsed, batch=row.batch, source_sheet=row.source_sheet), actor, allow_occupied=False)
+        snapshot = copy(row)
+        snapshot.proposal = parsed
+        services._retain_numbers(snapshot, actor, allow_occupied=False, request_key=request_id + ':references')
     model_fields = {f.name: f for f in farmer._meta.fields if not f.is_relation}
     allowed = set(model_fields) & set(ALIASES.values()) - protected - {'id', 'case_reference_number', 'created_at', 'updated_at'}
     before = {}; after = {}
@@ -447,6 +461,8 @@ def apply_hb_fields(farmer, row, fields, actor, request_id):
     from hb_operations.models import HomeBiogasAction
     from hb_operations.services import correct_action, update_commissioning_notes
     from . import services
+    from .cleaning import STATUS_ALIASES, status_value
+    fields = {key: status_value(key, value) if key in STATUS_ALIASES else value for key, value in fields.items()}
     action = HomeBiogasAction.objects.select_for_update().filter(farmer=farmer).first()
     if action and not action.legacy_origin_id:
         raise ValueError('Use HB Actions to correct a case released by a signed order.')

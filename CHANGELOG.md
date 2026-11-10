@@ -1,5 +1,31 @@
 # Changelog
 
+## 10 November 2026 - Legacy credit decision provenance
+
+- Display Legacy for committed initial-import credit history, including known
+  historical approval, rejection and deferral, until an actual Portal visit or
+  credit decision is recorded. Preserve native decisions and their actors/dates.
+- Use the shared label in case details, queue badges, order previews and both
+  register projections. Historical rejection remains Rejected in the pipeline;
+  the label never changes stored credit facts, routing or approval authority.
+- No migration, configuration, dependency or permission change. Existing Sheet
+  rows refresh through normal publication after an approved deployment.
+
+## 10 November 2026 - Reviewed legacy workbook amendments
+
+- Compare equivalent fulfilment statuses, staff-label separator spacing and
+  historical reference formatting without proposing false changes. Hold later
+  staff corrections even when the incoming workbook also changed the field.
+- Preserve the initial source and use amendment-specific allocator audit keys
+  for order/payment reference changes. Retries and subsequent amendments retain
+  their own evidence; occupied finance workspaces remain protected.
+- Add value-only v5 cleaning helpers for Decimal amounts, reviewed identities,
+  conservative dates and geography, complete staff labels and appended source
+  comments. Document private workbook review, ID holds, Eco-conserve's source
+  layout anomaly and native correction/publication boundaries.
+- No schema, permission, dependency or UI change. Production release and workbook
+  application require their separate recorded operational evidence.
+
 ## 10 November 2026 - Compact Portal Sheet statuses
 
 - Use the twelve agreed overall statuses in the existing Current Pipeline State

@@ -218,3 +218,61 @@ class UpdateImportTests(LegacyHTTPMixin,TestCase):
         upload=self.apply(upload)
         self.assertEqual(upload['committed'],1)
         self.case.refresh_from_db();self.assertEqual(self.case.village,'NEW VILLAGE')
+
+    def test_later_app_correction_is_held_even_when_workbook_also_changed(self):
+        self.case.village = 'STAFF CORRECTION'
+        self.case.save(update_fields=['village'])
+        upload = self.stage_update([['SYNTHETIC CLIENT', '12345678', '0712345678', 'WORKBOOK CORRECTION', 5000, 'ORIGINAL NOTE']])
+        row = self.rows(upload)[0]
+        self.assertTrue(row['proposal']['changes']['village']['app_conflict'])
+        self.assertNotIn('village', row['reconciliation']['selected_fields'])
+
+    def test_done_and_pending_installation_aliases_are_unchanged(self):
+        from hb_operations.models import HomeBiogasAction
+        HomeBiogasAction.objects.create(farmer=self.case, legacy_origin=self.original,
+            source_order_number='HB-1', source_requisition_version=0,
+            installation_status='installed', commissioning_status='commissioned')
+        book = Workbook(); sheet = book.active; sheet.title = 'Master Data'
+        sheet.append(['Name', 'ID NUMBER', 'Commissioning Status'])
+        sheet.append(['SYNTHETIC CLIENT', '12345678', 'Done'])
+        out = BytesIO(); book.save(out)
+        upload = self.finish(self.stage(out.getvalue()), 'comparing')
+        self.assertEqual(upload['counts'], {'unchanged': 1})
+
+    def test_reference_amendments_after_initial_import_and_replay(self):
+        from django.db import connection
+        if connection.vendor != 'postgresql':
+            self.skipTest('The financial evidence guard uses PostgreSQL JSON containment.')
+        from .services import _retain_numbers
+        from requisitions.models import OrderSequenceEvent, OrderNumberClaim
+        self.original.values['order_number'] = 'HB-1'
+        self.original.proposal = {'fields': {'order_number': 'HB-1'}}
+        self.original.save()
+        self.case.order_number = 'HB-1'; self.case.save(update_fields=['order_number'])
+        _retain_numbers(self.original, self.actor)
+
+        def amend(number):
+            book = Workbook(); sheet = book.active; sheet.title = 'Master Data'
+            sheet.append(['Name', 'ID NUMBER', 'Order Number'])
+            sheet.append(['SYNTHETIC CLIENT', '12345678', number])
+            out = BytesIO(); book.save(out)
+            upload = self.finish(self.stage(out.getvalue()), 'comparing')
+            upload = self.request('select', {'all': True, 'approved': True}, upload=upload)['upload']
+            return self.apply(upload)
+
+        first = amend('HB-2')
+        self.assertEqual(first['committed'], 1, self.rows(first))
+        self.assertEqual(OrderSequenceEvent.objects.count(), 2)
+        first = self.apply(first)
+        self.assertEqual(OrderSequenceEvent.objects.count(), 2)
+        second = amend('HB-3')
+        self.assertEqual(second['committed'], 1, self.rows(second))
+        self.case.refresh_from_db(); self.assertEqual(self.case.order_number, 'HB-3')
+        self.assertEqual(OrderSequenceEvent.objects.count(), 3)
+        self.assertEqual(OrderNumberClaim.objects.filter(retired=True).count(), 3)
+        occupied = OrderNumberClaim.objects.get(number=3)
+        occupied.number = 4; occupied.retired = False; occupied.save()
+        failed = amend('HB-4')
+        self.assertEqual(failed['committed'], 0)
+        self.case.refresh_from_db(); self.assertEqual(self.case.order_number, 'HB-3')
+        self.assertEqual(OrderSequenceEvent.objects.count(), 3)

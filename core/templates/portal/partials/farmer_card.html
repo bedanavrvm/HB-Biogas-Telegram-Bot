@@ -80,7 +80,7 @@
         <span class="badge badge-orange">{{ farmer.jbl_visit_status }}</span>
       {% endif %}
       {% if queue_key == 'final' and review_stage != 'payment' and farmer.credit_decision %}
-        <span class="badge badge-green">{{ farmer.credit_decision }}</span>
+        <span class="badge {% if farmer.credit_decision_label == 'Legacy' %}badge-grey{% else %}badge-green{% endif %}">{{ farmer.credit_decision_label|default:farmer.credit_decision }}</span>
       {% endif %}
       {% if queue_key == 'requisition' and farmer.final_decision %}
         <span class="badge badge-green">Final: {{ farmer.final_decision }}</span>
@@ -90,7 +90,7 @@
       {% elif queue_key == 'all' and farmer.final_decision %}
         <span class="badge badge-green">Final: {{ farmer.final_decision }}</span>
       {% elif queue_key == 'all' and farmer.credit_decision and farmer.credit_decision != 'Pending' %}
-        <span class="badge badge-green">{{ farmer.credit_decision }}</span>
+        <span class="badge {% if farmer.credit_decision_label == 'Legacy' %}badge-grey{% else %}badge-green{% endif %}">{{ farmer.credit_decision_label|default:farmer.credit_decision }}</span>
       {% elif queue_key == 'all' and farmer.jbl_visit_status %}
         <span class="badge badge-orange">{{ farmer.jbl_visit_status }}</span>
       {% endif %}

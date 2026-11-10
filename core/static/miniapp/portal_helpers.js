@@ -69,9 +69,10 @@
   }
 
   function creditBadge(farmer) {
-    if (!farmer.credit_decision) return '';
+    const decision = farmer.credit_decision_label || farmer.credit_decision;
+    if (!decision) return '';
     const map = { Approved: 'badge-green', Rejected: 'badge-red', Deferred: 'badge-orange', Pending: 'badge-grey', 'Exemption Approved': 'badge-green' };
-    return `<span class="badge ${map[farmer.credit_decision] || 'badge-grey'}">${escapeHtml(farmer.credit_decision)}</span>`;
+    return `<span class="badge ${map[decision] || 'badge-grey'}">${escapeHtml(decision)}</span>`;
   }
 
   function finalDecisionBadge(farmer) {

@@ -7,8 +7,10 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.utils import timezone
 
-from core.models import GroupSheetConfiguration, JawabuFarmerMaster
-from core.services.jawabu_pipeline import current_pipeline_state_label, master_projection_fields
+from core.models import GroupSheetConfiguration, JawabuFarmerMaster, JawabuPipelineEvent
+from core.services.jawabu_pipeline import (
+    credit_decision_label, current_pipeline_state_label, farmer_to_card, master_projection_fields,
+)
 from core.services.portal_sheet_status import PortalSheetStatus, sheet_pipeline_status
 from hb_operations.models import HomeBiogasAction
 from portal_legacy.models import LegacyBatch, LegacyEvent, LegacyRow
@@ -57,6 +59,75 @@ class PortalSheetStatusTests(TestCase):
             'Pending Minimum Deposit', 'Opted for Other', 'Under Review',
         })
         self.assertEqual(len(PortalSheetStatus.values), 12)
+
+    def test_imported_credit_outcomes_display_legacy_without_rewriting_history(self):
+        from django.template.loader import render_to_string
+        from core.services.jawabu_case360 import serialize_case360
+
+        for source in ('Master Data', 'Eco-conserve'):
+            for decision in ('', 'Pending', 'Approved', 'Rejected', 'Deferred / On Hold'):
+                with self.subTest(source=source, decision=decision):
+                    farmer, row = self.legacy(source=source)
+                    farmer.credit_decision = decision
+                    farmer.workflow_state = 'rejected' if decision == 'Rejected' else 'credit'
+                    farmer.save(update_fields=['credit_decision', 'workflow_state'])
+                    before = (farmer.workflow_state, farmer.workflow_revision, row.values)
+                    card = farmer_to_card(farmer)
+                    self.assertEqual(card['credit_decision_label'], 'Legacy')
+                    self.assertEqual(serialize_case360(farmer)['sections']['credit']['decision_label'], 'Legacy')
+                    self.assertEqual(master_projection_fields(farmer)['credit_decision'][1], 'Legacy')
+                    headers = ['Credit Decision', 'Staff formula']
+                    self.assertEqual(record_values(row, headers, 1, existing=['old', '=SUM(1,2)']),
+                                     ['Legacy', '=SUM(1,2)'])
+                    if decision == 'Rejected':
+                        self.assertEqual(sheet_pipeline_status(farmer), 'Rejected')
+                        self.assertEqual(current_pipeline_state_label(farmer), 'Rejected — Credit')
+                        html = render_to_string('portal/partials/farmer_card.html',
+                                                {'farmer': card, 'queue_key': 'all'})
+                        self.assertIn('badge-grey">Legacy</span>', html)
+                        self.assertNotIn('badge-green">Rejected</span>', html)
+                    farmer.refresh_from_db()
+                    row.refresh_from_db()
+                    self.assertEqual(farmer.credit_decision, decision)
+                    self.assertEqual((farmer.workflow_state, farmer.workflow_revision, row.values), before)
+                    self.assertEqual(farmer.credit_decided_by, '')
+                    self.assertIsNone(farmer.credit_decided_at)
+                    self.assertFalse(farmer.pipeline_events.exists())
+
+    def test_real_portal_activity_takes_precedence_over_legacy_credit_marker(self):
+        for action, decision in (
+            ('jbl_visit_completed', 'Pending'),
+            ('credit_decision_recorded', 'Pending'),
+            ('credit_decision_recorded', 'Approved'),
+            ('credit_decision_recorded', 'Rejected'),
+            ('credit_decision_recorded', 'Deferred / On Hold'),
+        ):
+            with self.subTest(action=action, decision=decision):
+                farmer, _ = self.legacy(state='credit')
+                farmer.credit_decision = decision
+                farmer.save(update_fields=['credit_decision'])
+                JawabuPipelineEvent.objects.create(farmer=farmer, action=action, stage_key='credit')
+                self.assertEqual(credit_decision_label(farmer), decision)
+                self.assertEqual(master_projection_fields(farmer)['credit_decision'][1], decision)
+
+    def test_legacy_label_requires_committed_import_and_never_hides_recorded_credit(self):
+        farmer = self.case(source='portal_legacy', credit_decision='Rejected')
+        self.assertEqual(credit_decision_label(farmer), 'Rejected')
+        _, row = self.legacy(farmer=farmer)
+        row.committed_at = None
+        row.save(update_fields=['committed_at'])
+        self.assertEqual(credit_decision_label(farmer), 'Rejected')
+        row.committed_at = timezone.now()
+        row.save(update_fields=['committed_at'])
+        self.assertEqual(credit_decision_label(farmer), 'Legacy')
+        farmer.credit_decided_by = 'SYNTHETIC ANALYST'
+        self.assertEqual(credit_decision_label(farmer), 'Rejected')
+        farmer.credit_decided_by = ''
+        farmer.credit_decided_at = timezone.now()
+        self.assertEqual(credit_decision_label(farmer), 'Rejected')
+        native = self.case(credit_decision='Approved')
+        self.legacy(farmer=native)
+        self.assertEqual(credit_decision_label(native), 'Approved')
 
     def test_minimum_deposit_boundaries_and_fallback(self):
         for amount, receipts, expected in [
@@ -240,17 +311,21 @@ class PortalSheetStatusTests(TestCase):
         for source in ('Master Data', 'Eco-conserve'):
             farmer, _ = self.legacy(source=source, legacy_outcome='Rejected')
             farmer.national_id = '12345678' if source == 'Master Data' else '87654321'
-            farmer.save(update_fields=['national_id'])
+            farmer.credit_decision = 'Rejected'
+            farmer.save(update_fields=['national_id', 'credit_decision'])
             headers = ['No.', 'Customer Name', 'National ID', 'Current Pipeline State',
-                       'Master Record ID', 'Staff formula']
+                       'Master Record ID', 'Staff formula', 'Credit Decision']
             sheet = FakeMasterDataSheet(headers)
             sheet.values = [headers, [1, 'SYNTHETIC', farmer.national_id,
                                       'LEGACY REVIEW - STAGE NOT CONFIRMED',
-                                      str(farmer.pk), '=SUM(1,2)']]
+                                      str(farmer.pk), '=SUM(1,2)', 'REJECTED']]
             get_service.return_value = FakeJawabuService(sheet)
             failure = {}
             self.assertTrue(sync_farmer_to_master_sheet(farmer, failure_context=failure), failure)
             self.assertEqual(sheet.values[1][3], 'REJECTED')
             self.assertEqual(sheet.values[1][5], '=SUM(1,2)')
+            self.assertEqual(sheet.values[1][6], 'LEGACY')
             self.assertEqual(len(sheet.values), 2)
             self.assertEqual(farmer.workflow_state, 'legacy_review')
+            farmer.refresh_from_db()
+            self.assertEqual(farmer.credit_decision, 'Rejected')
