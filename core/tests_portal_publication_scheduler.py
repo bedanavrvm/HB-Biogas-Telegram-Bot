@@ -241,7 +241,7 @@ class DrainPortalPublicationsTests(TestCase):
 
     @patch('core.services.jawabu_pipeline.sync_farmer_to_master_sheet')
     def test_master_429_uses_quota_backoff(self, publisher):
-        def quota_failure(_farmer, *, failure_context):
+        def quota_failure(_farmer, *, failure_context, existing_row_only=False):
             failure_context['provider_status'] = 429
             return False
 
@@ -254,7 +254,7 @@ class DrainPortalPublicationsTests(TestCase):
 
     @patch('core.services.jawabu_pipeline.sync_farmer_to_master_sheet')
     def test_identity_conflict_is_terminal_and_not_a_network_retry(self, publisher):
-        def identity_failure(_farmer, *, failure_context):
+        def identity_failure(_farmer, *, failure_context, existing_row_only=False):
             failure_context.update({'phase': 'identity', 'sheet_tab': 'Master Data',
                                     'detail': 'Identity review is required.'})
             return False

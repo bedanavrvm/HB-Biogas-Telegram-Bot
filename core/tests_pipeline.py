@@ -780,6 +780,7 @@ class JblPipelineServiceTestCase(TestCase):
         self.farmer_stage1.hb_sales_person = 'ECOCONSERVE JAWABU'
         self.farmer_stage1.save(update_fields=['hb_sales_person', 'updated_at'])
         mock_get_sheets.return_value.is_available.return_value = False
+        mock_get_sheets.return_value.availability_failure = {}
         failure_context = {}
 
         self.assertFalse(sync_farmer_to_master_sheet(self.farmer_stage1, failure_context=failure_context))
@@ -816,7 +817,7 @@ class JblPipelineServiceTestCase(TestCase):
         self.farmer_stage1.system_deposit_paid_jbl = Decimal('14500.50')
         self.farmer_stage1.save(update_fields=['system_deposit_paid_jbl', 'updated_at'])
         self.assertTrue(sync_farmer_to_master_sheet(self.farmer_stage1))
-        self.assertEqual(fake_sheet.values[-1][headers.index('Deposit Paid to JBL')], 7000)
+        self.assertEqual(Decimal(str(fake_sheet.values[-1][headers.index('Deposit Paid to JBL')])), Decimal('7000.00'))
 
     @patch('core.services.sheets.GoogleSheetsService.get_instance')
     def test_master_sheet_projection_uppercases_short_text_but_preserves_visit_note(self, mock_get_sheets):

@@ -17,6 +17,7 @@ from __future__ import annotations
 import logging
 import uuid
 from datetime import date, datetime, timedelta
+from itertools import zip_longest
 from typing import Any
 
 from core.services.workflow_links import include_record_reference
@@ -2820,7 +2821,12 @@ def sync_farmer_to_master_sheet(
         # row that changed after identification, including an append target
         # occupied by a concurrent staff edit.
         current_row = sheet.row_values(row_number, value_render_option='FORMULA') if created_sheet_row else sheet.row_values(row_number)
-        if list(current_row) != observed_row:
+        # Whole-sheet reads pad trailing blanks; individual row reads omit them.
+        # Keep comparing every populated cell so genuine concurrent edits stop.
+        if any(
+            current != observed
+            for current, observed in zip_longest(current_row, observed_row, fillvalue='')
+        ):
             note_failure(phase='verify', detail=f'The selected {sheet_name} row changed before publication; retry after review.')
             return False
 

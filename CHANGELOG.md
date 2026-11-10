@@ -1,5 +1,27 @@
 # Changelog
 
+## 10 November 2026 - Publish saved Portal status changes during legacy review
+
+- Compare Google Sheet row snapshots with equivalent trailing blank padding.
+  The pinned Google client pads whole-sheet reads but trims individual rows;
+  relocated imported cases could therefore report a changed row even when its
+  populated cells were unchanged. Real cell edits, including a new zero, still
+  stop publication before writing.
+- Cover signed status changes and durable publication on Master Data and
+  reordered Eco-conserve headers while another source row remains under review.
+  Retain the import hold and unapproved rows, protected formulas, saved case
+  state, workflow audit events and same-row retry behavior.
+- Refresh adjacent publication test doubles for the existing-row flag,
+  unavailable-service details and Decimal money representation;
+  the unchanged production baseline reproduced their four stale assertions.
+- Verify 70 focused SQLite/API/publication checks plus Ruff and whitespace
+  checks. Google transport is simulated; PostgreSQL concurrency and real Google
+  publication were not rerun for this comparison-only correction.
+- No migration, configuration, dependency, access-policy or workflow-transition
+  change. Production deployment and retries remain pending explicit approval;
+  retry the saved publications through existing Portal recovery without
+  resubmitting case decisions or completing the outstanding imports.
+
 ## 27 October 2026 - Conditional production browser access for Complaints
 
 - Add same-origin staff sign-in/Complaints routes and an integrity-checked native
