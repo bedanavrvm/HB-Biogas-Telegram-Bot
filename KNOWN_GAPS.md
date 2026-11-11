@@ -16,10 +16,27 @@ invalid values, explicit Ignore choices and strict live-register schemas remain
 protected. Commit, identity, visit/deposit authority and publication contracts
 are unchanged. All 137 focused/regression tests pass; the untouched private
 18-row CSV has no row blockers and matches the reviewed copy's canonical values.
-No migration, configuration, permission or dependency change is needed.
-Production release remains pending approval; the existing November worklist is
-staged only, with no new cases or Sheet writes. See the
+Release `e50f7f53` was merged and deployed after explicit approval. The original
+CSV was loaded as version 2 of the same November worklist, retaining the earlier
+staged source and recognizing all 18 unchanged source fingerprints. Native
+FarmUp created 18 cases and successfully published all 18 UUID-bound rows:
+13 to Master Data and five to Eco-conserve. The total is 4,248 cases/register
+UUIDs (4,087 Master Data and 161 Eco-conserve). Seventeen new cases await JBL
+visit; one remains on minimum-deposit hold. The global queue is 17 Awaiting Visit
+and nine Deposit Pending, subject to current staff scope and filters.
+
+The native job verified all 4,230 prior case hashes and Sheet rows unchanged,
+archived the exact original source and retained the completed legacy changeover
+with its three exceptions. Google returned 429s during publication; native pacing
+and backoff completed every saved operation without recommitting cases or
+resetting checkpoints. Pre/post-deploy checks found no readiness errors or
+pending migrations; both health endpoints returned 200. No configuration,
+permission, dependency, browser-admission or schema change was needed. See the
 [source-format and loading procedure](docs/runbooks/farmup-source-formats.md).
+Independent read-only DB/Google verification confirms every new row's identity,
+reference, calendar date, deposit, credit and pipeline labels, plus unchanged
+hashes on all 4,230 previous cases and Sheet rows. Both source versions remain
+retained, and the worklist reports all 18 publications synced.
 
 ## Initial import changeover completed - 11 November 2026
 

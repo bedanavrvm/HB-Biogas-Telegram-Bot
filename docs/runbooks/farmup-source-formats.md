@@ -73,12 +73,31 @@ by the native parser. Its canonical intake values equal the previously reviewed
 copy; 17 deposits meet the existing minimum and one remains held. Three October
 visit dates are retained. No customer source data is checked into this repository.
 
-This is local source-format acceptance, not proof of a deployed parser or live
-case/publication completion. Production still has the earlier cleaned source
-staged and uncommitted. Deployment needs its reviewed approval. After deployment,
-upload the original CSV as the next version of that same monthly worklist,
-verify unchanged row reconciliation, then finish the already-requested native
-load and independent publication readback. Do not delete the staged version or
-repeat legacy cleanup. No migration, permission, dependency or configuration
-change is required. Code rollback leaves retained sources and committed cases
-intact; it does not reverse Google publication or delete intake records.
+After explicit approval, release `e50f7f53` was merged and deployed. The untouched
+original became version 2 of the existing November worklist; all 18 source
+fingerprints reconciled unchanged, and the earlier staged file remains retained.
+Native FarmUp committed 18 new cases, published all 18 UUID-bound rows and
+archived the original CSV. Thirteen rows went to Master Data and five to
+Eco-conserve, giving 4,248 cases/register UUIDs overall (4,087 and 161).
+
+The new cases comprise 17 awaiting JBL visit and one minimum-deposit hold.
+The global visit queue is 17 Awaiting Visit and nine Deposit Pending; staff scope
+and filters still apply. The production job verified that all 4,230 prior case
+hashes and Sheet rows were unchanged, with the completed legacy changeover and
+three source exceptions retained. Native pacing/backoff recovered Google 429s
+and completed all 18 publication operations without recommit or checkpoint reset.
+Independent read-only DB/Google readback confirms every new row's identity,
+staff reference, calendar date, deposit and status labels, with exact unchanged
+hashes on all 4,230 earlier cases and Sheet rows. The original source is archived,
+both source versions remain retained and the worklist reports 18 of 18 synced.
+Typed Sheet dates are read back as serial values; the verification compares
+their underlying calendar dates, including all three October dates.
+
+Native pre/post-deploy checks found no readiness errors or pending migrations,
+and both public health endpoints returned 200. No migration, permission,
+dependency, configuration or browser-admission change was needed. PostgreSQL
+concurrency tests were not rerun for this parser-only change. Private evidence
+retains the approval, exact source hashes, native jobs, publication checkpoints,
+before/after fingerprints and readback results. Code rollback leaves retained
+sources and committed cases intact; it does not reverse Google publication or
+delete intake records. Never delete a staged version or repeat legacy cleanup.
