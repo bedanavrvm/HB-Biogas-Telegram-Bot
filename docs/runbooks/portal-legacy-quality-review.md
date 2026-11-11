@@ -1,5 +1,28 @@
 # Historical Portal identity and source review
 
+## Verified changeover completion - 11 November 2026
+
+After explicit approval, release `3812279c` was merged and deployed. The native
+completion service closed the Master Data review, retaining two missing-name
+records and one potential identical unit repeat as three unimported exceptions.
+Both initial uploads are complete and unfrozen. All 4,230 previously synced
+cases remain: 4,074 Master Data and 156 Eco-conserve. The administrative import
+hold is cleared, including new/non-case admission; normal workflow permissions,
+deposit eligibility and validation still apply.
+
+The production transaction verified unchanged complete case hashes, all 4,077
+Master Data source drafts, source workbook chunks and counterpart uploads. It
+recorded one compliance event and the exact retained-exception manifest, with
+no case, financial, identity, Google or Drive writes. Native pre/post-deploy
+checks found no readiness errors or pending migrations; both public health
+endpoints returned 200. No schema, configuration, dependency, permission or
+browser-admission change was required. The separate 90 November candidates
+remain outside this operation. Private evidence retains approval, source-bound
+jobs, a source/case snapshot, completion receipt and readback results.
+Independent read-only verification confirms both complete/unfrozen uploads,
+zero blocked cases, one completion audit and unchanged case, draft, workbook,
+import-checkpoint and publication-receipt fingerprints.
+
 ## Verified production result — 10 November 2026
 
 After explicit approval, commit `1953568f` was merged and deployed. The native
@@ -38,7 +61,7 @@ all 4,230 cases synced, Eco-conserve complete and Master Data still frozen with
 three unimported exceptions: two missing names and one potential identical unit
 repeat. No case-specific write was blocked; non-case actions remained blocked.
 
-The prepared `complete_review` upload action closes a ready initial import
+The `complete_review` upload action closes a ready initial import
 without creating, deleting or changing cases or Google rows. Existing whole-group
 Portal IT authority and the normal upload lease are required. Every imported
 draft must have a committed, publication-ready case and a verified staff-reference
@@ -72,8 +95,8 @@ case, source, exception and receipt fingerprints. No Google write is needed.
 Never delete the held drafts or blindly flip `frozen` to bypass these checks.
 Code rollback requires no migration and does not automatically reopen a completed
 review. Preserve its audit and use the owning reviewed recovery if evidence is
-later disputed. The prepared 11 November completion has not yet been deployed
-or applied; explicit production release approval remains required.
+later disputed. The exact 11 November completion was explicitly approved and
+applied as recorded above; later operations require their own reviewed scope.
 
 ## Import semantics
 

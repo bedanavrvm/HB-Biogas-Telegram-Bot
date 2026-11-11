@@ -1,22 +1,26 @@
 # Known Gaps and Verified Workarounds
 
-## Initial import completion still blocks administrative work - 11 November 2026
+## Initial import changeover completed - 11 November 2026
 
-Read-only production audit confirms all 4,230 cases are synced: 4,074 Master Data
-and 156 Eco-conserve. Eco-conserve is complete. Master Data remains ready/frozen
-because two unnamed source records and one possible identical unit repeat were
-retained rather than imported. The case-level fence blocks zero existing cases,
-but the owner-wide fence still blocks new/non-case actions. Data loading was
-finished without closing that administrative hold.
+Release `3812279c` was merged and deployed after explicit approval. The native
+completion service closed the Master Data review while retaining two unnamed
+source records and one possible identical unit repeat as unimported exceptions.
+Both initial registers are complete and unfrozen: 4,074 Master Data cases and
+156 Eco-conserve cases, all previously synced. The owner-wide administrative
+import hold is cleared; the three exceptions no longer block other work.
 
-A bounded completion action is prepared. It retains every source exception and
+The bounded completion action retains every source exception and
 requires current whole-group Portal IT authority, the native upload lease, exact
 source/revision review, verified committed-case receipts and no unfinished write
 plan. It releases only the reviewed upload, records one compliance event, keeps
 all drafts/workbook bytes and rejects later commits through the closed review.
-It makes no case, financial, identity, Sheet, Drive or permission changes. No
-migration, dependency, configuration or UI change is required. Production release
-and closure remain pending explicit approval; see the
+It makes no case, financial, identity, Sheet, Drive or permission changes. The
+production transaction verified all 4,230 case field hashes, all 4,077 Master
+Data drafts, source workbook chunks and counterpart uploads were unchanged.
+One transactional compliance event and a completion receipt retain the exact
+exception manifest. No migration, dependency, configuration or UI change was
+required. Separate November additive candidates remain outside this operation;
+see the
 [operator procedure](docs/runbooks/portal-legacy-quality-review.md).
 
 All 13 focused completion tests pass, including signed/scoped authority, receipt
@@ -27,6 +31,13 @@ the final focused rerun passed afterward. Ruff, Django checks under isolated
 synthetic settings and the 220-route write inventory pass. PostgreSQL concurrency
 was not rerun for this patch. Read-only production preflight validates all 4,074
 Master Data receipts, exact exception fingerprints and no pending import writes.
+Native pre/post-deploy checks found no readiness errors or pending migrations;
+both public health endpoints returned 200. Existing browser flags and workflow
+authority remain unchanged. Private evidence retains the approval, source-bound
+validation jobs, source snapshot, native completion job and readback results.
+Independent read-only verification confirms both completed uploads, zero frozen
+uploads, zero blocked cases, one completion audit and unchanged case, draft,
+workbook, import-checkpoint and publication-receipt fingerprints.
 
 ## Legacy pre-visit queue classification - 10 November 2026
 
