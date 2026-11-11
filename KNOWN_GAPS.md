@@ -1,5 +1,33 @@
 # Known Gaps and Verified Workarounds
 
+## Initial import completion still blocks administrative work - 11 November 2026
+
+Read-only production audit confirms all 4,230 cases are synced: 4,074 Master Data
+and 156 Eco-conserve. Eco-conserve is complete. Master Data remains ready/frozen
+because two unnamed source records and one possible identical unit repeat were
+retained rather than imported. The case-level fence blocks zero existing cases,
+but the owner-wide fence still blocks new/non-case actions. Data loading was
+finished without closing that administrative hold.
+
+A bounded completion action is prepared. It retains every source exception and
+requires current whole-group Portal IT authority, the native upload lease, exact
+source/revision review, verified committed-case receipts and no unfinished write
+plan. It releases only the reviewed upload, records one compliance event, keeps
+all drafts/workbook bytes and rejects later commits through the closed review.
+It makes no case, financial, identity, Sheet, Drive or permission changes. No
+migration, dependency, configuration or UI change is required. Production release
+and closure remain pending explicit approval; see the
+[operator procedure](docs/runbooks/portal-legacy-quality-review.md).
+
+All 13 focused completion tests pass, including signed/scoped authority, receipt
+validation, revisionless original receipts, exact exception retention, retry,
+audit rollback and non-case fence release. A nearby 103-test regression run
+passed with one PostgreSQL-only skip before the receipt-compatibility addition;
+the final focused rerun passed afterward. Ruff, Django checks under isolated
+synthetic settings and the 220-route write inventory pass. PostgreSQL concurrency
+was not rerun for this patch. Read-only production preflight validates all 4,074
+Master Data receipts, exact exception fingerprints and no pending import writes.
+
 ## Legacy pre-visit queue classification - 10 November 2026
 
 Release `1bf68903` is merged and deployed after explicit approval. The initial

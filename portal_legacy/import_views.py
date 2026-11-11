@@ -63,13 +63,17 @@ def legacy_upload(request,upload_id=None,action='index'):
                 if 'mode' in body and body['mode']!=upload.mode:raise ValueError('Import mode is fixed for this upload.')
                 if upload.mode=='updates' and action in {'cleanup_preview','cleanup_confirm','projection_preview','projection_confirm','restart_projection','cancel_preview'}:
                     raise ValueError('Update uploads cannot delete data, replace a register or pause case changes.')
-                if action not in {'advance','prepare','cleanup_preview'} and body.get('revision')!=upload.revision:raise ValueError('This workspace changed. Refresh saved progress before retrying.')
+                if action not in {'advance','prepare','cleanup_preview','complete_review'} and body.get('revision')!=upload.revision:raise ValueError('This workspace changed. Refresh saved progress before retrying.')
                 if action=='prepare':importer.prepare(upload)
                 elif action=='stage':
                     if upload.phase!='mapping':raise ValueError('Preview the column mapping first.')
                     upload.phase='staging';importer.save(upload)
                 elif action=='select':importer.select(upload,body);importer.save(upload)
                 elif action=='edit':importer.edit(upload,body,actor,access)
+                elif action=='complete_review':
+                    from .completion import complete_review
+                    complete_review(upload,actor=actor,access=access,expected_revision=body.get('revision'),
+                        request_key=body.get('request_id'),exceptions=body.get('exceptions'))
                 elif action=='cleanup_preview':
                     if upload.phase not in {'ready','deleting'} or upload.drafts.filter(legacy__isnull=False).exists():raise ValueError('Test cleanup must precede canonical imports.')
                     if upload.phase=='deleting':

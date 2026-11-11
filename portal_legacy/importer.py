@@ -333,6 +333,7 @@ def commit_step(upload,actor,access):
     if upload.mode=='updates':
         from .updates import commit_step as update_commit
         return update_commit(upload,actor,access)
+    if upload.phase not in {'ready','committing'}:raise ValueError('This initial review is closed or another step is running. Use a separate reviewed intake for retained exceptions.')
     if not upload.state.get('cleanup_complete'):raise ValueError('Complete the Superuser-confirmed test cleanup first.')
     started=time.monotonic();results=[]
     for draft in upload.drafts.filter(approved=True,legacy__isnull=True).order_by('source_row')[:50]:

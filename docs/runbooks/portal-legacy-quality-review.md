@@ -29,6 +29,52 @@ This procedure covers Master Data and Eco-conserve only. Django remains the
 workflow source of truth. Private workbooks, identities and case-level decisions
 belong in the retained private review evidence, never this repository.
 
+## Closing initial loading with retained source exceptions
+
+Verified imported cases can be used while review remains partial, but a frozen
+initial upload still blocks owner-wide/new-case actions. A finished sync is not
+the same as closing that administrative hold. The 11 November live audit found
+all 4,230 cases synced, Eco-conserve complete and Master Data still frozen with
+three unimported exceptions: two missing names and one potential identical unit
+repeat. No case-specific write was blocked; non-case actions remained blocked.
+
+The prepared `complete_review` upload action closes a ready initial import
+without creating, deleting or changing cases or Google rows. Existing whole-group
+Portal IT authority and the normal upload lease are required. Every imported
+draft must have a committed, publication-ready case and a verified staff-reference
+receipt matching the saved Sheet/register binding. Outstanding selections,
+uncertain write plans, changed source facts, stale revisions, failed receipts and
+cross-register/duplicate bindings stop completion.
+Original verified receipts may predate the later optional case-revision tag;
+their named register, immutable case binding and digest remain mandatory. A
+present revision must be valid and cannot exceed the case's current revision.
+
+POST to the existing `/api/portal/legacy/uploads/<upload_id>/complete_review/`
+with the current `revision`, stable `request_id`, original `source_sheet` and an
+`exceptions` list covering exactly every unimported draft. Each entry needs its
+`id`, a nonblank review `reason` and `values_sha256` produced by
+`portal_legacy.completion.values_digest`. Retain this manifest privately. The
+service remains available as `complete_review(upload, actor=..., access=...,
+expected_revision=..., request_key=..., exceptions=...)` inside
+`importer.leased(upload)` for a reviewed operator run.
+
+Completion retains drafts, original workbook bytes, source rows, receipts and
+case history. It records one transactional compliance event and a private
+`state.review_completion` receipt, sets only that upload to complete and releases
+its hold. Payload still reports the exceptions as not imported. A closed upload
+cannot select, edit or commit them; any later intake requires separate reviewed
+handling. The same request and facts replay without another audit or revision;
+different facts cannot reuse the completion key. Other register holds remain.
+
+Before execution, verify the exact source/revision manifest and native receipts;
+after execution, verify no frozen cutover remains for this operation and compare
+case, source, exception and receipt fingerprints. No Google write is needed.
+Never delete the held drafts or blindly flip `frozen` to bypass these checks.
+Code rollback requires no migration and does not automatically reopen a completed
+review. Preserve its audit and use the owning reviewed recovery if evidence is
+later disputed. The prepared 11 November completion has not yet been deployed
+or applied; explicit production release approval remains required.
+
 ## Import semantics
 
 Blank historical National IDs are permitted by initial legacy loading. New
