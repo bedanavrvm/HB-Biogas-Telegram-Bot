@@ -1,5 +1,26 @@
 # Known Gaps and Verified Workarounds
 
+## Native FarmUp export format - 11 November 2026
+
+A later named-column validation change rejected HomeBiogas exports with two
+Sign Date headers, removing earlier FarmUp source handling. The export also
+combines KES and amount in Actual Receipts Currency; that column was treated
+as currency only. Count/Uploaded Date required unnecessary mapping, and blank
+trailing rows inflated the batch total.
+
+The bounded parser fix accepts the original export, retains exact source bytes,
+restores second-date preference with first-date fallback, recognizes the combined receipt
+column, validates KES amounts and counts only review rows. Both Portal and
+Telegram use the shared parser. Unknown mappings, other duplicate fields,
+invalid values, explicit Ignore choices and strict live-register schemas remain
+protected. Commit, identity, visit/deposit authority and publication contracts
+are unchanged. All 137 focused/regression tests pass; the untouched private
+18-row CSV has no row blockers and matches the reviewed copy's canonical values.
+No migration, configuration, permission or dependency change is needed.
+Production release remains pending approval; the existing November worklist is
+staged only, with no new cases or Sheet writes. See the
+[source-format and loading procedure](docs/runbooks/farmup-source-formats.md).
+
 ## Initial import changeover completed - 11 November 2026
 
 Release `3812279c` was merged and deployed after explicit approval. The native

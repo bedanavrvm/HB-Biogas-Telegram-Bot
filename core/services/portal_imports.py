@@ -222,7 +222,7 @@ def _farmup_mapping_digest(decisions: list[dict]) -> str:
 def farmup_mapping_analysis(csv_text: str, decisions: list[dict] | None = None) -> dict[str, Any]:
     """Describe a positional, explicit source-to-canonical FarmUp mapping."""
     from core.services.jawabu_master import (
-        CANONICAL_FIELDS, build_header_map, read_csv_rows,
+        CANONICAL_FIELDS, build_header_map, normalize_header, read_csv_rows,
     )
 
     raw_table = list(csv.reader(io.StringIO(csv_text)))
@@ -240,7 +240,7 @@ def farmup_mapping_analysis(csv_text: str, decisions: list[dict] | None = None) 
         submitted_ids = [str(item.get('source_id') or '') for item in decisions if isinstance(item, dict)]
         if len(submitted_ids) != len(set(submitted_ids)) or set(submitted_ids) != set(headers):
             raise PortalImportError('Every CSV column must be mapped or explicitly ignored exactly once.')
-    inferred = build_header_map(headers)
+    inferred = build_header_map(headers, rows=(row for _number, row in rows))
     inferred_by_source = {source: field for field, source in inferred.items()}
     supplied = {
         str(item.get('source_id') or ''): str(item.get('target_field') or '')
@@ -257,7 +257,10 @@ def farmup_mapping_analysis(csv_text: str, decisions: list[dict] | None = None) 
         if target:
             used_targets.add(target)
         # The established export intentionally uses the second Sign Date.
-        known_ignored = source_id == 'Sign Date' and inferred.get('sign_date') == 'Sign Date__2'
+        known_ignored = (
+            source_id == 'Sign Date' and inferred.get('sign_date') == 'Sign Date__2'
+            or normalize_header(source_id) in {'count', 'uploaded date'}
+        )
         resolution = 'manual' if decisions is not None else ('auto' if target else ('ignored' if known_ignored else 'unresolved'))
         samples = []
         for _row_number, row in rows:

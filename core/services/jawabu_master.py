@@ -330,7 +330,7 @@ def create_farmup_review_batch(
         telegram_message_id=str(telegram_message_id or ''),
         sender=str(sender or ''),
         source_filename=str(source_filename or 'farmers.csv'),
-        total_rows=stats.get('total_rows', 0),
+        total_rows=len(review_rows),
         review_needed=stats.get('review_needed', 0),
         parsed_rows=review_rows,
         mapping=mapping_review_rows(),
@@ -1631,7 +1631,7 @@ def import_jawabu_farmers_csv(
         result.errors.append('CSV has no header row.')
         return result
 
-    header_map = build_header_map(headers)
+    header_map = build_header_map(headers, rows=(row for _number, row in rows))
     now = timezone.now()
     for source_row_number, raw_row in rows:
         result.total_rows += 1
@@ -1668,7 +1668,7 @@ def build_cleaned_master_preview(
     header_mapping: dict[str, str] | None = None,
 ) -> tuple[list[dict], dict]:
     rows, headers = read_csv_rows(csv_file)
-    header_map = build_header_map(headers) if header_mapping is None else {}
+    header_map = build_header_map(headers, rows=(row for _number, row in rows)) if header_mapping is None else {}
     if header_mapping is not None:
         # Portal mapping decisions are canonical-field -> unique source header.
         # Replace the inferred map completely so an explicit Ignore decision
@@ -1727,13 +1727,23 @@ def read_csv_rows(csv_file: TextIO) -> tuple[list[tuple[int, dict]], list[str]]:
 
 
 def unique_headers(headers: Iterable[str]) -> list[str]:
-    from core.services.sheet_columns import NamedColumns
+    from core.services.sheet_columns import NamedColumns, SheetColumnError
     result = [str(header or '').strip() for header in headers]
+    # HomeBiogas exports two Sign Date columns. Give only that documented pair
+    # distinct source keys; live registers and all other duplicate CSV fields
+    # retain the strict named-column checks. Original CSV bytes stay untouched.
+    dates = [index for index, header in enumerate(result) if normalize_header(header) == 'sign date']
+    if len(dates) > 2:
+        raise SheetColumnError('FarmUp supports at most two Sign Date columns. Rename the extra date fields.')
+    if len(dates) == 2:
+        if any(normalize_header(header) == 'sign date 2' for header in result):
+            raise SheetColumnError('The repeated Sign Date columns conflict with an existing Sign Date__2 field.')
+        result[dates[0]], result[dates[1]] = 'Sign Date', 'Sign Date__2'
     NamedColumns(result)
     return result
 
 
-def build_header_map(headers: list[str]) -> dict[str, str]:
+def build_header_map(headers: list[str], *, rows: Iterable[dict] = ()) -> dict[str, str]:
     from core.services.sheet_columns import NamedColumns, SheetColumnError
     columns = NamedColumns(headers)
     positions = columns.lookup(normalize_header)
@@ -1744,6 +1754,10 @@ def build_header_map(headers: list[str]) -> dict[str, str]:
                    if normalize_header(alias) in normalized_lookup}
         if field == 'primary_phone' and 'Mobile' in matches:
             matches = {'Mobile'}  # Phone is the declared secondary column in this import format.
+        if field == 'sign_date':
+            visit = {name for name in matches if normalize_header(name) == 'hbg visit date'}
+            if visit:
+                matches = visit
         if len(matches) > 1:
             raise SheetColumnError(f'More than one named column matches {field}. Choose an explicit source mapping.')
         if matches:
@@ -1752,6 +1766,15 @@ def build_header_map(headers: list[str]) -> dict[str, str]:
         header_map['primary_phone'] = 'Mobile'
         if 'Phone' in headers:
             header_map['secondary_phone'] = 'Phone'
+    if 'Sign Date__2' in headers and normalize_header(header_map.get('sign_date', '')) != 'hbg visit date':
+        header_map['sign_date'] = 'Sign Date__2'
+    # Some exports place "KES 5,000.00" in Actual Receipts Currency without a
+    # separate amount column. Currency codes alone never become an amount.
+    currency = header_map.get('actual_receipts_currency')
+    if currency and 'actual_receipts' not in header_map:
+        values = [str(row.get(currency) or '').strip() for row in rows]
+        if any(value and not re.fullmatch(r'[A-Za-z]{3}', value) for value in values):
+            header_map['actual_receipts'] = header_map.pop('actual_receipts_currency')
     return header_map
 
 def normalize_header(value: str) -> str:
@@ -1776,8 +1799,8 @@ def clean_farmer_row(
         if str(key or '').strip()
     }
     values = {field: raw_value(raw_row, header_map, field) for field in CANONICAL_FIELDS}
-    if sign_date_fallback:
-        values['sign_date'] = values.get('sign_date') or first_non_blank(raw_row, ['HBG Visit Date', 'Sign Date'])
+    if sign_date_fallback or header_map.get('sign_date') == 'Sign Date__2':
+        values['sign_date'] = values.get('sign_date') or first_non_blank(raw_row, ['HBG Visit Date', 'Sign Date__2', 'Sign Date'])
     raw_name = clean_text(values['customer_name'])
     bracketed_id_value = bracketed_id_token(raw_name)
     bracketed_id = extract_bracketed_id(raw_name)
@@ -1790,10 +1813,17 @@ def clean_farmer_row(
     county = normalise_county(values['county']).upper()
     duplicate_key = jawabu_duplicate_key(national_id, primary_phone, customer_name)
     review_notes = []
+    receipts = str(values['actual_receipts'] or '').strip()
+    receipt_currency = clean_text(values['actual_receipts_currency']).upper()
     if str(values['actual_receipts'] or '').strip():
         from hb_operations.deposits import DepositError, parse_deposit
         try:
-            parse_deposit(values['actual_receipts'])
+            # Strip only the recognized currency prefix, then use the shared
+            # financial validator. Invalid/foreign values remain visible and
+            # blocked instead of losing their sign, precision or currency.
+            amount = parse_deposit(re.sub(r'^KES\s*', '', receipts, flags=re.IGNORECASE))
+            receipts = clean_decimal(format(amount, '.2f'))
+            receipt_currency = receipt_currency or 'KES'
         except DepositError:
             review_notes.append('Deposit Paid to HB must be a non-negative KES amount with at most two decimal places')
     if not customer_name:
@@ -1850,8 +1880,8 @@ def clean_farmer_row(
         'lead_source': 'HOMEBIOGAS',
         'contract_type': clean_text(values['contract_type']),
         'installation_status': '',
-        'actual_receipts_currency': clean_text(values['actual_receipts_currency']).upper(),
-        'actual_receipts': clean_decimal(values['actual_receipts']),
+        'actual_receipts_currency': receipt_currency,
+        'actual_receipts': receipts,
         'hb_sales_person': clean_sales_person(values['hb_sales_person']),
         'sign_date': clean_date(values['sign_date']),
         'created_date': '',
