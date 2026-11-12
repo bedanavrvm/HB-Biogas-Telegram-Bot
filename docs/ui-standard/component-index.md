@@ -1,5 +1,9 @@
 # Component index and migration hold
 
+JBL rescheduling reuses the visit date control and existing action reminders;
+optional evidence is permanently visible with an external section heading.
+[Source and real-page evidence](reviews/2026-11-12-jbl-rescheduled-next-visit.md).
+
 Portal section labels and Complaints pencil/correction/date/time/filter/media
 controls reuse current patterns. [Source and live-page evidence](reviews/2026-11-12-complaint-corrections-media-spacing-and-order.md).
 

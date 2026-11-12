@@ -319,6 +319,11 @@ test('Visit repayment terms follow complete LAF selection and preserve their dra
   await page.setInputFiles('#jbl-laf-media-complete',laf);
   await expect(page.locator('#jbl-repayment-tenor')).toHaveValue('18');
   await page.selectOption('#jbl-status','Rescheduled');
+  await expect(page.locator('#jbl-next-visit-date')).toBeVisible();
+  await expect(page.locator('#jbl-next-visit-date')).toHaveAttribute('required','');
+  await expect(page.locator('#jbl-outcome-help')).toBeHidden();
+  await expect(page.locator('#jbl-evidence-details > .jbl-support-card')).toBeVisible();
+  await expect(page.locator('#jbl-evidence-details summary')).toHaveCount(0);
   await expect(page.locator('#jbl-repayment-day')).toBeDisabled();
   await expect(page.locator('#jbl-repayment-day')).not.toHaveAttribute('required');
   await page.selectOption('#jbl-status','Visited, Awaiting Credit Analysis');

@@ -181,7 +181,7 @@ def restart_expired_reappraisal(farmer: JawabuFarmerMaster, *, fresh_sign_date: 
     if farmer.order_number or farmer.invoice_number:
         raise JawabuIdentityConflict('Expired deferral has order or invoice data and requires administrator review before restart.')
     for field, value in {
-        'jbl_visit_date': None, 'jbl_officer': '', 'jbl_visit_status': '', 'jbl_visit_comment': '',
+        'jbl_visit_date': None, 'jbl_next_visit_date': None, 'jbl_officer': '', 'jbl_visit_status': '', 'jbl_visit_comment': '',
         'credit_decision': '', 'credit_decided_by': '', 'credit_decided_at': None,
         'final_decision': '', 'final_decision_comment': '', 'final_decided_by': '', 'final_decided_at': None,
         'deferred_at': None, 'deferred_stage': '', 'deferred_until': None,

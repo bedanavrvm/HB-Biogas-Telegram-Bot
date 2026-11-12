@@ -60,6 +60,8 @@ def change_withdrawal(farmer, *, action, reason, expected_revision, request_id, 
         raise ValueError('This case has financial or fulfilment evidence. Use the controlled correction process.')
     # A withdrawal replaces an existing hold; it must not inherit its expiry.
     _clear_deferral(farmer, actor.get_username(), request_id)
+    prior_next_visit = farmer.jbl_next_visit_date
+    farmer.jbl_next_visit_date = None
     farmer.withdrawn_stage = stage if action == 'withdraw' else ''
     resumed_fields = []
     if action == 'resume':
@@ -71,12 +73,12 @@ def change_withdrawal(farmer, *, action, reason, expected_revision, request_id, 
     target = 'withdrawn' if action == 'withdraw' else stage
     before, revision_before, revision_after = _advance_state(farmer, target, before_state=state)
     farmer.save(update_fields=['withdrawn_stage', 'workflow_state', 'workflow_state_entered_at',
-                               'workflow_revision', 'deferred_at', 'deferred_stage', 'deferred_until', 'updated_at', *resumed_fields])
+                               'workflow_revision', 'deferred_at', 'deferred_stage', 'deferred_until', 'jbl_next_visit_date', 'updated_at', *resumed_fields])
     event = record_pipeline_event(
         farmer, action=event_action, stage_key=stage, actor=actor.get_username(), actor_user=actor,
         request_id=request_id, reason=reason, from_state=before, to_state=target,
         transition_code=f'jawabu.{event_action}', revision_before=revision_before, revision_after=revision_after,
-        old_values={'workflow_state': before}, new_values={'workflow_state': target, 'withdrawn_stage': farmer.withdrawn_stage},
+        old_values={'workflow_state': before, 'next_visit_date': prior_next_visit.isoformat() if prior_next_visit else None}, new_values={'workflow_state': target, 'withdrawn_stage': farmer.withdrawn_stage, 'next_visit_date': None},
     )
     record_case_comment(farmer=farmer, stage_key=stage, comment=reason, actor=actor.get_username(),
                         actor_user=actor, request_id=request_id, pipeline_event=event, occurred_at=event.occurred_at)

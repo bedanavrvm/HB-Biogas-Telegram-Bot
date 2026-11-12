@@ -51,7 +51,7 @@ class VisitRepaymentTests(TestCase):
     def final(self, **values):
         from core.api.portal_views import portal_set_final_decision
         request = RequestFactory().post('/synthetic-final/', json.dumps({
-            'request_id': 'synthetic-final-review', 'workflow_revision': self.farmer.workflow_revision,
+            'client_request_id': 'synthetic-final-review', 'workflow_revision': self.farmer.workflow_revision,
             'final_decision': 'Approved', **values,
         }), content_type='application/json')
         request.portal_user = self.actor

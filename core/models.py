@@ -2576,6 +2576,10 @@ class JawabuFarmerMaster(models.Model):
     deferred_at = models.DateTimeField(null=True, blank=True, db_index=True)
     deferred_stage = models.CharField(max_length=32, blank=True, default='', db_index=True)
     deferred_until = models.DateField(null=True, blank=True, db_index=True)
+    jbl_next_visit_date = models.DateField(
+        null=True, blank=True,
+        db_comment='Next planned JBL visit for a rescheduled case; not evidence of a completed visit or a reappraisal deadline.',
+    )
     workflow_state = models.CharField(max_length=40, blank=True, default='', db_index=True)
     withdrawn_stage = models.CharField(max_length=32, blank=True, default='', db_comment='Canonical resume stage for an explicit client withdrawal; blank for historical unknowns and active cases.')
     workflow_state_entered_at = models.DateTimeField(null=True, blank=True)

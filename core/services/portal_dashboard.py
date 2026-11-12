@@ -441,6 +441,17 @@ def dashboard_payload(user, *, access=None, notification_page=1) -> dict:
             continue
         actionable = _branch_scope(queue_querysets[key], access, user=user, capability=action_capability)
         for farmer in actionable.order_by('updated_at', 'pk').iterator():
+            if key == 'jbl' and farmer.jbl_visit_status == 'Rescheduled' and farmer.jbl_next_visit_date:
+                planned = farmer.jbl_next_visit_date
+                today = timezone.localdate()
+                if planned > today:
+                    continue
+                add_case_notification(
+                    farmer, queue_key=key,
+                    action=f'Visit {"due today" if planned == today else "overdue"} · {planned:%d-%b-%Y}',
+                    severity='action' if planned == today else 'urgent',
+                )
+                continue
             overdue = farmer.pk in escalation_ids
             add_case_notification(farmer, queue_key=key,
                                   action='SLA follow-up overdue' if overdue else queue_actions.get(key, queue['label']),

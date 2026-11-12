@@ -2348,6 +2348,7 @@ PORTAL_JBL_VISIT_DRAFT_FIELDS = (
     'jbl-date',
     'jbl-status',
     'jbl-visit-occurred',
+    'jbl-next-visit-date',
     'jbl-repayment-day',
     'jbl-repayment-tenor',
     'jbl-reason-code',
@@ -3838,6 +3839,7 @@ _PORTAL_JBL_VISIT_DRAFT_FIELD_LIMITS = {
     'jbl-date': 32,
     'jbl-status': 80,
     'jbl-visit-occurred': 5,
+    'jbl-next-visit-date': 10,
     'jbl-repayment-day': 16,
     'jbl-repayment-tenor': 16,
     'jbl-reason-code': 8,
@@ -3915,7 +3917,9 @@ def _portal_jbl_visit_field_errors(error: str, result: dict | None = None) -> di
         errors['jbl_visit_photo_files'] = 'Add at least one JBL visit photo for this outcome.'
     if 'status' in lowered or 'outcome' in lowered:
         errors.setdefault('visit_status', message)
-    if 'visit date' in lowered or 'yyyy-mm-dd' in lowered:
+    if 'next visit date' in lowered:
+        errors.setdefault('next_visit_date', message)
+    elif 'visit date' in lowered or 'yyyy-mm-dd' in lowered:
         errors.setdefault('visit_date', message)
     if 'coordinate' in lowered or 'location was unavailable' in lowered or 'capture the visit location' in lowered:
         errors.setdefault('capture_location', message)
@@ -4232,7 +4236,7 @@ def portal_complete_jbl_visit(request, farmer_id: str):
             farmer,
             categorized_files=categorized_files,
             visit_date=visit_date,
-            visit_occurred=visit_occurred,
+            visit_occurred=visit_occurred, next_visit_date=body.get('next_visit_date'),
             repayment_date=body.get('repayment_date') if 'repayment_date' in body else None,
             repayment_tenor=body.get('repayment_tenor') if 'repayment_tenor' in body else None,
             visit_status=visit_status,
@@ -8158,7 +8162,7 @@ def portal_create_and_complete_jbl_lead(request):
             }, status=201 if created_lead else 200)
     try:
         ok, error, result = complete_jbl_visit(
-            farmer, categorized_files=categorized_files, visit_date=visit_date, visit_status=visit_status, visit_occurred=visit_occurred,
+            farmer, categorized_files=categorized_files, visit_date=visit_date, visit_status=visit_status, visit_occurred=visit_occurred, next_visit_date=body.get('next_visit_date'),
             repayment_date=body.get('repayment_date') if 'repayment_date' in body else None,
             repayment_tenor=body.get('repayment_tenor') if 'repayment_tenor' in body else None,
             reason_code=str(body.get('reason_code') or '').strip().casefold(),

@@ -168,7 +168,7 @@ class JblOutcomeRequirementsTests(TestCase):
     def test_rescheduled_physical_visit_does_not_bypass_or_lock_deposit(self):
         from hb_operations.deposits import deposit_editable, visit_deposit_error
         response = self.submit(visit_status='Rescheduled', reason_code='', visit_occurred='true',
-                               visit_date=timezone.localdate().isoformat())
+                               visit_date=timezone.localdate().isoformat(), next_visit_date=timezone.localdate().isoformat())
         self.assertEqual(response.status_code, 200, response.content)
         self.case.refresh_from_db()
         self.assertTrue(deposit_editable(self.case))
@@ -286,3 +286,96 @@ class JblOutcomeRequirementsTests(TestCase):
             visit_occurred='true', visit_date=timezone.localdate().isoformat())
         self.assertEqual(response.status_code, 403)
         self.assertFalse(self.case.pipeline_events.exists())
+
+    def test_rescheduling_requires_today_or_future_date_before_upload(self):
+        with patch('core.services.jawabu_pipeline.append_jbl_media_uploads') as upload:
+            for planned in ('', 'not-a-date', (timezone.localdate() - timedelta(days=1)).isoformat()):
+                with self.subTest(planned=planned):
+                    response = self.submit(visit_status='Rescheduled', reason_code='', next_visit_date=planned)
+                    self.assertEqual(response.status_code, 400, response.content)
+                    self.assertIn('next_visit_date', json.loads(response.content)['field_errors'])
+            upload.assert_not_called()
+        self.assertFalse(self.case.pipeline_events.exists())
+
+    def test_reschedule_date_is_saved_audited_and_in_queue_without_inventing_a_visit(self):
+        from core.services.jawabu_pipeline import farmer_to_card, jbl_visit_queue
+        planned = timezone.localdate() + timedelta(days=3)
+        response = self.submit(visit_status='Rescheduled', reason_code='', next_visit_date=planned.isoformat())
+        self.assertEqual(response.status_code, 200, response.content)
+        self.case.refresh_from_db()
+        self.assertEqual(self.case.jbl_next_visit_date, planned)
+        self.assertIsNone(self.case.jbl_visit_date)
+        self.assertFalse(self.case.jbl_officer)
+        self.assertEqual(self.case.workflow_state, 'jbl_visit')
+        self.assertIsNone(self.case.deferred_until)
+        self.assertIn(self.case, jbl_visit_queue())
+        self.assertEqual(farmer_to_card(self.case, include_detail_metadata=False)['next_visit_date'], planned.isoformat())
+        event = self.case.pipeline_events.get(action='jbl_outcome_recorded')
+        self.assertIsNone(event.old_values['next_visit_date'])
+        self.assertEqual(event.new_values['next_visit_date'], planned.isoformat())
+        self.assertFalse(self.case.pipeline_events.filter(action='jbl_visit_completed').exists())
+
+    def test_reschedule_can_be_today_in_nairobi_even_before_utc_midnight(self):
+        from datetime import datetime, timezone as dt_timezone
+        from zoneinfo import ZoneInfo
+        instant = datetime(2026, 11, 12, 22, 0, tzinfo=dt_timezone.utc)
+        with timezone.override(ZoneInfo('Africa/Nairobi')), patch('django.utils.timezone.now', return_value=instant):
+            response = self.submit(visit_status='Rescheduled', reason_code='', next_visit_date='2026-11-13')
+            self.assertEqual(response.status_code, 200, response.content)
+            self.case.refresh_from_db()
+            self.assertEqual(self.case.jbl_next_visit_date.isoformat(), '2026-11-13')
+
+    def test_replaying_due_reschedule_after_date_passes_is_idempotent(self):
+        planned = timezone.localdate()
+        response = self.submit(visit_status='Rescheduled', reason_code='', next_visit_date=planned.isoformat())
+        self.assertEqual(response.status_code, 200, response.content)
+        self.case.refresh_from_db()
+        revision = self.case.workflow_revision
+        with patch('django.utils.timezone.localdate', return_value=planned + timedelta(days=2)):
+            response = self.submit(visit_status='Rescheduled', reason_code='', next_visit_date=planned.isoformat())
+        self.assertEqual(response.status_code, 200, response.content)
+        self.case.refresh_from_db()
+        self.assertEqual(self.case.workflow_revision, revision)
+        self.assertEqual(self.case.pipeline_events.filter(action='jbl_outcome_recorded').count(), 1)
+
+    def test_replacing_reschedule_clears_active_date_but_keeps_audit(self):
+        from core.services.jawabu_pipeline import complete_jbl_visit
+        planned = timezone.localdate()
+        self.assertEqual(self.submit(visit_status='Rescheduled', reason_code='', next_visit_date=planned.isoformat()).status_code, 200)
+        self.case.refresh_from_db()
+        with patch('core.services.portal_publication.reserve_farmer_publication', return_value=[]):
+            ok, error, _ = complete_jbl_visit(self.case, categorized_files={}, visit_date=None, visit_occurred=False,
+                officer='Synthetic', visit_status='Rejected by JBL', reason_code='r01',
+                request_id='replace-schedule', expected_revision=self.case.workflow_revision)
+        self.assertTrue(ok, error)
+        self.case.refresh_from_db()
+        self.assertIsNone(self.case.jbl_next_visit_date)
+        self.assertEqual(self.case.pipeline_events.get(request_id='replace-schedule').old_values['next_visit_date'], planned.isoformat())
+
+    def test_withdrawal_clears_active_next_visit(self):
+        from core.services.portal_withdrawals import change_withdrawal
+        planned = timezone.localdate()
+        self.case.jbl_visit_status, self.case.jbl_next_visit_date = 'Rescheduled', planned
+        self.case.save()
+        with patch('core.services.portal_publication.reserve_farmer_publication', return_value=[]):
+            updated = change_withdrawal(self.case, action='withdraw', reason='Client withdrew',
+                expected_revision=self.case.workflow_revision, request_id='withdraw-schedule', actor=self.actor, stage='jbl_visit')
+        self.assertIsNone(updated.jbl_next_visit_date)
+        event = updated.pipeline_events.get(request_id='withdraw-schedule')
+        self.assertEqual(event.old_values['next_visit_date'], planned.isoformat())
+
+    def test_rescheduled_draft_retains_date_in_field_allowlist(self):
+        from core.api.portal_views import _portal_jbl_visit_draft_payload, PORTAL_JBL_VISIT_DRAFT_FIELDS
+        planned = timezone.localdate().isoformat()
+        self.assertIn('jbl-next-visit-date', PORTAL_JBL_VISIT_DRAFT_FIELDS)
+        draft = _portal_jbl_visit_draft_payload({'payload': {'values': {'jbl-next-visit-date': planned}}})
+        self.assertEqual(draft['values']['jbl-next-visit-date'], planned)
+
+    def test_stale_reschedule_cannot_overwrite_existing_schedule(self):
+        from core.services.jawabu_pipeline import complete_jbl_visit
+        from core.services.workflow_transitions import WorkflowRevisionConflict
+        self.assertEqual(self.submit(visit_status='Rescheduled', reason_code='', next_visit_date=timezone.localdate().isoformat()).status_code, 200)
+        with self.assertRaises(WorkflowRevisionConflict):
+            complete_jbl_visit(self.case, categorized_files={}, visit_date=None, visit_occurred=False,
+                officer='Synthetic', visit_status='Rescheduled', next_visit_date=timezone.localdate() + timedelta(days=1),
+                request_id='stale-schedule', expected_revision=1)

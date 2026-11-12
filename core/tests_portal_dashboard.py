@@ -19,6 +19,41 @@ from core.services.jawabu_case360 import record_pipeline_event
 
 
 class PortalActionDashboardTests(TestCase):
+    def test_rescheduled_reminders_are_due_only_and_share_bell_and_home(self):
+        from core.services.jawabu_pipeline import jbl_visit_queue
+        today = timezone.localdate()
+        due = self.farmer('Due today', 'Nakuru', jbl_visit_status='Rescheduled', jbl_next_visit_date=today)
+        late = self.farmer('Overdue', 'Nakuru', jbl_visit_status='Rescheduled', jbl_next_visit_date=today - timedelta(days=1))
+        future = self.farmer('Future', 'Nakuru', jbl_visit_status='Rescheduled', jbl_next_visit_date=today + timedelta(days=1))
+        self.farmer('Other branch', 'Ruiru', jbl_visit_status='Rescheduled', jbl_next_visit_date=today)
+        self.farmer('Already rejected', 'Nakuru', workflow_state='rejected', jbl_visit_status='Rejected by JBL')
+        payload = dashboard_payload(None, access={'branches': ['Nakuru']})
+        items = payload['notification_items']
+        self.assertEqual(payload['notification_count'], 2)
+        self.assertEqual([row['farmer_id'] for row in items], [str(late.pk), str(due.pk)])
+        self.assertIn('overdue', items[0]['detail'])
+        self.assertIn('due today', items[1]['detail'])
+        self.assertEqual(payload['home']['actions'], items)
+        self.assertIn(future, jbl_visit_queue())
+
+    def test_future_reschedule_becomes_due_on_nairobi_date(self):
+        from datetime import datetime, timezone as dt_timezone
+        from zoneinfo import ZoneInfo
+        self.farmer('Local due', 'Nakuru', jbl_visit_status='Rescheduled', jbl_next_visit_date=date(2026, 11, 13))
+        with timezone.override(ZoneInfo('Africa/Nairobi')):
+            with patch('django.utils.timezone.now', return_value=datetime(2026, 11, 12, 20, 59, tzinfo=dt_timezone.utc)):
+                self.assertEqual(dashboard_payload(None, access={'branches': ['Nakuru']})['notification_count'], 0)
+            with patch('django.utils.timezone.now', return_value=datetime(2026, 11, 12, 21, 0, tzinfo=dt_timezone.utc)):
+                self.assertEqual(dashboard_payload(None, access={'branches': ['Nakuru']})['notification_count'], 1)
+
+    def test_rescheduled_reminders_do_not_borrow_view_only_scope(self):
+        self.farmer('View only due', 'Ruiru', jbl_visit_status='Rescheduled', jbl_next_visit_date=timezone.localdate())
+        user = get_user_model().objects.create_user(username='schedule-view-only')
+        grant = SimpleNamespace(pk=1, role='OPERATIONS_ADMIN', branch='Ruiru', product='', group_configuration_id=None, group_configuration=None)
+        capabilities = {'portal.dashboard.view', 'portal.jbl_queue.view'}
+        with patch('core.services.portal_dashboard.effective_capability_keys', return_value=capabilities):
+            self.assertEqual(dashboard_payload(user, access={'grants': [grant]})['notification_count'], 0)
+
     def test_mixed_grants_do_not_borrow_view_scope_for_visit_actions(self):
         self.farmer('Assigned visit', 'Nakuru')
         self.farmer('View only', 'Ruiru')

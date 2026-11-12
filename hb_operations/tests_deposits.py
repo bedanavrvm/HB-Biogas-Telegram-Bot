@@ -9,6 +9,7 @@ from django.contrib.auth import get_user_model
 from django.core.exceptions import PermissionDenied
 from django.db import close_old_connections, connection
 from django.test import RequestFactory, SimpleTestCase, TestCase, TransactionTestCase, override_settings
+from django.utils import timezone
 
 from core.models import AccessGrant, GroupSheetConfiguration, JawabuFarmerMaster
 from core.services.telegram_identity import user_access
@@ -196,7 +197,7 @@ class DepositWorkflowTests(TestCase):
 
     def test_deposit_request_key_is_not_a_successful_visit_replay(self):
         self.save()
-        ok, _ = log_jbl_visit(self.farmer, officer='Synthetic', visit_date=date(2026, 10, 2), visit_status='Rescheduled', request_id='deposit-save', expected_revision=2)
+        ok, _ = log_jbl_visit(self.farmer, officer='Synthetic', visit_date=date(2026, 10, 2), visit_status='Rescheduled', next_visit_date=timezone.localdate(), request_id='deposit-save', expected_revision=2)
         self.assertFalse(ok)
         self.farmer.refresh_from_db()
         self.assertIsNone(self.farmer.jbl_visit_date)
@@ -204,9 +205,9 @@ class DepositWorkflowTests(TestCase):
     def test_visit_commit_rechecks_concurrent_reduction(self):
         farmer = self.save()
         with patch('core.services.location_catalog.validate_location_selection', return_value=(None, None, None)):
-            self.assertTrue(preflight_jbl_visit_completion(farmer, visit_date=date(2026, 10, 2), visit_status='Rescheduled', village='Synthetic', expected_revision=2)[0])
+            self.assertTrue(preflight_jbl_visit_completion(farmer, visit_date=date(2026, 10, 2), visit_status='Visited, Awaiting Credit Analysis', repayment_date='15', repayment_tenor='12', location_unavailable_reason='Synthetic indoor visit', village='Synthetic', expected_revision=2)[0])
         self.save('4000', revision=2, key='reduction', reason='Corrected recorded total')
-        ok, _ = log_jbl_visit(farmer, officer='Synthetic', visit_date=date(2026, 10, 2), visit_status='Rescheduled', expected_revision=3)
+        ok, _ = log_jbl_visit(farmer, officer='Synthetic', visit_date=date(2026, 10, 2), visit_status='Visited, Awaiting Credit Analysis', repayment_date='15', repayment_tenor='12', location_unavailable_reason='Synthetic indoor visit', village='Synthetic', expected_revision=3)
         self.assertFalse(ok)
 
     def test_downstream_records_without_a_legacy_visit_date_are_not_editable(self):
@@ -242,7 +243,7 @@ class DepositWorkflowTests(TestCase):
     def test_cleared_case_passes_preflight(self):
         farmer = self.save()
         with patch('core.services.location_catalog.validate_location_selection', return_value=(None, None, None)):
-            self.assertTrue(preflight_jbl_visit_completion(farmer, visit_date=date(2026, 10, 2), visit_status='Rescheduled', village='Synthetic', expected_revision=2)[0])
+            self.assertTrue(preflight_jbl_visit_completion(farmer, visit_date=date(2026, 10, 2), visit_status='Rescheduled', next_visit_date=timezone.localdate(), village='Synthetic', expected_revision=2)[0])
 
     def test_import_cannot_overwrite_hb_total_and_discrepancy_is_idempotent(self):
         from core.services.jawabu_master import upsert_farmer
@@ -406,7 +407,7 @@ class DepositConcurrencyTests(TransactionTestCase):
 
     def test_visit_and_deposit_reduction_cannot_both_commit(self):
         def visit():
-            ok, message = log_jbl_visit(self.farmer, visit_date=date(2026, 10, 1), officer='Synthetic', visit_status='Rescheduled', village='Synthetic', expected_revision=1, request_id='visit')
+            ok, message = log_jbl_visit(self.farmer, visit_date=date(2026, 10, 1), officer='Synthetic', visit_status='Visited, Awaiting Credit Analysis', repayment_date='15', repayment_tenor='12', village='Synthetic', expected_revision=1, request_id='visit')
             if not ok:
                 raise ValueError(message)
         with patch('core.services.location_catalog.validate_location_selection', return_value=(None, None, None)):

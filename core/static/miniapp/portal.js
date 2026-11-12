@@ -1472,7 +1472,7 @@
     const phone = escapeHtml(f.primary_phone || 'Phone not provided');
     const unit = escapeHtml(f.unit_number || 'not provided');
     const isJblQueue = qKey === 'jbl';
-    const status = escapeHtml(isJblQueue ? (f.deposit?.deposit_hold ? 'Deposit pending' : 'Pending Visit') : (f.current_pipeline_state || f.jbl_visit_status || 'Submitted'));
+    const status = escapeHtml(isJblQueue ? (f.deposit?.deposit_hold ? 'Deposit pending' : f.jbl_visit_status === 'Rescheduled' ? 'Rescheduled' : 'Pending Visit') : (f.current_pipeline_state || f.jbl_visit_status || 'Submitted'));
     const datePrefix = isJblQueue ? 'HB visit' : 'JBL visit';
     const rawVisitDate = isJblQueue ? f.hbg_visit_date : f.jbl_visit_date;
     const visitDateLabel = isJblQueue ? f.hbg_visit_date_label : f.jbl_visit_date_label;
@@ -1489,6 +1489,7 @@
           <span class="jbl-queue-card-meta jbl-queue-card-phone"><i data-lucide="phone" aria-hidden="true"></i>${isJblQueue && f.deposit?.deposit_hold ? escapeHtml(f.primary_phone || 'Phone not provided') : window.PortalMiniAppHelpers.phoneLink(f.primary_phone)}</span>
         </div>
         ${isJblQueue && f.deposit?.deposit_hold ? `<p class="field-help">Paid: ${f.deposit.recorded_amount === null ? 'Not recorded' : `KES ${escapeHtml(f.deposit.recorded_amount)}`} · Required: KES 5,000.00 · Outstanding: KES ${escapeHtml(f.deposit.shortfall)}</p>` : ''}
+        ${isJblQueue && f.jbl_visit_status === 'Rescheduled' ? `<p class="field-help">Next visit: ${escapeHtml(f.next_visit_date ? fmtDate(f.next_visit_date) : 'Date not set')}</p>` : ''}
         <div class="jbl-queue-card-bottom">
           <span class="badge badge-grey">Unit ${unit}</span>
           <span class="jbl-queue-card-date"><i data-lucide="calendar-days" aria-hidden="true"></i><span>${datePrefix}: ${visitDate}</span></span>

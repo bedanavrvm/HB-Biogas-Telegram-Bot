@@ -32,6 +32,24 @@ Creating an office lead retains its required intake identity/location. A new
 lead below the deposit threshold is saved as intake awaiting HB payment; open
 that saved case to record a later outcome.
 
+## Rescheduling a visit
+
+Select Rescheduled and enter Next visit date (today or later in Nairobi).
+Choose No for Physical visit if the appointment did not take place; this does
+not create an actual visit date, visit credit or officer attribution. If a
+physical visit did happen, record its actual date separately.
+
+The case stays in the JBL queue with its next visit date. Future appointments
+remain queued without a premature action reminder. On the scheduled date, Home
+and the notification bell show Visit due today; afterward they show Visit
+overdue. Existing group, branch and action permissions still apply.
+
+Changing the outcome, withdrawing or starting reappraisal clears the active
+schedule while retaining the audit history. Next visit date is independent of
+the existing 60-day deferral/reappraisal rules. Older rescheduled cases without
+a date show Not set; staff supply a date on their next rescheduling save. No
+historical date is guessed. Deploy migration 0215 before using the updated app.
+
 ## Repayment terms on the LAF
 
 Repayment day (1-31) and Period (months, 1-120) are entered by the JBL officer
@@ -55,6 +73,11 @@ here. No case is backfilled or given invented terms. Existing Sheet, order and
 payment columns continue to use the same case fields. No migration is required.
 
 ## Uploading evidence
+
+The evidence section always stays visible. Optional evidence appears below
+Comment with its heading above the upload card. Forwarding outcomes label the
+same section Required visit evidence and location and retain their required
+fields. Changing outcome does not collapse or discard selected evidence.
 
 Upload one complete file per Client ID or LAF:
 

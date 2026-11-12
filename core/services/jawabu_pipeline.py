@@ -635,12 +635,19 @@ def jbl_repayment_terms(farmer, *, repayment_date=None, repayment_tenor=None):
 
 def _validate_jbl_visit_facts(farmer, *, visit_date, visit_status, visit_occurred,
                               county, sub_county, village, actor_user, request_id,
-                              location_override_reason='', record_policy_event=False, repayment_date=None, repayment_tenor=None):
+                              location_override_reason='', record_policy_event=False, repayment_date=None, repayment_tenor=None, next_visit_date=None):
     from core.services.jawabu_validation import parse_business_date
     if visit_status == JBL_SCHEDULING_STATUS:
         return None, None, 'Choose the outcome of the JBL visit before logging it.'
     if visit_status not in JBL_VISIT_OUTCOMES:
         return None, None, 'Choose a valid JBL outcome.'
+    if visit_status == 'Rescheduled':
+        try:
+            planned_date = date.fromisoformat(str(next_visit_date or ''))
+        except ValueError:
+            return None, None, 'Enter a valid next visit date (YYYY-MM-DD) for a rescheduled visit.'
+        if planned_date < timezone.localdate():
+            return None, None, 'Next visit date cannot be earlier than today.'
     requirements = jbl_visit_requirements(visit_status, visit_occurred)
     if requirements['forward'] and not visit_occurred:
         return None, None, 'A physical visit is required before forwarding to credit.'
@@ -702,6 +709,7 @@ def log_jbl_visit(
     officer: str,
     visit_status: str,
     visit_occurred: bool = True,
+    next_visit_date: date | str | None = None,
     repayment_date: str | None = None,
     repayment_tenor: str | None = None,
     reason_code: str = '',
@@ -740,7 +748,7 @@ def log_jbl_visit(
     if not _is_actionable_at_stage(farmer, JawabuWorkflowState.JBL_VISIT, deferred_stage='jbl_visit'):
         return False, _wrong_stage_message(farmer, JawabuWorkflowState.JBL_VISIT)
     visit_date, location, error = _validate_jbl_visit_facts(
-        farmer, visit_date=visit_date, visit_status=visit_status, visit_occurred=visit_occurred,
+        farmer, visit_date=visit_date, visit_status=visit_status, visit_occurred=visit_occurred, next_visit_date=next_visit_date,
         county=county, sub_county=sub_county, village=village, actor_user=actor_user,
         request_id=request_id, location_override_reason=location_override_reason, record_policy_event=True,
         repayment_date=repayment_date, repayment_tenor=repayment_tenor,
@@ -778,11 +786,13 @@ def log_jbl_visit(
             setattr(farmer, field, value)
     prior_state = current_workflow_state(farmer)
     visit_before = {'visit_date': farmer.jbl_visit_date.isoformat() if farmer.jbl_visit_date else None,
-                    'status': farmer.jbl_visit_status, 'comment': farmer.jbl_visit_comment, **repayment_before}
+                    'status': farmer.jbl_visit_status, 'comment': farmer.jbl_visit_comment,
+                    'next_visit_date': farmer.jbl_next_visit_date.isoformat() if farmer.jbl_next_visit_date else None, **repayment_before}
     physical_before = last_physical_jbl_visit(farmer)
     if visit_occurred:
         farmer.jbl_visit_date = visit_date
         farmer.jbl_officer = str(officer or sender or '').strip()
+    farmer.jbl_next_visit_date = date.fromisoformat(str(next_visit_date)) if visit_status == 'Rescheduled' else None
     farmer.jbl_visit_status = visit_status
     farmer.jbl_visit_comment = str(comment or '').strip()
 
@@ -808,7 +818,7 @@ def log_jbl_visit(
 
     update_fields = [
         'jbl_visit_date', 'jbl_officer', 'jbl_visit_status',
-        'jbl_visit_comment', 'updated_at',
+        'jbl_visit_comment', 'jbl_next_visit_date', 'updated_at',
         'deferred_at', 'deferred_stage', 'deferred_until',
         'workflow_state', 'workflow_state_entered_at', 'workflow_revision',
     ]
@@ -872,6 +882,7 @@ def log_jbl_visit(
         new_values={
             'visit_date': visit_date.isoformat() if visit_occurred else None,
             'visit_occurred': visit_occurred,
+            'next_visit_date': farmer.jbl_next_visit_date.isoformat() if farmer.jbl_next_visit_date else None,
             'officer': farmer.jbl_officer if visit_occurred else '',
             'status': visit_status,
             'reason_code': reason_code,
@@ -918,6 +929,7 @@ def preflight_jbl_visit_completion(
     visit_date: date,
     visit_status: str,
     visit_occurred: bool = True,
+    next_visit_date: date | str | None = None,
     repayment_date: str | None = None,
     repayment_tenor: str | None = None,
     latitude: float | None = None,
@@ -949,7 +961,7 @@ def preflight_jbl_visit_completion(
     if not _is_actionable_at_stage(locked, JawabuWorkflowState.JBL_VISIT, deferred_stage='jbl_visit'):
         return False, _wrong_stage_message(locked, JawabuWorkflowState.JBL_VISIT), False
     _, _, error = _validate_jbl_visit_facts(
-        locked, visit_date=visit_date, visit_status=visit_status, visit_occurred=visit_occurred,
+        locked, visit_date=visit_date, visit_status=visit_status, visit_occurred=visit_occurred, next_visit_date=next_visit_date,
         county=county, sub_county=sub_county, village=village, actor_user=actor_user,
         request_id=request_id, location_override_reason=location_override_reason,
         repayment_date=repayment_date, repayment_tenor=repayment_tenor,
@@ -976,6 +988,7 @@ def complete_jbl_visit(
     officer: str,
     visit_status: str,
     visit_occurred: bool = True,
+    next_visit_date: date | str | None = None,
     repayment_date: str | None = None,
     repayment_tenor: str | None = None,
     reason_code: str = '',
@@ -1021,7 +1034,7 @@ def complete_jbl_visit(
             except JawabuApprovalError as exc:
                 return False, ' '.join(exc.messages), {'evidence_saved': False}
         ok, error = log_jbl_visit(
-            farmer, visit_date=visit_date, visit_status=visit_status, visit_occurred=visit_occurred,
+            farmer, visit_date=visit_date, visit_status=visit_status, visit_occurred=visit_occurred, next_visit_date=next_visit_date,
             officer=officer, sender=sender, reason_code=reason_code, comment=comment,
             request_id=request_id, expected_revision=expected_revision, actor_user=actor_user,
         )
@@ -1080,7 +1093,7 @@ def complete_jbl_visit(
     if not valid_batch:
         return False, batch_error, {'evidence_saved': False, 'code': batch_code}
     ok, error, already_completed = preflight_jbl_visit_completion(
-        farmer, visit_date=visit_date, visit_status=visit_status, visit_occurred=visit_occurred,
+        farmer, visit_date=visit_date, visit_status=visit_status, visit_occurred=visit_occurred, next_visit_date=next_visit_date,
         repayment_date=repayment_date, repayment_tenor=repayment_tenor,
         latitude=latitude, longitude=longitude,
         location_unavailable_reason=location_unavailable_reason,
@@ -1158,7 +1171,7 @@ def complete_jbl_visit(
             visit_date=visit_date,
             officer=officer,
             visit_status=visit_status,
-            visit_occurred=visit_occurred,
+            visit_occurred=visit_occurred, next_visit_date=next_visit_date,
             repayment_date=repayment_date, repayment_tenor=repayment_tenor,
             reason_code=reason_code,
             comment=comment,
@@ -2270,6 +2283,7 @@ def farmer_to_card(
         'hbg_visit_date_label': hbg_visit_date.strftime('%d-%m-%Y') if hbg_visit_date else None,
         # Stage 2
         'jbl_visit_date': farmer.jbl_visit_date.isoformat() if farmer.jbl_visit_date else None,
+        'next_visit_date': farmer.jbl_next_visit_date.isoformat() if farmer.jbl_next_visit_date else None,
         'jbl_visit_date_label': farmer.jbl_visit_date.strftime('%d-%m-%Y') if farmer.jbl_visit_date else None,
         'jbl_officer': farmer.jbl_officer,
         'jbl_visit_status': farmer.jbl_visit_status,

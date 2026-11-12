@@ -1145,9 +1145,9 @@
     },
     {
       "path": "core/static/miniapp/portal.js",
-      "sha256": "63b531fb65443d22414408b3e13d3246a9260ced9eb89b0069c8020621b5f9d7",
-      "review_reference": "docs/ui-standard/reviews/2026-11-12-jbl-outcome-documents.md",
-      "reason": "Approved outcome-driven visit requirements, complete document uploads, optional evidence recovery and actionable deposit holds. Existing controls and signed synthetic Portal browser evidence; no design migration or permission expansion."
+      "sha256": "d44f9a4056675cb9b0ff32e8f411019780304cc1d0d5c9a3385fd0b8ab6b64f0",
+      "review_reference": "docs/ui-standard/reviews/2026-11-12-jbl-rescheduled-next-visit.md",
+      "reason": "Approved JBL next-visit scheduling, existing reminder controls and permanently visible evidence; real-shell Playwright and PostgreSQL evidence recorded."
     },
     {
       "path": "core/static/miniapp/portal.css",
@@ -1283,21 +1283,21 @@
     },
     {
       "path": "core/static/miniapp/portal.css",
-      "sha256": "c75d280c3d63448e39f62387e70e6bbf9076a1d607c7ba22c5132d7d19484e12",
-      "review_reference": "docs/ui-standard/reviews/2026-11-12-complaint-corrections-media-spacing-and-order.md",
-      "reason": "User-directed Portal heading/gap and Complaints icon-only full-width paired correction fields, EAT pickers, queue ordering and progressive existing-thumbnail display. Source-bound live local Django/PostgreSQL Playwright evidence; no access expansion or design migration."
+      "sha256": "6f15ddd0948f7fa3f251d0238882a4e17902d627c0a2cf67a403c4407a0514d7",
+      "review_reference": "docs/ui-standard/reviews/2026-11-12-jbl-rescheduled-next-visit.md",
+      "reason": "Approved JBL next-visit scheduling, existing reminder controls and permanently visible evidence; real-shell Playwright and PostgreSQL evidence recorded."
     },
     {
       "path": "core/static/miniapp/portal_farmer_sheet.js",
-      "sha256": "7e3770377d5765d56e0fb1907c946e7fb8e3e6f1da0d56b0390cb8462066164a",
-      "review_reference": "docs/ui-standard/reviews/2026-11-12-complaint-corrections-media-spacing-and-order.md",
-      "reason": "User-directed Portal heading/gap and Complaints icon-only full-width paired correction fields, EAT pickers, queue ordering and progressive existing-thumbnail display. Source-bound live local Django/PostgreSQL Playwright evidence; no access expansion or design migration."
+      "sha256": "675c5d78957091bdac837a54e4046e65caebf54fe04db930dca2075c450aaa93",
+      "review_reference": "docs/ui-standard/reviews/2026-11-12-jbl-rescheduled-next-visit.md",
+      "reason": "Approved JBL next-visit scheduling, existing reminder controls and permanently visible evidence; real-shell Playwright and PostgreSQL evidence recorded."
     },
     {
       "path": "core/templates/base_shell.html",
-      "sha256": "d9832c2b1c50334c148b19e45a9baecfe2e71e4ed2853786b216968c3e395ed3",
-      "review_reference": "docs/ui-standard/reviews/2026-11-12-complaint-corrections-media-spacing-and-order.md",
-      "reason": "User-directed Portal heading/gap and Complaints icon-only full-width paired correction fields, EAT pickers, queue ordering and progressive existing-thumbnail display. Source-bound live local Django/PostgreSQL Playwright evidence; no access expansion or design migration."
+      "sha256": "3cc30deee35b8ebab02811d4df5b67acb6638dde8ad5c30541b7057a5bbcb3a2",
+      "review_reference": "docs/ui-standard/reviews/2026-11-12-jbl-rescheduled-next-visit.md",
+      "reason": "Approved JBL next-visit scheduling, existing reminder controls and permanently visible evidence; real-shell Playwright and PostgreSQL evidence recorded."
     },
     {
       "path": "core/templates/complaint_cases/app.html",

@@ -23,7 +23,7 @@ FIELD_LABELS = {
     'repayment_day': 'Repayment day', 'repayment_tenor': 'Repayment period',
     'hbg_visit_date': 'HB visit', 'jbl_visit_date': 'JBL visit',
     'visit_date': 'Visit date', 'jbl_officer': 'Officer',
-    'requisition_date': 'Order date', 'deferred_until': 'Deferred until',
+    'requisition_date': 'Order date', 'deferred_until': 'Deferred until', 'next_visit_date': 'Next visit date',
     'installation_status': 'Installation', 'installed_on': 'Installed on',
     'installation_date': 'Installed on', 'planned_installation_date': 'Planned installation',
     'pending_installation_comment': 'Installation comment', 'installation_note': 'Installation note',

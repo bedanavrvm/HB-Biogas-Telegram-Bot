@@ -417,7 +417,7 @@
     const hb = sections.homebiogas || {};
     const steps = [
       ['Intake', Boolean(sections.identity?.customer_name || sections.intake?.hbg_visit_date)],
-      ['JBL Visit', Boolean(sections.jbl_visit?.visit_date || sections.jbl_visit?.status)],
+      ['JBL Visit', Boolean(sections.jbl_visit?.visit_date)],
       ['Credit Analysis', Boolean(sections.credit?.decision && sections.credit.decision !== 'Pending')],
       ['Head of Rural Review', Boolean(sections.final_review?.decision)],
       ['Order Submitted', Boolean(sections.order?.order_number)],
@@ -899,6 +899,7 @@
     ];
     const byMode = {
       jbl_visit: [
+        ...(farmer.jbl_visit_status === 'Rescheduled' ? [['Next Visit', farmer.next_visit_date ? deps.fmtDate(farmer.next_visit_date) : 'Not set']] : []),
         ['HBG Visit Date', deps.fmtDate(farmer.hbg_visit_date || farmer.sign_date)],
         ['HB Sales Person', deps.fmt(farmer.hb_sales_person)],
       ],
@@ -1429,6 +1430,7 @@
       <div class="form-section form-grid jbl-details-grid">
         <div class="form-row" data-jbl-field="visit_status"><label>Outcome <span class="required-marker" aria-hidden="true">*</span><span class="sr-only"> required</span></label><select id="jbl-status" aria-required="true"><option value="">- Select -</option>${statusOptions}</select><small class="jbl-field-error" data-error-message-for="visit_status"></small></div>
         <div class="form-row"><label for="jbl-visit-occurred">Physical visit</label><select id="jbl-visit-occurred"><option value="false">No - record outcome only</option><option value="true">Yes - a visit took place</option></select><small class="field-help" id="jbl-outcome-help">Choose an outcome first. Only physical visits count in visit reports.</small></div>
+        <div class="form-row" data-jbl-field="next_visit_date" hidden><label for="jbl-next-visit-date">Next visit date <span class="required-marker" aria-hidden="true">*</span><span class="sr-only"> required</span></label><input type="date" id="jbl-next-visit-date" min="${deps.escapeHtml(today)}" value="${deps.escapeHtml(farmer.next_visit_date || '')}" aria-describedby="jbl-next-visit-error"><small id="jbl-next-visit-error" class="jbl-field-error" data-error-message-for="next_visit_date"></small></div>
         <div class="form-row" data-jbl-field="visit_date"><label title="JBL visits follow the HBG visit and cannot be future-dated.">Visit Date <span class="required-marker" aria-hidden="true">*</span><span class="sr-only"> required</span></label><div class="jbl-date-control"><input type="text" id="jbl-date-display" inputmode="numeric" autocomplete="off" maxlength="10" placeholder="dd-mm-yy" aria-required="true" value="${deps.escapeHtml(displayDateFromIso(defaultVisitDate))}"><button type="button" id="jbl-date-open" class="jbl-date-open" aria-label="Open native visit date picker" title="Choose visit date">${calendarIcon()}</button><input type="date" id="jbl-date-picker" class="native-date-proxy" min="${deps.escapeHtml(hbgVisitDate)}" max="${deps.escapeHtml(today)}" value="${deps.escapeHtml(defaultVisitDate)}" tabindex="-1" aria-hidden="true"><input type="hidden" id="jbl-date" value="${deps.escapeHtml(defaultVisitDate)}"></div><small class="jbl-field-error" data-error-message-for="visit_date"></small></div>
         <div class="form-row form-row-wide" data-jbl-physical><label>Officer Name</label><input type="text" id="jbl-officer" placeholder="Your staff identity" value="${deps.escapeHtml(farmer.jbl_officer || '')}"></div>
         ${decisionReasonMarkup('jbl', false)}
@@ -1438,7 +1440,7 @@
       </div>
       <p class="jbl-section-label">Comment</p>
       <section class="jbl-comment-section"><div class="jbl-comment-control"><textarea id="jbl-comment" aria-label="Comment" rows="2" placeholder="Additional notes">${deps.escapeHtml(farmer.jbl_visit_comment || '')}</textarea>${voiceWidget('jbl_visit_comment', 'jbl-comment')}</div></section>
-      <details id="jbl-evidence-details"><summary id="jbl-evidence-summary">Optional evidence</summary>
+      <section id="jbl-evidence-details" aria-labelledby="jbl-evidence-summary"><p id="jbl-evidence-summary" class="jbl-section-label">Optional evidence</p>
         <div class="jbl-support-card">
         ${canWriteMedia ? `<div class="media-upload-control">${mediaFields}</div>` : ''}
         <div class="gps-capture-row" data-jbl-field="capture_location" data-jbl-forward>
@@ -1453,7 +1455,7 @@
           <small class="jbl-field-error" data-error-message-for="capture_location"></small>
         </div>
         </div>
-      </details>
+      </section>
       <section id="jbl-repayment-section" class="jbl-support-card" hidden>
         <p class="jbl-section-label">Repayment Terms</p>
         <div class="form-section form-grid jbl-details-grid">
@@ -2365,7 +2367,7 @@
 
   function updateOfficeDepositHold() {
     const held = officeDepositHeld();
-    document.querySelectorAll('[data-jbl-field="visit_date"], [data-jbl-field="visit_status"], #jbl-evidence-details, .jbl-support-card, .jbl-comment-section').forEach(node => {
+    document.querySelectorAll('[data-jbl-field="visit_date"], [data-jbl-field="next_visit_date"], [data-jbl-field="visit_status"], #jbl-evidence-details, .jbl-support-card, .jbl-comment-section').forEach(node => {
       node.hidden = held;
       node.querySelectorAll('input,select,textarea,button').forEach(control => { control.disabled = held; });
     });
@@ -2382,6 +2384,14 @@
     if (changed) occurrence.value = forward ? 'true' : 'false';
     occurrence.disabled = forward;
     const physical = forward || occurrence.value === 'true';
+    const rescheduled = status === 'Rescheduled' && !officeDepositHeld();
+    const nextDate = el('jbl-next-visit-date');
+    if (nextDate) {
+      nextDate.closest('[data-jbl-field]').hidden = !rescheduled;
+      nextDate.disabled = !rescheduled;
+      nextDate.required = rescheduled;
+      nextDate.setAttribute('aria-required', String(rescheduled));
+    }
     document.querySelectorAll('[data-jbl-field="visit_date"], [data-jbl-physical]').forEach(node => { node.hidden = !physical; });
     ['county', 'sub_county', 'village'].forEach(field => {
       const row = document.querySelector(`[data-jbl-field="${field}"]`);
@@ -2394,10 +2404,11 @@
     });
     el('jbl-date-display')?.setAttribute('aria-required', String(physical));
     document.querySelector('[data-jbl-forward]')?.toggleAttribute('hidden', !forward);
-    const details = el('jbl-evidence-details');
-    if (details) details.open = forward;
     if (el('jbl-evidence-summary')) el('jbl-evidence-summary').textContent = forward ? 'Required visit evidence and location' : 'Optional evidence';
-    if (el('jbl-outcome-help')) el('jbl-outcome-help').textContent = forward ? 'A physical visit, full deposit, location and complete evidence are required to forward.' : 'Outcome only saves the decision without adding a visit date or visit credit.';
+    if (el('jbl-outcome-help')) {
+      el('jbl-outcome-help').textContent = forward ? 'A physical visit, full deposit, location and complete evidence are required to forward.' : '';
+      el('jbl-outcome-help').hidden = !forward;
+    }
     updateJblRepaymentFields();
     const button = el('btn-submit-jbl');
     if (button) button.textContent = button.dataset.mainAction = physical ? 'Save visit outcome' : 'Save outcome';
@@ -2442,6 +2453,12 @@
     }
     const status = el('jbl-status')?.value || '';
     if (!status) errors.visit_status = 'Select the JBL visit outcome.';
+    if (status === 'Rescheduled') {
+      const planned = el('jbl-next-visit-date')?.value || '';
+      const today = state().businessDate || localIsoDate();
+      if (!planned) errors.next_visit_date = 'Enter the next visit date.';
+      else if (planned < today) errors.next_visit_date = 'Next visit date cannot be earlier than today.';
+    }
     const forward = JBL_FORWARD_VISIT_STATUSES.has(status);
     if ((forward || el('jbl-visit-occurred')?.value === 'true') && !el('jbl-date')?.value) errors.visit_date = 'Enter the JBL visit date.';
     if (forward) {
@@ -3360,6 +3377,7 @@
       revision: Number(farmer.workflow_revision || 1),
       visitDate: el('jbl-date')?.value || '',
       visitStatus, physical,
+      nextVisitDate: visitStatus === 'Rescheduled' ? el('jbl-next-visit-date')?.value || '' : '',
       repaymentDate: forward ? el('jbl-repayment-day')?.value || '' : null,
       repaymentTenor: forward ? el('jbl-repayment-tenor')?.value || '' : null,
       officer: el('jbl-officer')?.value || '',
@@ -3394,6 +3412,7 @@
     formData.set('visit_occurred', String(physical));
     formData.set('visit_date', physical ? el('jbl-date')?.value || '' : '');
     formData.set('visit_status', visitStatus);
+    formData.set('next_visit_date', visitStatus === 'Rescheduled' ? el('jbl-next-visit-date')?.value || '' : '');
     if (forward && !heldIntake) {
       formData.set('repayment_date', el('jbl-repayment-day')?.value || '');
       formData.set('repayment_tenor', el('jbl-repayment-tenor')?.value || '');
@@ -3496,7 +3515,6 @@
       const notice = el('jbl-evidence-pending');
       notice.hidden = false;
       notice.textContent = 'Outcome saved. Evidence still pending: ' + (data.errors || []).map(item => item.error).join(' ') + ' Your selected files remain here. Retry evidence or close this form.';
-      el('jbl-evidence-details').open = true;
       el('sheet-form').querySelectorAll('input:not([type="file"]),select,textarea').forEach(input => { input.disabled = true; });
       btn.textContent = btn.dataset.mainAction = 'Retry evidence only';
       renderJblMediaSelections();

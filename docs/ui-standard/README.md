@@ -1,5 +1,9 @@
 # Mini App Design Lab
 
+JBL rescheduling reuses the visit date control and existing action reminders;
+optional evidence is permanently visible with an external section heading.
+[Source and real-page evidence](reviews/2026-11-12-jbl-rescheduled-next-visit.md).
+
 Portal media headings and Complaints corrections, date/time, queue order and
 image loading have [live-page evidence](reviews/2026-11-12-complaint-corrections-media-spacing-and-order.md).
 

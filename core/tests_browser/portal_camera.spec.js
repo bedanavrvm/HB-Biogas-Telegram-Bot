@@ -67,7 +67,7 @@ test('new office lead below threshold hides visit capture until deposit is suffi
 for (const newLead of [false, true]) test(`Portal ${newLead ? 'new lead' : 'existing case'} camera icon opens with shared validation active`, async ({page}, info) => {
   await page.setViewportSize({width:390,height:820});
   await mountCamera(page, newLead);
-  await page.locator('#jbl-evidence-summary').click();
+  await expect(page.locator('#jbl-evidence-details > .jbl-support-card')).toBeVisible();
   await page.locator('[data-camera-category="CLIENT_ID"] svg').click();
   await expect(page.locator('#jbl-camera-overlay')).toHaveClass(/open/);
   await expect(page.locator('#jbl-camera-shutter')).toBeEnabled();
@@ -96,7 +96,7 @@ for (const newLead of [false, true]) test(`Portal ${newLead ? 'new lead' : 'exis
 
 test('Create lead camera permission errors show feedback instead of silently doing nothing', async ({page}) => {
   await mountCamera(page,true);
-  await page.locator('#jbl-evidence-summary').click();
+  await expect(page.locator('#jbl-evidence-details > .jbl-support-card')).toBeVisible();
   await page.evaluate(()=>{navigator.mediaDevices.getUserMedia=async()=>{throw new DOMException('Synthetic permission denial','NotAllowedError');};});
   await page.locator('[data-camera-category="CLIENT_ID"]').click();
   await expect.poll(()=>page.evaluate(()=>window.cameraToasts.at(-1))).toContain('Camera permission was denied');
@@ -108,7 +108,7 @@ test('Create lead camera permission errors show feedback instead of silently doi
 
 test('Create lead file picker is wired independently from server draft recovery', async ({page}) => {
   await mountCamera(page,true);
-  await page.locator('#jbl-evidence-summary').click();
+  await expect(page.locator('#jbl-evidence-details > .jbl-support-card')).toBeVisible();
   const comment=await page.locator('.jbl-comment-section').boundingBox();
   const heading=await page.locator('#jbl-evidence-summary').boundingBox();
   const media=await page.locator('#jbl-evidence-details > .jbl-support-card').boundingBox();
@@ -144,7 +144,7 @@ test('Create lead file picker is wired independently from server draft recovery'
 
 test('LAF repayment entry waits for both camera pages and supports page retakes', async ({page}) => {
   await mountCamera(page);
-  await page.locator('#jbl-evidence-summary').click();
+  await expect(page.locator('#jbl-evidence-details > .jbl-support-card')).toBeVisible();
   await page.locator('[data-camera-category="LAF"]').click();
   await page.locator('#jbl-camera-shutter').click();
   await expect(page.locator('#jbl-repayment-section')).toBeHidden();
