@@ -84,3 +84,10 @@ assert.deepEqual(hapticCalls[2],['vibrate',35]);
 delete window.navigator;
 assert.equal(window.MiniAppUtils.haptic('success'),false);
 console.log('Shared haptic success, error and unsupported-device tests passed');
+
+assert.equal(window.MiniAppUtils.formatDate('2026-11-23'), '23/11/2026');
+assert.equal(window.MiniAppUtils.formatDate('2026-03-04'), '04/03/2026');
+assert.equal(window.MiniAppUtils.formatDate('04/03/2026'), '04/03/2026');
+assert.equal(window.MiniAppUtils.formatDateTime('04/03/2026'), '04/03/2026');
+assert.equal(window.MiniAppUtils.formatDateTime('2026-11-12T22:15:00Z'), '13/11/2026 01:15');
+console.log('Shared dd/mm/yyyy dates and Nairobi timestamp checks passed');

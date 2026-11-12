@@ -34,7 +34,9 @@ that saved case to record a later outcome.
 
 ## Rescheduling a visit
 
-Select Rescheduled and enter Next visit date (today or later in Nairobi).
+Select Rescheduled and enter Next visit date in dd/mm/yyyy format (today or later
+in Nairobi). Actual visit dates use the same format; the calendar button is available
+for both fields.
 Choose No for Physical visit if the appointment did not take place; this does
 not create an actual visit date, visit credit or officer attribution. If a
 physical visit did happen, record its actual date separately.

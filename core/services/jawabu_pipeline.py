@@ -645,7 +645,7 @@ def _validate_jbl_visit_facts(farmer, *, visit_date, visit_status, visit_occurre
         try:
             planned_date = date.fromisoformat(str(next_visit_date or ''))
         except ValueError:
-            return None, None, 'Enter a valid next visit date (YYYY-MM-DD) for a rescheduled visit.'
+            return None, None, 'Enter a valid next visit date in dd/mm/yyyy format for a rescheduled visit.'
         if planned_date < timezone.localdate():
             return None, None, 'Next visit date cannot be earlier than today.'
     requirements = jbl_visit_requirements(visit_status, visit_occurred)
@@ -2280,11 +2280,11 @@ def farmer_to_card(
         # spreadsheet text marker such as ``'15-May-2026`` to the Mini App.
         'sign_date': normalize_date_text(farmer.sign_date),
         'hbg_visit_date': hbg_visit_date.isoformat() if hbg_visit_date else None,
-        'hbg_visit_date_label': hbg_visit_date.strftime('%d-%m-%Y') if hbg_visit_date else None,
+        'hbg_visit_date_label': hbg_visit_date.strftime('%d/%m/%Y') if hbg_visit_date else None,
         # Stage 2
         'jbl_visit_date': farmer.jbl_visit_date.isoformat() if farmer.jbl_visit_date else None,
         'next_visit_date': farmer.jbl_next_visit_date.isoformat() if farmer.jbl_next_visit_date else None,
-        'jbl_visit_date_label': farmer.jbl_visit_date.strftime('%d-%m-%Y') if farmer.jbl_visit_date else None,
+        'jbl_visit_date_label': farmer.jbl_visit_date.strftime('%d/%m/%Y') if farmer.jbl_visit_date else None,
         'jbl_officer': farmer.jbl_officer,
         'jbl_visit_status': farmer.jbl_visit_status,
         'jbl_visit_comment': farmer.jbl_visit_comment,

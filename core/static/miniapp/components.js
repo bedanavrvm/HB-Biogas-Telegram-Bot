@@ -430,7 +430,7 @@
     const [, year, month = '01', day = '01'] = match;
     const date = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)));
     if (date.getUTCFullYear() !== Number(year) || date.getUTCMonth() + 1 !== Number(month) || date.getUTCDate() !== Number(day)) return text;
-    return `${day}-${month}-${year.slice(-2)}`;
+    return `${day}/${month}/${year}`;
   }
   function periodDates(mode, values = {}) {
     const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Nairobi', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());

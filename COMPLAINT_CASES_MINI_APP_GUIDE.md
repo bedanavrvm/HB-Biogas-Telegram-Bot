@@ -541,7 +541,7 @@ Choose a wider grouping or a narrower date range when a chart contains too
 many periods.
 
 Use the compact chart-options icon to change grouping or chart type. Graph
-dates use **dd-mm-yy**. Duration tooltips show hours and their equivalent in
+dates use **dd/mm/yyyy**. Duration tooltips show hours and their equivalent in
 days, for example **184.53 hrs (7.7 days)**. The **?** explains the calculation.
 
 Tap a chart point/bar or choose an entry to narrow the table immediately.

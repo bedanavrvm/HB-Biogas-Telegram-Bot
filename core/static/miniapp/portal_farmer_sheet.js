@@ -1052,6 +1052,7 @@
       footerEl.innerHTML = '<button class="primary" id="btn-submit-jbl" data-main-action="Log JBL Visit">Log JBL Visit</button>';
       el('btn-submit-jbl').addEventListener('click', submitJblVisit);
       wireJblDateInput();
+      wireJblDateInput('jbl-next-visit-date');
       wireGpsButton();
       wireJblVisitMedia(farmer);
       el('jbl-status')?.addEventListener('change', () => updateJblOutcomeRequirements({ changed: true }));
@@ -1302,13 +1303,13 @@
 
   function displayDateFromIso(value) {
     const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
-    return match ? `${match[3]}-${match[2]}-${match[1].slice(-2)}` : '';
+    return match ? `${match[3]}/${match[2]}/${match[1]}` : '';
   }
 
   function isoDateFromDisplay(value) {
-    const match = String(value || '').trim().match(/^(\d{2})-(\d{2})-(\d{2}|\d{4})$/);
+    const match = String(value || '').trim().match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
     if (!match) return '';
-    const year = match[3].length === 2 ? `20${match[3]}` : match[3];
+    const year = match[3];
     const iso = `${year}-${match[2]}-${match[1]}`;
     const parsed = new Date(Number(year), Number(match[2]) - 1, Number(match[1]));
     if (
@@ -1320,34 +1321,35 @@
     return iso;
   }
 
-  function syncJblDateControls(isoValue) {
+  function syncJblDateControls(isoValue, id = 'jbl-date') {
     const iso = String(isoValue || '');
-    const value = el('jbl-date');
-    const display = el('jbl-date-display');
-    const picker = el('jbl-date-picker');
+    const value = el(id);
+    const display = el(id + '-display');
+    const picker = el(id + '-picker');
     if (value) value.value = iso;
     if (picker) picker.value = iso;
     if (display) display.value = displayDateFromIso(iso);
   }
 
-  function commitJblDisplayDate({ showError = false } = {}) {
-    const display = el('jbl-date-display');
-    const value = el('jbl-date');
+  function commitJblDisplayDate({ showError = false, id = 'jbl-date' } = {}) {
+    const display = el(id + '-display');
+    const value = el(id);
     if (!display || !value) return false;
     const iso = isoDateFromDisplay(display.value);
-    const minimum = el('jbl-date-picker')?.min || '';
-    const maximum = el('jbl-date-picker')?.max || '';
+    const minimum = el(id + '-picker')?.min || '';
+    const maximum = el(id + '-picker')?.max || '';
     if (!iso || (minimum && iso < minimum) || (maximum && iso > maximum)) {
+      value.value = '';
       if (showError) {
-        const range = minimum
+        const range = minimum && maximum
           ? `${displayDateFromIso(minimum)} to ${displayDateFromIso(maximum)}`
-          : `on or before ${displayDateFromIso(maximum)}`;
-        deps.showToast(`Enter the visit date as dd-mm-yy within ${range}.`, 'error');
+          : minimum ? `on or after ${displayDateFromIso(minimum)}` : `on or before ${displayDateFromIso(maximum)}`;
+        deps.showToast(`Enter the visit date as dd/mm/yyyy within ${range}.`, 'error');
         display.focus();
       }
       return false;
     }
-    syncJblDateControls(iso);
+    syncJblDateControls(iso, id);
     return true;
   }
 
@@ -1355,19 +1357,19 @@
     return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>';
   }
 
-  function wireJblDateInput() {
-    const display = el('jbl-date-display');
-    const picker = el('jbl-date-picker');
-    const open = el('jbl-date-open');
+  function wireJblDateInput(id = 'jbl-date') {
+    const display = el(id + '-display');
+    const picker = el(id + '-picker');
+    const open = el(id + '-open');
     if (!display || !picker || !open) return;
     display.addEventListener('input', () => {
-      if (isoDateFromDisplay(display.value)) commitJblDisplayDate();
+      commitJblDisplayDate({ id });
     });
     // Keep entry interruption-free. Full date validation and visible errors
     // belong to the explicit Log JBL Visit submission path.
-    display.addEventListener('blur', () => commitJblDisplayDate({ showError: false }));
+    display.addEventListener('blur', () => commitJblDisplayDate({ showError: false, id }));
     picker.addEventListener('change', () => {
-      if (picker.value) syncJblDateControls(picker.value);
+      if (picker.value) syncJblDateControls(picker.value, id);
     });
     open.addEventListener('click', () => {
       try {
@@ -1430,8 +1432,8 @@
       <div class="form-section form-grid jbl-details-grid">
         <div class="form-row" data-jbl-field="visit_status"><label>Outcome <span class="required-marker" aria-hidden="true">*</span><span class="sr-only"> required</span></label><select id="jbl-status" aria-required="true"><option value="">- Select -</option>${statusOptions}</select><small class="jbl-field-error" data-error-message-for="visit_status"></small></div>
         <div class="form-row"><label for="jbl-visit-occurred">Physical visit</label><select id="jbl-visit-occurred"><option value="false">No - record outcome only</option><option value="true">Yes - a visit took place</option></select><small class="field-help" id="jbl-outcome-help">Choose an outcome first. Only physical visits count in visit reports.</small></div>
-        <div class="form-row" data-jbl-field="next_visit_date" hidden><label for="jbl-next-visit-date">Next visit date <span class="required-marker" aria-hidden="true">*</span><span class="sr-only"> required</span></label><input type="date" id="jbl-next-visit-date" min="${deps.escapeHtml(today)}" value="${deps.escapeHtml(farmer.next_visit_date || '')}" aria-describedby="jbl-next-visit-error"><small id="jbl-next-visit-error" class="jbl-field-error" data-error-message-for="next_visit_date"></small></div>
-        <div class="form-row" data-jbl-field="visit_date"><label title="JBL visits follow the HBG visit and cannot be future-dated.">Visit Date <span class="required-marker" aria-hidden="true">*</span><span class="sr-only"> required</span></label><div class="jbl-date-control"><input type="text" id="jbl-date-display" inputmode="numeric" autocomplete="off" maxlength="10" placeholder="dd-mm-yy" aria-required="true" value="${deps.escapeHtml(displayDateFromIso(defaultVisitDate))}"><button type="button" id="jbl-date-open" class="jbl-date-open" aria-label="Open native visit date picker" title="Choose visit date">${calendarIcon()}</button><input type="date" id="jbl-date-picker" class="native-date-proxy" min="${deps.escapeHtml(hbgVisitDate)}" max="${deps.escapeHtml(today)}" value="${deps.escapeHtml(defaultVisitDate)}" tabindex="-1" aria-hidden="true"><input type="hidden" id="jbl-date" value="${deps.escapeHtml(defaultVisitDate)}"></div><small class="jbl-field-error" data-error-message-for="visit_date"></small></div>
+        <div class="form-row" data-jbl-field="next_visit_date" hidden><label for="jbl-next-visit-date-display">Next visit date <span class="required-marker" aria-hidden="true">*</span><span class="sr-only"> required</span></label><div class="jbl-date-control"><input type="text" id="jbl-next-visit-date-display" inputmode="numeric" autocomplete="off" maxlength="10" placeholder="dd/mm/yyyy" value="${deps.escapeHtml(displayDateFromIso(farmer.next_visit_date))}" aria-describedby="jbl-next-visit-error"><button type="button" id="jbl-next-visit-date-open" class="jbl-date-open" aria-label="Open next visit date picker" title="Choose next visit date">${calendarIcon()}</button><input type="date" id="jbl-next-visit-date-picker" class="native-date-proxy" min="${deps.escapeHtml(today)}" value="${deps.escapeHtml(farmer.next_visit_date || '')}" tabindex="-1" aria-hidden="true"><input type="hidden" id="jbl-next-visit-date" value="${deps.escapeHtml(farmer.next_visit_date || '')}"></div><small id="jbl-next-visit-error" class="jbl-field-error" data-error-message-for="next_visit_date"></small></div>
+        <div class="form-row" data-jbl-field="visit_date"><label title="JBL visits follow the HBG visit and cannot be future-dated.">Visit Date <span class="required-marker" aria-hidden="true">*</span><span class="sr-only"> required</span></label><div class="jbl-date-control"><input type="text" id="jbl-date-display" inputmode="numeric" autocomplete="off" maxlength="10" placeholder="dd/mm/yyyy" aria-required="true" value="${deps.escapeHtml(displayDateFromIso(defaultVisitDate))}"><button type="button" id="jbl-date-open" class="jbl-date-open" aria-label="Open native visit date picker" title="Choose visit date">${calendarIcon()}</button><input type="date" id="jbl-date-picker" class="native-date-proxy" min="${deps.escapeHtml(hbgVisitDate)}" max="${deps.escapeHtml(today)}" value="${deps.escapeHtml(defaultVisitDate)}" tabindex="-1" aria-hidden="true"><input type="hidden" id="jbl-date" value="${deps.escapeHtml(defaultVisitDate)}"></div><small class="jbl-field-error" data-error-message-for="visit_date"></small></div>
         <div class="form-row form-row-wide" data-jbl-physical><label>Officer Name</label><input type="text" id="jbl-officer" placeholder="Your staff identity" value="${deps.escapeHtml(farmer.jbl_officer || '')}"></div>
         ${decisionReasonMarkup('jbl', false)}
         <div class="form-row" data-jbl-field="county"><label>County <span class="required-marker" aria-hidden="true">*</span></label><select id="jbl-county" required><option value="">- Select county -</option>${countyOptions}</select><small class="jbl-field-error" data-error-message-for="county"></small></div>
@@ -2150,6 +2152,7 @@
       jblLocationRefresh(draft.values['jbl-county'] || '', draft.values['jbl-sub-county'] || '');
     }
     if (draft.values['jbl-date']) syncJblDateControls(draft.values['jbl-date']);
+    if (draft.values['jbl-next-visit-date']) syncJblDateControls(draft.values['jbl-next-visit-date'], 'jbl-next-visit-date');
     const help = el('gps-coords');
     if (help && draft.values['jbl-lat'] && draft.values['jbl-lng']) {
       help.textContent = `Captured: ${draft.values['jbl-lat']}, ${draft.values['jbl-lng']}`;
@@ -2385,10 +2388,11 @@
     occurrence.disabled = forward;
     const physical = forward || occurrence.value === 'true';
     const rescheduled = status === 'Rescheduled' && !officeDepositHeld();
-    const nextDate = el('jbl-next-visit-date');
+    const nextDate = el('jbl-next-visit-date-display');
     if (nextDate) {
       nextDate.closest('[data-jbl-field]').hidden = !rescheduled;
       nextDate.disabled = !rescheduled;
+      nextDate.closest('[data-jbl-field]').querySelectorAll('input,button').forEach(control => { control.disabled = !rescheduled; });
       nextDate.required = rescheduled;
       nextDate.setAttribute('aria-required', String(rescheduled));
     }
@@ -3359,7 +3363,7 @@
     const physical = JBL_FORWARD_VISIT_STATUSES.has(visitStatus) || el('jbl-visit-occurred')?.value === 'true';
     const forward = JBL_FORWARD_VISIT_STATUSES.has(visitStatus);
     const fields = savedJblOutcomeSubmission ? {} : portalFormErrors();
-    if (physical && !heldIntake && !commitJblDisplayDate({ showError: false })) fields.visit_date = 'Enter a valid visit date in dd-mm-yy format.';
+    if (physical && !heldIntake && !commitJblDisplayDate({ showError: false })) fields.visit_date = 'Enter a valid visit date in dd/mm/yyyy format.';
     if (showJblFieldErrors(fields)) return;
     const visitReason = heldIntake ? '' : validateDecisionReason('jbl', visitStatus);
     if (visitReason === null) return;

@@ -448,7 +448,7 @@ def dashboard_payload(user, *, access=None, notification_page=1) -> dict:
                     continue
                 add_case_notification(
                     farmer, queue_key=key,
-                    action=f'Visit {"due today" if planned == today else "overdue"} · {planned:%d-%b-%Y}',
+                    action=f'Visit {"due today" if planned == today else "overdue"} · {planned:%d/%m/%Y}',
                     severity='action' if planned == today else 'urgent',
                 )
                 continue

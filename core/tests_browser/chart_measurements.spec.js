@@ -6,10 +6,10 @@ const asset = name => path.resolve(__dirname, '../static/miniapp', name);
 const source = fs.readFileSync(asset('tat_tracker.js'), 'utf8');
 const renderer = source.slice(source.indexOf('  function renderTatReportCharts('), source.indexOf('  async function ', source.indexOf('  function renderTatReportCharts(')));
 
-test('shared graph dates use dd-mm-yy without timezone shifts or changing non-date labels', async ({page}) => {
+test('shared graph dates use dd/mm/yyyy without timezone shifts or changing non-date labels', async ({page}) => {
   await page.addScriptTag({path:asset('components.js')});
   expect(await page.evaluate(() => ['2026-10-05','2026-10','2026','2024-02-29','2026-02-30','Training branch'].map(MiniAppReportControls.formatChartDate)))
-    .toEqual(['05-10-26','01-10-26','01-01-26','29-02-24','2026-02-30','Training branch']);
+    .toEqual(['05/10/2026','01/10/2026','01/01/2026','29/02/2024','2026-02-30','Training branch']);
 });
 
 test('TAT duration, percentage and count graphs label the numeric axis in every orientation', async ({page}) => {

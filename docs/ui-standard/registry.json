@@ -503,9 +503,9 @@
     },
     {
       "path": "origination/templates/loan_origination/app.html",
-      "sha256": "fa2784f52baf49b7646827e5cd7a362f66e62b53d5f118c7bf5d241daa4b5da2",
-      "review_reference": "docs/ui-standard/reviews/2026-10-29-origination-document-selection.md",
-      "reason": "Supporting-document selection follows active placed fields and captured application Loan details; existing option cards show precise field/document conflicts. Manual synthetic Playwright evidence only; no approved baseline or Phase 6 change."
+      "sha256": "38aae6bc660121845508399cd07b3f4bfce512069af203d22caee4da4092d022",
+      "review_reference": "docs/ui-standard/reviews/2026-11-12-date-format.md",
+      "reason": "User-required dd/mm/yyyy presentation: shared formatters, fixed visit input with calendar and cache versions; source-bound Playwright and PostgreSQL verification."
     },
     {
       "path": "origination/static/miniapp/origination_signing.js",
@@ -515,9 +515,9 @@
     },
     {
       "path": "origination/templates/loan_origination/sign.html",
-      "sha256": "742ff776b31a68a09ad84d13ca861fdb7f13b3fd8c8dae29b54e121f1984cfaf",
-      "review_reference": "docs/origination-otp-integration-setup.md#sms-feedback-verification",
-      "reason": "Nonvisual cache-version update for the approved SMS feedback copy; existing source baselines and Phase 6 hold remain unchanged."
+      "sha256": "4e0025691d6eaf9a58106da00c4d5a0f361712fe319f8128f0687dfb5a8516c9",
+      "review_reference": "docs/ui-standard/reviews/2026-11-12-date-format.md",
+      "reason": "User-required dd/mm/yyyy presentation: shared formatters, fixed visit input with calendar and cache versions; source-bound Playwright and PostgreSQL verification."
     },
     {
       "path": "codebase-analysis-docs/assets/browser-access-preview/index.html",
@@ -1127,9 +1127,9 @@
     },
     {
       "path": "core/static/miniapp/portal_helpers.js",
-      "sha256": "4d00049df79a5b4661ba07291a3efa98b90250894ff580ddc2e833e1b0e9c53a",
-      "review_reference": "docs/ui-standard/reviews/2026-11-05-portal-legacy-credit-and-current-status.md#10-november-include-known-historical-credit-outcomes",
-      "reason": "User-confirmed Legacy credit label for committed initial imports, including historical approval/rejection/deferral. Existing case fields, neutral badges and order preview consume the shared label; stored decisions, pipeline, forms and native review precedence remain intact. Script cache versions advance; no design baseline or Phase 6 migration."
+      "sha256": "7d799145ab8bce5b7ae62ceaae04cc4468d07eeb98761163381e62b030baad7d",
+      "review_reference": "docs/ui-standard/reviews/2026-11-12-date-format.md",
+      "reason": "User-required dd/mm/yyyy presentation: shared formatters, fixed visit input with calendar and cache versions; source-bound Playwright and PostgreSQL verification."
     },
     {
       "path": "core/static/miniapp/portal_requisitions.js",
@@ -1145,9 +1145,9 @@
     },
     {
       "path": "core/static/miniapp/portal.js",
-      "sha256": "d44f9a4056675cb9b0ff32e8f411019780304cc1d0d5c9a3385fd0b8ab6b64f0",
-      "review_reference": "docs/ui-standard/reviews/2026-11-12-jbl-rescheduled-next-visit.md",
-      "reason": "Approved JBL next-visit scheduling, existing reminder controls and permanently visible evidence; real-shell Playwright and PostgreSQL evidence recorded."
+      "sha256": "8be6edf0e34cdf6453f212e9db5b1235c8d7d97878d663f1de679ded706898cc",
+      "review_reference": "docs/ui-standard/reviews/2026-11-12-date-format.md",
+      "reason": "User-required dd/mm/yyyy presentation: shared formatters, fixed visit input with calendar and cache versions; source-bound Playwright and PostgreSQL verification."
     },
     {
       "path": "core/static/miniapp/portal.css",
@@ -1289,27 +1289,81 @@
     },
     {
       "path": "core/static/miniapp/portal_farmer_sheet.js",
-      "sha256": "675c5d78957091bdac837a54e4046e65caebf54fe04db930dca2075c450aaa93",
-      "review_reference": "docs/ui-standard/reviews/2026-11-12-jbl-rescheduled-next-visit.md",
-      "reason": "Approved JBL next-visit scheduling, existing reminder controls and permanently visible evidence; real-shell Playwright and PostgreSQL evidence recorded."
+      "sha256": "bcfd17d681f9eb67f842f3bee0787947beeedea9b9db9f8470cbc271de10d660",
+      "review_reference": "docs/ui-standard/reviews/2026-11-12-date-format.md",
+      "reason": "User-required dd/mm/yyyy presentation: shared formatters, fixed visit input with calendar and cache versions; source-bound Playwright and PostgreSQL verification."
     },
     {
       "path": "core/templates/base_shell.html",
-      "sha256": "3cc30deee35b8ebab02811d4df5b67acb6638dde8ad5c30541b7057a5bbcb3a2",
-      "review_reference": "docs/ui-standard/reviews/2026-11-12-jbl-rescheduled-next-visit.md",
-      "reason": "Approved JBL next-visit scheduling, existing reminder controls and permanently visible evidence; real-shell Playwright and PostgreSQL evidence recorded."
+      "sha256": "aeac1a7faea52cd5fef9822427126be207f72dfbd1b8cd22a014467c9438db2c",
+      "review_reference": "docs/ui-standard/reviews/2026-11-12-date-format.md",
+      "reason": "User-required dd/mm/yyyy presentation: shared formatters, fixed visit input with calendar and cache versions; source-bound Playwright and PostgreSQL verification."
     },
     {
       "path": "core/templates/complaint_cases/app.html",
-      "sha256": "3d4ea99a49b6d5f0463edea62c0c30cc5fb713238e034e8d9a74f65441737766",
-      "review_reference": "docs/ui-standard/reviews/2026-11-12-complaint-corrections-media-spacing-and-order.md",
-      "reason": "User-directed Portal heading/gap and Complaints icon-only full-width paired correction fields, EAT pickers, queue ordering and progressive existing-thumbnail display. Source-bound live local Django/PostgreSQL Playwright evidence; no access expansion or design migration."
+      "sha256": "d77b3e7829987c28758690ba6f14c6f72ba46196151597f866d43cf6bb743fee",
+      "review_reference": "docs/ui-standard/reviews/2026-11-12-date-format.md",
+      "reason": "User-required dd/mm/yyyy presentation: shared formatters, fixed visit input with calendar and cache versions; source-bound Playwright and PostgreSQL verification."
     },
     {
       "path": "core/templates/complaint_cases/lucide_icons.html",
       "sha256": "08b9ff762e77e99a43837b80a73d2c38b9d733d3daae04a938d0d6efca380c58",
       "review_reference": "docs/ui-standard/reviews/2026-11-12-complaint-corrections-media-spacing-and-order.md",
       "reason": "User-directed Portal heading/gap and Complaints icon-only full-width paired correction fields, EAT pickers, queue ordering and progressive existing-thumbnail display. Source-bound live local Django/PostgreSQL Playwright evidence; no access expansion or design migration."
+    },
+    {
+      "path": "core/static/miniapp/components.js",
+      "sha256": "6785e0bd2d3912d3caba592887b3a944d135c16f18343cc6a224c512ebba9de5",
+      "review_reference": "docs/ui-standard/reviews/2026-11-12-date-format.md",
+      "reason": "User-required dd/mm/yyyy presentation: shared formatters, fixed visit input with calendar and cache versions; source-bound Playwright and PostgreSQL verification."
+    },
+    {
+      "path": "core/static/miniapp/utils.js",
+      "sha256": "625959dd707def379cb9171c74ec10e26c8f3732c41dc45a79ba213f84c8cf64",
+      "review_reference": "docs/ui-standard/reviews/2026-11-12-date-format.md",
+      "reason": "User-required dd/mm/yyyy presentation: shared formatters, fixed visit input with calendar and cache versions; source-bound Playwright and PostgreSQL verification."
+    },
+    {
+      "path": "core/templates/fca_review/review.html",
+      "sha256": "51ff052aff70befe59410c4a86695ad6bf0516790966de8c2b74763ee0101366",
+      "review_reference": "docs/ui-standard/reviews/2026-11-12-date-format.md",
+      "reason": "User-required dd/mm/yyyy presentation: shared formatters, fixed visit input with calendar and cache versions; source-bound Playwright and PostgreSQL verification."
+    },
+    {
+      "path": "core/templates/jawabu_farmers/review.html",
+      "sha256": "cdeb846947a4a80095403ba2e7ec941f280aa861a756c4669f9deb929932ecc5",
+      "review_reference": "docs/ui-standard/reviews/2026-11-12-date-format.md",
+      "reason": "User-required dd/mm/yyyy presentation: shared formatters, fixed visit input with calendar and cache versions; source-bound Playwright and PostgreSQL verification."
+    },
+    {
+      "path": "core/templates/miniapp_launcher.html",
+      "sha256": "b2d1842086274f46fb07fbf93cf4978c406ba58f11aceadd3544fc4661d9ffa2",
+      "review_reference": "docs/ui-standard/reviews/2026-11-12-date-format.md",
+      "reason": "User-required dd/mm/yyyy presentation: shared formatters, fixed visit input with calendar and cache versions; source-bound Playwright and PostgreSQL verification."
+    },
+    {
+      "path": "core/templates/order_approval/form.html",
+      "sha256": "a1d606fd6dd842ea646cfa20a8991ba75988a0373772482fbfe83c88a04d7c2f",
+      "review_reference": "docs/ui-standard/reviews/2026-11-12-date-format.md",
+      "reason": "User-required dd/mm/yyyy presentation: shared formatters, fixed visit input with calendar and cache versions; source-bound Playwright and PostgreSQL verification."
+    },
+    {
+      "path": "core/templates/spin/form.html",
+      "sha256": "c2771bd2a357c72fc725b2bb8bb4851ff9e17d92fa447799c97d553d2c07edae",
+      "review_reference": "docs/ui-standard/reviews/2026-11-12-date-format.md",
+      "reason": "User-required dd/mm/yyyy presentation: shared formatters, fixed visit input with calendar and cache versions; source-bound Playwright and PostgreSQL verification."
+    },
+    {
+      "path": "core/templates/staff_telegram_activation.html",
+      "sha256": "346639e2e2d554659d43eab756fd601b6fdf3bd3d805297ec05ad3b03a633334",
+      "review_reference": "docs/ui-standard/reviews/2026-11-12-date-format.md",
+      "reason": "User-required dd/mm/yyyy presentation: shared formatters, fixed visit input with calendar and cache versions; source-bound Playwright and PostgreSQL verification."
+    },
+    {
+      "path": "core/templates/tat_tracker/app.html",
+      "sha256": "f8a408041ee7c4d60b07dd265c1b785f1e11303ad45336b41cb078f966209527",
+      "review_reference": "docs/ui-standard/reviews/2026-11-12-date-format.md",
+      "reason": "User-required dd/mm/yyyy presentation: shared formatters, fixed visit input with calendar and cache versions; source-bound Playwright and PostgreSQL verification."
     }
   ],
   "source_roots": [

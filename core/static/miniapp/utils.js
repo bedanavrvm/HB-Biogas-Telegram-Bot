@@ -462,10 +462,11 @@
   function parseDisplayDate(value) {
     if (!value) return null;
     const text = String(value).trim();
-    const iso = text.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    const display = text.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    const iso = display ? [text, display[3], display[2], display[1]] : text.match(/^(\d{4})-(\d{2})-(\d{2})$/);
     if (iso) {
       const date = new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]));
-      return Number.isNaN(date.getTime()) ? null : date;
+      return date.getFullYear() === Number(iso[1]) && date.getMonth() + 1 === Number(iso[2]) && date.getDate() === Number(iso[3]) ? date : null;
     }
     const date = new Date(text);
     return Number.isNaN(date.getTime()) ? null : date;
@@ -476,13 +477,13 @@
     if (!date) return value ? String(value) : '-';
     const day = String(date.getDate()).padStart(2, '0');
     const month = String(date.getMonth() + 1).padStart(2, '0');
-    return day + '-' + month + '-' + date.getFullYear();
+    return day + '/' + month + '/' + date.getFullYear();
   }
 
   function formatDateTime(value) {
     if (!value) return '-';
     const text = String(value).trim();
-    if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return formatDate(text);
+    if (/^(?:\d{4}-\d{2}-\d{2}|\d{2}\/\d{2}\/\d{4})$/.test(text)) return formatDate(text);
     const date = new Date(text);
     if (Number.isNaN(date.getTime())) return text;
     const parts = new Intl.DateTimeFormat('en-GB', {
@@ -492,7 +493,7 @@
       if (part.type !== 'literal') result[part.type] = part.value;
       return result;
     }, {});
-    return `${parts.day}-${parts.month}-${parts.year} ${parts.hour}:${parts.minute}`;
+    return `${parts.day}/${parts.month}/${parts.year} ${parts.hour}:${parts.minute}`;
   }
 
   async function fetchJson(url, options) {

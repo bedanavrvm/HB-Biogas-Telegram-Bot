@@ -1,5 +1,8 @@
 # Mini App Design Lab
 
+All date presentation follows `dd/mm/yyyy` with a four-digit year and slashes.
+[Shared formatter and visit-field verification](reviews/2026-11-12-date-format.md).
+
 JBL rescheduling reuses the visit date control and existing action reminders;
 optional evidence is permanently visible with an external section heading.
 [Source and real-page evidence](reviews/2026-11-12-jbl-rescheduled-next-visit.md).

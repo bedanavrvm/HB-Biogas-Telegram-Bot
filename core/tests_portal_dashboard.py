@@ -33,6 +33,7 @@ class PortalActionDashboardTests(TestCase):
         self.assertEqual([row['farmer_id'] for row in items], [str(late.pk), str(due.pk)])
         self.assertIn('overdue', items[0]['detail'])
         self.assertIn('due today', items[1]['detail'])
+        self.assertIn(today.strftime('%d/%m/%Y'), items[1]['detail'])
         self.assertEqual(payload['home']['actions'], items)
         self.assertIn(future, jbl_visit_queue())
 

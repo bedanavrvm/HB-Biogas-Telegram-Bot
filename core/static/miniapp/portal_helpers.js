@@ -32,6 +32,7 @@
   }
 
   function fmtDate(value) {
+    if (utils.formatDate) return utils.formatDate(value);
     if (!value) return '-';
     let date;
     if (/^\d{4}-\d{2}-\d{2}$/.test(String(value))) {
@@ -44,7 +45,7 @@
     const day = String(date.getDate()).padStart(2, '0');
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const year = String(date.getFullYear());
-    return `${day}-${month}-${year}`;
+    return `${day}/${month}/${year}`;
   }
 
   function phoneLink(value) {

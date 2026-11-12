@@ -319,8 +319,8 @@ test('Visit repayment terms follow complete LAF selection and preserve their dra
   await page.setInputFiles('#jbl-laf-media-complete',laf);
   await expect(page.locator('#jbl-repayment-tenor')).toHaveValue('18');
   await page.selectOption('#jbl-status','Rescheduled');
-  await expect(page.locator('#jbl-next-visit-date')).toBeVisible();
-  await expect(page.locator('#jbl-next-visit-date')).toHaveAttribute('required','');
+  await expect(page.locator('#jbl-next-visit-date-display')).toBeVisible();
+  await expect(page.locator('#jbl-next-visit-date-display')).toHaveAttribute('required','');
   await expect(page.locator('#jbl-outcome-help')).toBeHidden();
   await expect(page.locator('#jbl-evidence-details > .jbl-support-card')).toBeVisible();
   await expect(page.locator('#jbl-evidence-details summary')).toHaveCount(0);
@@ -365,4 +365,26 @@ test('Final repayment correction values and editor mode survive reopening',async
   await page.locator('#btn-submit-final').click();
   const body=await page.evaluate(()=>JSON.parse(requests.find(item=>item.url.includes('/final-review-queue/')).body));
   expect(body.repayment_date).toBe('20');expect(body.repayment_tenor).toBe('18');
+});
+
+test('Visit dates keep dd/mm/yyyy under a US browser locale and retain ISO transport', async ({browser}) => {
+  const context = await browser.newContext({locale:'en-US'});
+  const page = await context.newPage();
+  try {
+    await mountReview(page,'jbl_visit');
+    await page.evaluate(()=>{fixtureState.businessDate='2026-11-12';PortalMiniAppFarmerSheet.openFarmerSheet(fixtureCase,'jbl_visit');});
+    await page.selectOption('#jbl-status','Rescheduled');
+    await expect(page.locator('#jbl-next-visit-date-display')).toHaveAttribute('placeholder','dd/mm/yyyy');
+    await page.locator('#jbl-next-visit-date-display').fill('23/11/2026');
+    await expect(page.locator('#jbl-next-visit-date')).toHaveValue('2026-11-23');
+    await page.locator('#jbl-next-visit-date-display').fill('31/11/2026');
+    await expect(page.locator('#jbl-next-visit-date')).toHaveValue('');
+    await page.evaluate(()=>{const picker=document.querySelector('#jbl-next-visit-date-picker');picker.value='2026-12-03';picker.dispatchEvent(new Event('change',{bubbles:true}));});
+    await expect(page.locator('#jbl-next-visit-date-display')).toHaveValue('03/12/2026');
+    await page.selectOption('#jbl-visit-occurred','true');
+    await page.locator('#jbl-date-display').fill('04/03/2026');
+    await expect(page.locator('#jbl-date')).toHaveValue('2026-03-04');
+    await page.locator('#jbl-date-display').fill('04-03-26');
+    await expect(page.locator('#jbl-date')).toHaveValue('');
+  } finally {await context.close();}
 });

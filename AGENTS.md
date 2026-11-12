@@ -37,6 +37,8 @@ slice descriptions below are historical; no Portal/Origination/TAT activation fo
 
 If you read nothing else, follow these:
 
+**Date format: always display and accept staff-facing dates as `dd/mm/yyyy` (zero-padded day/month, four-digit year) across every workflow, form, table, chart, notification, report, Sheet/export, document and user-facing reply. For timestamps, append `HH:mm` in `Africa/Nairobi`. Use explicit formatting and a formatted input with a calendar button when browser-native rendering would change the visible format. Keep ISO dates in machine payloads/storage and hidden native picker values. Verify an unambiguous example such as `23/11/2026` and a month-boundary value; include this check whenever date UI changes.**
+
 1. **Never commit secrets or customer data** — tokens, service-account JSON, phone numbers, IDs, photos, spreadsheets. See [Security and privacy rules](#security-and-privacy-rules).
 2. **Every write path must be idempotent.** Telegram retries webhooks; Mini Apps can double-submit. Check for existing records before creating new ones.
 3. **Telegram authentication ≠ authorization.** A valid `initData` signature only proves Telegram identity — check the actor is an approved staff member for that action, branch, or group.
