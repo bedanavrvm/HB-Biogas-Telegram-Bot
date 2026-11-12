@@ -1186,7 +1186,6 @@
         updateBatchPanel();
       });
       card.addEventListener('click', async () => {
-        if (card.dataset.depositHold === 'true') return;
         const queue = card.dataset.qkey || state.activePage;
         return openQueueCase({ id: card.dataset.farmerId }, queue, card.dataset.mode || null);
       });
@@ -1540,7 +1539,7 @@
       return;
     }
     listEl.innerHTML = farmers.map((f, i) => `
-      <div class="farmer-card${qKey === 'jbl' && f.deposit?.deposit_hold ? ' deposit-held-card' : ''}${qKey === 'requisition' ? ' requisition-card' : ''}${qKey === 'jbl' || qKey === 'my_visits' ? '' : ' operational-farmer-card'}" data-deposit-hold="${qKey === 'jbl' && Boolean(f.deposit?.deposit_hold)}" ${qKey === 'jbl' && f.deposit?.deposit_hold ? 'aria-disabled="true"' : ''} data-qkey="${qKey}" data-farmer-id="${escapeHtml(f.id || '')}" data-idx="${i}" id="fc-${qKey}-${i}">
+      <div class="farmer-card${qKey === 'jbl' && f.deposit?.deposit_hold ? ' deposit-held-card' : ''}${qKey === 'requisition' ? ' requisition-card' : ''}${qKey === 'jbl' || qKey === 'my_visits' ? '' : ' operational-farmer-card'}" data-deposit-hold="${qKey === 'jbl' && Boolean(f.deposit?.deposit_hold)}"  data-qkey="${qKey}" data-farmer-id="${escapeHtml(f.id || '')}" data-idx="${i}" id="fc-${qKey}-${i}">
         ${qKey === 'requisition' && hasCapability('portal.requisition.write') ? `
           <input type="checkbox" class="farmer-card-checkbox" data-id="${escapeHtml(f.id || '')}" data-revision="${escapeHtml(String(f.workflow_revision || 1))}" ${state.selectedRequisitions.has(f.id) ? 'checked' : ''} onclick="event.stopPropagation();">
         ` : ''}
@@ -1550,7 +1549,6 @@
 
     listEl.querySelectorAll('.farmer-card').forEach(card => {
       card.addEventListener('click', () => {
-        if (card.dataset.depositHold === 'true') return;
         const qKey = card.dataset.qkey;
         const farmerId = card.dataset.farmerId;
         const farmer = (state.queues[qKey] || []).find(item => String(item.id) === String(farmerId)) || { id: farmerId };
@@ -1650,10 +1648,6 @@
         showToast((data && data.error) || 'Could not load current farmer details.', 'error');
         return;
       }
-      if (mode === 'jbl_visit' && data.farmer.deposit?.deposit_hold) {
-        showToast(data.farmer.deposit.reason || 'The HB deposit requirement has not been met.', 'warning');
-        return;
-      }
       openFarmerSheet(data.farmer, mode);
     } catch (error) {
       showToast('Could not load current farmer details. Check your connection and retry.', 'error');
@@ -1695,6 +1689,7 @@
     state.jblVisitMediaMaxBytes = Number(data.jbl_visit_media_max_bytes || state.jblVisitMediaMaxBytes);
     state.jblVisitMediaMaxFiles = Number(data.jbl_visit_media_max_files || state.jblVisitMediaMaxFiles);
     state.jblVisitMediaMaxTotalBytes = Number(data.jbl_visit_media_max_total_bytes || state.jblVisitMediaMaxTotalBytes);
+    state.jblVisitRequirements = data.jbl_visit_requirements || {};
     state.jblVisitDraftFields = Array.isArray(data.jbl_visit_draft_fields) ? data.jbl_visit_draft_fields : [];
     state.voiceInput = data.voice_input || state.voiceInput;
     state.actor = data.actor || state.actor;

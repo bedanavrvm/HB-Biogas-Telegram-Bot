@@ -69,7 +69,7 @@ def deposit_state(farmer) -> dict:
     amount = recorded_deposit(farmer)
     shortfall = max(REQUIRED_DEPOSIT - (amount or Decimal('0')), Decimal('0'))
     visited = farmer.jbl_visit_date is not None
-    held = not visited and shortfall > 0
+    held = (not visited or deposit_editable(farmer)) and shortfall > 0
     return {
         'recorded_amount': format(amount, '.2f') if amount is not None else None,
         'required_amount': '5000.00', 'shortfall': format(shortfall, '.2f'),
@@ -87,7 +87,8 @@ def visit_deposit_error(farmer) -> str:
 
 def deposit_editable(farmer) -> bool:
     return (
-        not farmer.jbl_visit_date and farmer.status != 'inactive'
+        (not farmer.jbl_visit_date or farmer.jbl_visit_status in {'Rescheduled', 'Deferred / On Hold'})
+        and farmer.status != 'inactive'
         and not farmer.order_number and not farmer.invoice_number
         and farmer.workflow_state in {'', 'jbl_visit', 'deferred'}
         and (farmer.workflow_state != 'deferred' or farmer.deferred_stage == 'jbl_visit')

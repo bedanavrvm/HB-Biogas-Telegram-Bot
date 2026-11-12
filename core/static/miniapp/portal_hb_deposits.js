@@ -14,7 +14,7 @@
     el('hb-deposit-content').hidden = false;
     el('hb-deposit-identity').textContent = [data.customer_name, data.case_reference, data.branch].filter(Boolean).join(' · ');
     el('hb-deposit-summary').innerHTML = `<div><span>Outstanding</span><strong>${esc(money(data.shortfall))}</strong></div><div><span>HB deposit date</span><strong>${esc(data.deposit_date ? data.deposit_date.split('-').reverse().join('-') : 'Not recorded')}</strong></div>`;
-    el('hb-deposit-status').textContent = data.visit_recorded ? 'Visit recorded · deposit history is read-only.' : data.deposit_hold ? data.reason : 'Deposit cleared for JBL visit.';
+    el('hb-deposit-status').textContent = data.visit_recorded && !data.can_edit ? 'Visit recorded · deposit history is read-only.' : data.deposit_hold ? data.reason : 'Deposit cleared for JBL visit.';
     if (!data.can_edit && !data.visit_recorded) el('hb-deposit-status').textContent += ' This record is read-only in HB Deposits.';
     el('hb-deposit-amount').value = data.recorded_amount ?? '';
     el('hb-deposit-reason').value = '';

@@ -5284,10 +5284,10 @@ body.portal-app .payment-search-results-heading.miniapp-panel-heading{margin:0;p
 #portal-performance-awaiting-content { padding:0 16px 12px; }
 .portal-performance-awaiting-case { display:flex; align-items:center; justify-content:space-between; gap:10px; min-height:52px; padding:7px 0; border-bottom:1px solid var(--border-color); color:var(--text-primary); text-decoration:none; }
 .portal-performance-awaiting-case:last-child { border-bottom:0; }
-.farmer-card.deposit-held-card { cursor:not-allowed; background:var(--bg-secondary); color:var(--text-muted); border-style:dashed; }
+.farmer-card.deposit-held-card { cursor:pointer; background:var(--bg-secondary); color:var(--text-muted); border-style:dashed; }
 .farmer-card.deposit-held-card .fc-name { color:var(--text-muted); }
 .farmer-card.deposit-held-card:hover { transform:none; box-shadow:none; }
-.jbl-visit-sheet [data-jbl-field][hidden], .jbl-visit-sheet .jbl-support-card[hidden], .jbl-visit-sheet .jbl-comment-section[hidden] { display:none !important; }
+.jbl-visit-sheet [data-jbl-physical][hidden], .jbl-visit-sheet [data-jbl-forward][hidden], .jbl-visit-sheet [data-jbl-field][hidden], .jbl-visit-sheet .jbl-support-card[hidden], .jbl-visit-sheet .jbl-comment-section[hidden] { display:none !important; }
 .hb-action-tabs:has([data-hb-queue="deposits"]:not([hidden])) { grid-template-columns:repeat(3,minmax(0,1fr)); }
 #hb-deposit-workspace .hb-action-detail-header { display:grid; grid-template-columns:44px minmax(0,1fr); text-align:left; }
 #hb-deposit-workspace .hb-action-detail-header > div { min-width:0; }

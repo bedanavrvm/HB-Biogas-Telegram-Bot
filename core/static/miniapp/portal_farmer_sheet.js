@@ -92,12 +92,17 @@
         `/jbl-queue/${encodeURIComponent(farmer.id)}/completion-status/?request_id=${encodeURIComponent(persisted.key)}`,
       );
       if (!check.ok || !check.data?.completed) return false;
+      if (check.data.visit_logged === false && jblMediaItems().length) {
+        savedJblOutcomeSubmission = {key: persisted.key};
+        if (check.data.farmer) Object.assign(farmer, check.data.farmer);
+        return false;
+      }
       pendingJblVisitSubmission = null;
       sessionStorage.removeItem(`portal:jbl:submission:${farmer.id}`);
       await clearJblVisitDraft(farmer);
       closeSheet({ saveDraft: false });
       await Promise.all([deps.reloadCurrentQueue(), deps.loadDashboard()]);
-      deps.showToast('This visit was already saved.', 'success');
+      deps.showToast(check.data.visit_logged === false ? 'This outcome was already saved without a visit.' : 'This visit was already saved.', 'success');
       return true;
     } catch (_) {
       return false;
@@ -923,10 +928,6 @@
   }
 
   function openFarmerSheet(farmer, mode) {
-    if (mode === 'jbl_visit' && !farmer.is_new_jbl_lead && farmer.deposit?.deposit_hold) {
-      deps.showToast(farmer.deposit.reason || 'Awaiting the full HB deposit before a JBL visit.', 'warning');
-      return;
-    }
     state().selectedFarmer = farmer;
     state().activeMode = mode;
     const isNewLead = Boolean(farmer.is_new_jbl_lead);
@@ -1052,6 +1053,9 @@
       wireJblDateInput();
       wireGpsButton();
       wireJblVisitMedia(farmer);
+      el('jbl-status')?.addEventListener('change', () => updateJblOutcomeRequirements({ changed: true }));
+      el('jbl-visit-occurred')?.addEventListener('change', () => updateJblOutcomeRequirements());
+      updateJblOutcomeRequirements({ changed: true });
       if (!isNewLead) wireJblVisitDraft(farmer);
       wireJblLocationFields(farmer);
       if (isNewLead) {
@@ -1373,12 +1377,15 @@
     });
   }
 
+  let savedJblOutcomeSubmission = null;
+
   function buildJblForm(farmer) {
+    savedJblOutcomeSubmission = null;
     const today = state().businessDate || localIsoDate();
     const hbgVisitDate = farmer.hbg_visit_date || '';
     const defaultVisitDate = farmer.jbl_visit_date || today;
     const statusOptions = [...new Set([...state().metaStatuses, ...(canWithdraw(farmer) ? ['Withdrawn'] : [])])].filter(status => status !== 'JBL to Schedule Visit').map(status =>
-      `<option value="${deps.escapeHtml(status)}"${farmer.jbl_visit_status === status ? ' selected' : ''}>${deps.escapeHtml(status)}</option>`
+      `<option value="${deps.escapeHtml(status)}"${farmer.jbl_visit_status === status ? ' selected' : ''}${farmer.deposit?.deposit_hold && JBL_FORWARD_VISIT_STATUSES.has(status) ? ' disabled' : ''}>${deps.escapeHtml(status)}</option>`
     ).join('');
     const catalogCounties = state().metaLocationCatalog?.counties || (state().metaCounties || []).map(name => ({ code: name, name }));
     const selectedCounty = String(farmer.county_ref_code || farmer.county || '').toLowerCase();
@@ -1418,9 +1425,10 @@
       ${newLeadFields}
       <p class="jbl-section-label">Visit details</p>
       <div class="form-section form-grid jbl-details-grid">
-        <div class="form-row" data-jbl-field="visit_date"><label title="JBL visits follow the HBG visit and cannot be future-dated.">Visit Date <span class="required-marker" aria-hidden="true">*</span><span class="sr-only"> required</span></label><div class="jbl-date-control"><input type="text" id="jbl-date-display" inputmode="numeric" autocomplete="off" maxlength="10" placeholder="dd-mm-yy" aria-required="true" value="${deps.escapeHtml(displayDateFromIso(defaultVisitDate))}"><button type="button" id="jbl-date-open" class="jbl-date-open" aria-label="Open native visit date picker" title="Choose visit date">${calendarIcon()}</button><input type="date" id="jbl-date-picker" class="native-date-proxy" min="${deps.escapeHtml(hbgVisitDate)}" max="${deps.escapeHtml(today)}" value="${deps.escapeHtml(defaultVisitDate)}" tabindex="-1" aria-hidden="true"><input type="hidden" id="jbl-date" value="${deps.escapeHtml(defaultVisitDate)}"></div><small class="jbl-field-error" data-error-message-for="visit_date"></small></div>
         <div class="form-row" data-jbl-field="visit_status"><label>Outcome <span class="required-marker" aria-hidden="true">*</span><span class="sr-only"> required</span></label><select id="jbl-status" aria-required="true"><option value="">- Select -</option>${statusOptions}</select><small class="jbl-field-error" data-error-message-for="visit_status"></small></div>
-        <div class="form-row form-row-wide"><label>Officer Name</label><input type="text" id="jbl-officer" placeholder="Your staff identity" value="${deps.escapeHtml(farmer.jbl_officer || '')}"></div>
+        <div class="form-row"><label for="jbl-visit-occurred">Physical visit</label><select id="jbl-visit-occurred"><option value="false">No - record outcome only</option><option value="true">Yes - a visit took place</option></select><small class="field-help" id="jbl-outcome-help">Choose an outcome first. Only physical visits count in visit reports.</small></div>
+        <div class="form-row" data-jbl-field="visit_date"><label title="JBL visits follow the HBG visit and cannot be future-dated.">Visit Date <span class="required-marker" aria-hidden="true">*</span><span class="sr-only"> required</span></label><div class="jbl-date-control"><input type="text" id="jbl-date-display" inputmode="numeric" autocomplete="off" maxlength="10" placeholder="dd-mm-yy" aria-required="true" value="${deps.escapeHtml(displayDateFromIso(defaultVisitDate))}"><button type="button" id="jbl-date-open" class="jbl-date-open" aria-label="Open native visit date picker" title="Choose visit date">${calendarIcon()}</button><input type="date" id="jbl-date-picker" class="native-date-proxy" min="${deps.escapeHtml(hbgVisitDate)}" max="${deps.escapeHtml(today)}" value="${deps.escapeHtml(defaultVisitDate)}" tabindex="-1" aria-hidden="true"><input type="hidden" id="jbl-date" value="${deps.escapeHtml(defaultVisitDate)}"></div><small class="jbl-field-error" data-error-message-for="visit_date"></small></div>
+        <div class="form-row form-row-wide" data-jbl-physical><label>Officer Name</label><input type="text" id="jbl-officer" placeholder="Your staff identity" value="${deps.escapeHtml(farmer.jbl_officer || '')}"></div>
         ${decisionReasonMarkup('jbl', false)}
         <div class="form-row" data-jbl-field="county"><label>County <span class="required-marker" aria-hidden="true">*</span></label><select id="jbl-county" required><option value="">- Select county -</option>${countyOptions}</select><small class="jbl-field-error" data-error-message-for="county"></small></div>
         <div class="form-row" data-jbl-field="sub_county"><label>Constituency <span class="required-marker" aria-hidden="true">*</span></label><select id="jbl-sub-county" required><option value="">- Select -</option>${legacySubCounty}</select><small class="jbl-field-error" data-error-message-for="sub_county"></small></div>
@@ -1428,10 +1436,9 @@
       </div>
       <p class="jbl-section-label">Comment</p>
       <section class="jbl-comment-section"><div class="jbl-comment-control"><textarea id="jbl-comment" aria-label="Comment" rows="2" placeholder="Additional notes">${deps.escapeHtml(farmer.jbl_visit_comment || '')}</textarea>${voiceWidget('jbl_visit_comment', 'jbl-comment')}</div></section>
-      <p class="jbl-section-label">${canWriteMedia ? `Visit media and location` : `Visit location`}</p>
-      <section class="jbl-support-card">
+      <details id="jbl-evidence-details" class="jbl-support-card"><summary id="jbl-evidence-summary">Optional evidence</summary>
         ${canWriteMedia ? `<div class="media-upload-control">${mediaFields}</div>` : ''}
-        <div class="gps-capture-row" data-jbl-field="capture_location">
+        <div class="gps-capture-row" data-jbl-field="capture_location" data-jbl-forward>
           <div class="gps-capture-summary"><span class="gps-capture-icon"><i data-lucide="map-pin" aria-hidden="true"></i></span><span><strong>GPS Location</strong><small id="gps-coords" class="field-help">Not captured yet</small></span></div>
           <button type="button" id="btn-gps" class="secondary"><span>Capture</span></button>
           <input type="hidden" id="jbl-lat" value="">
@@ -1442,7 +1449,8 @@
           </div>
           <small class="jbl-field-error" data-error-message-for="capture_location"></small>
         </div>
-      </section>
+      </details>
+      <section id="jbl-evidence-pending" class="jbl-workflow-conflict" role="status" hidden></section>
     `;
   }
 
@@ -1521,8 +1529,14 @@
 
   function jblDocumentMarkup(category, title) {
     const inputId = jblMediaInputId(category);
-    return `<section class="media-category-upload jbl-document-upload" data-media-category="${category}">
+    return `<section class="media-category-upload jbl-document-upload" data-media-category="${category}" data-jbl-field="${category === 'CLIENT_ID' ? 'client_id_files' : 'laf_files'}">
       <div class="jbl-media-category-heading"><span>${title}</span><strong class="jbl-media-selection-summary" id="${inputId}-name" aria-live="polite">0 of 2 captured</strong><button type="button" class="jbl-media-icon-button" data-camera-category="${category}" aria-label="Capture ${title} pair" title="Capture ${title}">${cameraIcon()}</button></div>
+      <label class="jbl-slot-picker" for="${inputId}-complete" data-input-id="${inputId}-complete" role="button" tabindex="0" aria-label="Upload ${title} complete document or two photos">Upload complete document or two photos</label>
+      <input class="sr-only" type="file" id="${inputId}-complete" data-media-category="${category}" multiple accept="application/pdf,image/jpeg,image/png,image/webp,.pdf,.jpg,.jpeg,.png,.webp">
+      <small class="field-help">One PDF (1-2 pages), one image containing both sides/pages, or two separate photos. Preview to check that every side/page is legible.</small>
+      <small class="jbl-field-error" data-error-message-for="${category === 'CLIENT_ID' ? 'client_id_files' : 'laf_files'}"></small>
+      <div class="jbl-media-preview-list" id="${inputId}-previews"></div>
+      <button type="button" data-swap-document="${category}" hidden>Swap page order</button>
       <div class="jbl-document-slots">${jblDocumentSlots[category].map((field, side) => `<div class="jbl-document-slot" data-jbl-field="${field}">
         <span>${jblDocumentLabels[category][side]}</span>
         <button type="button" class="jbl-document-slot-preview" data-media-item-id="" aria-label="Review ${title} ${jblDocumentLabels[category][side]}" hidden></button>
@@ -1588,12 +1602,13 @@
       ? side ?? [0, 1].find(value => !jblMediaSelections[category].some(item => item.side === value)) ?? 0
       : null;
     jblCameraReplaceId = replaceId || (jblDocumentSlots[category]
-      ? jblMediaSelections[category].find(item => item.side === jblCameraSide)?.id : '') || '';
+      ? jblMediaSelections[category].find(item => !item.complete && item.side === jblCameraSide)?.id : '') || '';
     updateJblCameraCaptureState();
   }
 
   function advanceJblCameraTarget() {
     for (const category of ['CLIENT_ID', 'LAF']) {
+      if (jblMediaSelections[category].some(item => item.complete)) continue;
       const side = [0, 1].find(value => !jblMediaSelections[category].some(item => item.side === value));
       if (side !== undefined) { setJblCameraTarget(category, side); return; }
     }
@@ -1783,7 +1798,14 @@
         ? 'Ready · one complete document'
         : `${items.length} of 2 captured`;
     }
-    if (jblDocumentSlots[category]) {
+    const complete = items.some(item => item.complete);
+    const section = document.querySelector(`[data-media-category="${category}"].jbl-document-upload`);
+    if (section) {
+      section.querySelector('.jbl-document-slots').hidden = complete;
+      section.querySelector('[data-swap-document]').hidden = complete || items.length !== 2;
+    }
+    if (jblDocumentSlots[category] && !complete) {
+      if (el(`${inputId}-previews`)) el(`${inputId}-previews`).innerHTML = '';
       jblDocumentSlots[category].forEach((field, side) => {
         const slot = document.querySelector(`.jbl-document-slot[data-jbl-field="${field}"]`);
         const preview = slot?.querySelector('.jbl-document-slot-preview');
@@ -1797,10 +1819,11 @@
       });
       return;
     }
+    if (summary && complete) summary.textContent = 'Complete document selected - preview to review';
     const previews = el(`${inputId}-previews`);
     if (!previews) return;
     previews.innerHTML = items.map(item => {
-      const safeName = deps.escapeHtml(jblDocumentSlots[category] ? jblDocumentLabels[category][item.side] : item.file.name || 'Evidence file');
+      const safeName = deps.escapeHtml(jblDocumentSlots[category] && !item.complete ? jblDocumentLabels[category][item.side] : item.file.name || 'Evidence file');
       const isImage = String(item.file.type || '').startsWith('image/');
       const visual = item.thumbnailUrl
         ? `<img src="${item.thumbnailUrl}" alt="">`
@@ -1829,7 +1852,7 @@
   function allowedJblMediaFile(file, category) {
     const extension = String(file.name || '').toLowerCase().match(/\.[^.]+$/)?.[0] || '';
     const allowed = new Set(['.jpg', '.jpeg', '.png', '.webp']);
-    return allowed.has(extension);
+    return allowed.has(extension) || Boolean(jblDocumentSlots[category] && extension === '.pdf');
   }
 
   function canvasThumbnailBlob(bitmap) {
@@ -1867,10 +1890,15 @@
       .catch(() => {});
   }
 
-  function addJblMediaFiles(category, files, { side = null } = {}) {
+  function addJblMediaFiles(category, files, { side = null, upload = false } = {}) {
     const additions = Array.from(files || []);
     if (!additions.length || !jblMediaSelections[category]) return false;
-    if (jblDocumentSlots[category]) {
+    const complete = Boolean(upload && additions.length === 1);
+    if (upload && (additions.length > 2 || additions.length === 2 && additions.some(file => /\.pdf$/i.test(file.name)))) {
+      deps.showToast('Choose one complete PDF/image or two separate photos.', 'error'); return false;
+    }
+    const replacingDocument = Boolean(jblDocumentSlots[category] && (upload || jblMediaSelections[category].some(item => item.complete)));
+    if (jblDocumentSlots[category] && !replacingDocument) {
       if (side !== null && additions.length !== 1) {
         deps.showToast('Choose one photo for this side or page.', 'error'); return false;
       }
@@ -1880,7 +1908,8 @@
         deps.showToast('This document has two captures. Replace a side or page to change it.', 'error'); return false;
       }
     }
-    const existingFingerprints = new Set(jblMediaItems().map(item => jblMediaFingerprint(item.file)));
+    const retainedItems = jblMediaItems().filter(item => !replacingDocument || item.category !== category);
+    const existingFingerprints = new Set(retainedItems.map(item => jblMediaFingerprint(item.file)));
     const unique = additions.filter(file => {
       const fingerprint = jblMediaFingerprint(file);
       if (existingFingerprints.has(fingerprint)) return false;
@@ -1891,7 +1920,7 @@
       deps.showToast('Those files are already selected.', 'info');
       return false;
     }
-    const invalid = unique.find(file => !allowedJblMediaFile(file, category));
+    const invalid = unique.find(file => !allowedJblMediaFile(file, category) || !upload && /\.pdf$/i.test(file.name));
     if (invalid) {
       deps.showToast(`${invalid.name} is not an accepted evidence type.`, 'error');
       return false;
@@ -1910,16 +1939,20 @@
       deps.showToast(`A JBL visit can include at most ${maximumFiles} supporting photos.`, 'error');
       return false;
     }
-    const totalBytes = [...jblMediaItems().map(item => item.file), ...unique]
+    const totalBytes = [...retainedItems.map(item => item.file), ...unique]
       .reduce((total, file) => total + file.size, 0);
     const maximumTotalBytes = Number(state().jblVisitMediaMaxTotalBytes || 40 * 1024 * 1024);
     if (totalBytes > maximumTotalBytes) {
       deps.showToast(`JBL visit evidence cannot exceed ${Math.round(maximumTotalBytes / (1024 * 1024))} MB in one submission.`, 'error');
       return false;
     }
+    if (replacingDocument) {
+      jblMediaSelections[category].forEach(revokeJblThumbnail);
+      jblMediaSelections[category] = [];
+    }
     unique.forEach(file => {
       const chosenSide = jblDocumentSlots[category] ? side ?? [0, 1].find(value => !jblMediaSelections[category].some(item => item.side === value)) : null;
-      const item = { id: requestId(), category, side: chosenSide, file, thumbnailUrl: '' };
+      const item = { id: requestId(), category, side: chosenSide, complete, file, thumbnailUrl: '' };
       jblMediaSelections[category].push(item);
       jblMediaSelections[category].sort((a, b) => (a.side ?? 0) - (b.side ?? 0));
       queueJblThumbnail(category, item);
@@ -1941,7 +1974,7 @@
       return '';
     }
     revokeJblThumbnail(items[index]);
-    const replacement = { id: requestId(), category, side: items[index].side, file, thumbnailUrl: '' };
+    const replacement = { id: requestId(), category, side: items[index].side, complete: items[index].complete, file, thumbnailUrl: '' };
     items[index] = replacement;
     queueJblThumbnail(category, replacement);
     renderJblMediaSelections();
@@ -1993,14 +2026,14 @@
     activeMediaObjectUrl = nextUrl;
     activeJblSelectionPreviewId = item.id;
     if (title) title.textContent = jblDocumentSlots[category]
-      ? `Review ${category === 'CLIENT_ID' ? 'Client ID' : 'LAF'} — ${jblDocumentLabels[category][item.side]}` : 'Review supporting photo';
+      ? `Review ${category === 'CLIENT_ID' ? 'Client ID' : 'LAF'} — ${(item.complete ? 'Complete document' : jblDocumentLabels[category][item.side])}` : 'Review supporting photo';
     if (sub) sub.textContent = `${index + 1} of ${entries.length} · ${item.file.name}`;
     content.classList.add('jbl-selection-preview-active');
     content.innerHTML = `<div class="jbl-selection-viewer">
       <div class="jbl-selection-viewer-stage"></div>
       <div class="jbl-selection-viewer-actions">
         <button type="button" class="jbl-selection-nav" data-selection-preview-action="previous" aria-label="Previous selected file" title="Previous" ${index === 0 ? 'disabled' : ''}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg><span class="sr-only">Previous</span></button>
-        ${String(item.file.type || '').startsWith('image/') ? `<button type="button" class="jbl-selection-retake" data-selection-preview-action="retake" data-media-category="${category}" data-media-item-id="${item.id}" aria-label="Retake this photo" title="Retake photo"><i data-lucide="camera" aria-hidden="true"></i></button>` : ''}
+        ${!item.complete && String(item.file.type || '').startsWith('image/') ? `<button type="button" class="jbl-selection-retake" data-selection-preview-action="retake" data-media-category="${category}" data-media-item-id="${item.id}" aria-label="Retake this photo" title="Retake photo"><i data-lucide="camera" aria-hidden="true"></i></button>` : ''}
         <button type="button" class="jbl-selection-delete" data-selection-preview-action="remove" data-media-category="${category}" data-media-item-id="${item.id}" aria-label="Remove this selected file" title="Remove"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 10v6M14 10v6"/></svg><span class="sr-only">Remove</span></button>
         <button type="button" class="jbl-selection-nav" data-selection-preview-action="next" aria-label="Next selected file" title="Next" ${index === entries.length - 1 ? 'disabled' : ''}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg><span class="sr-only">Next</span></button>
       </div>
@@ -2095,6 +2128,7 @@
       }
       field.value = value;
     });
+    updateJblOutcomeRequirements();
     el('jbl-reason-code')?.dispatchEvent(new Event('change', {bubbles: true}));
     if (jblLocationRefresh && ('jbl-county' in draft.values || 'jbl-sub-county' in draft.values)) {
       jblLocationRefresh(draft.values['jbl-county'] || '', draft.values['jbl-sub-county'] || '');
@@ -2326,6 +2360,34 @@
     el('sheet-sub').textContent = held ? 'Save intake for HB follow-up.' : 'Add customer details, then log the first JBL visit.';
   }
 
+  function updateJblOutcomeRequirements({ changed = false } = {}) {
+    const status = el('jbl-status')?.value || '';
+    const forward = Boolean(state().jblVisitRequirements?.[status]?.forward ?? JBL_FORWARD_VISIT_STATUSES.has(status));
+    const occurrence = el('jbl-visit-occurred');
+    if (!occurrence) return;
+    if (changed) occurrence.value = forward ? 'true' : 'false';
+    occurrence.disabled = forward;
+    const physical = forward || occurrence.value === 'true';
+    document.querySelectorAll('[data-jbl-field="visit_date"], [data-jbl-physical]').forEach(node => { node.hidden = !physical; });
+    ['county', 'sub_county', 'village'].forEach(field => {
+      const row = document.querySelector(`[data-jbl-field="${field}"]`);
+      if (row) {
+        row.hidden = !forward && !state().selectedFarmer?.is_new_jbl_lead;
+        const input = row.querySelector('input,select');
+        input.required = forward || Boolean(state().selectedFarmer?.is_new_jbl_lead);
+        input.setAttribute('aria-required', String(input.required));
+      }
+    });
+    el('jbl-date-display')?.setAttribute('aria-required', String(physical));
+    document.querySelector('[data-jbl-forward]')?.toggleAttribute('hidden', !forward);
+    const details = el('jbl-evidence-details');
+    if (details) details.open = forward;
+    if (el('jbl-evidence-summary')) el('jbl-evidence-summary').textContent = forward ? 'Required visit evidence and location' : 'Optional evidence';
+    if (el('jbl-outcome-help')) el('jbl-outcome-help').textContent = forward ? 'A physical visit, full deposit, location and complete evidence are required to forward.' : 'Outcome only saves the decision without adding a visit date or visit credit.';
+    const button = el('btn-submit-jbl');
+    if (button) button.textContent = button.dataset.mainAction = physical ? 'Save visit outcome' : 'Save outcome';
+  }
+
   function validateJblVisitFields() {
     const errors = {};
     if (state().selectedFarmer?.is_new_jbl_lead) {
@@ -2342,15 +2404,18 @@
     }
     const status = el('jbl-status')?.value || '';
     if (!status) errors.visit_status = 'Select the JBL visit outcome.';
-    if (!el('jbl-date')?.value) errors.visit_date = 'Enter the JBL visit date.';
-    if (!el('jbl-county')?.value) errors.county = 'Choose the county where this visit was done.';
-    if (!el('jbl-sub-county')?.value) errors.sub_county = 'Choose the constituency where this visit was done.';
-    const village = el('jbl-village')?.value.trim() || '';
-    if (!village) errors.village = 'Enter the village.';
-    else if (village.length > 255) errors.village = 'Village must be 255 characters or fewer.';
+    const forward = JBL_FORWARD_VISIT_STATUSES.has(status);
+    if ((forward || el('jbl-visit-occurred')?.value === 'true') && !el('jbl-date')?.value) errors.visit_date = 'Enter the JBL visit date.';
+    if (forward) {
+      if (!el('jbl-county')?.value) errors.county = 'Choose the county where this visit was done.';
+      if (!el('jbl-sub-county')?.value) errors.sub_county = 'Choose the constituency where this visit was done.';
+      const village = el('jbl-village')?.value.trim() || '';
+      if (!village) errors.village = 'Enter the village.';
+      else if (village.length > 255) errors.village = 'Village must be 255 characters or fewer.';
+    }
     Object.entries(jblDocumentSlots).forEach(([category, slots]) => {
       const existing = Number(state().selectedFarmer?.visit_evidence?.[category] || 0);
-      if ((JBL_FORWARD_VISIT_STATUSES.has(status) && !existing) || jblMediaSelections[category].length) slots.forEach((field, side) => {
+      if (forward && !jblMediaSelections[category].some(item => item.complete) && (!existing || jblMediaSelections[category].length)) slots.forEach((field, side) => {
         if (!jblMediaSelections[category].some(item => item.side === side)) errors[field] = `Capture ${category === 'CLIENT_ID' ? 'Client ID' : 'LAF'} ${jblDocumentLabels[category][side]}.`;
       });
     });
@@ -2412,10 +2477,10 @@
   // Media capture belongs to both Create lead and existing visits. Recovery
   // wiring is separate: an unsaved lead has no server draft to restore/save.
   function wireJblVisitMedia(farmer) {
-    ['jbl-id-media', 'jbl-id-media-2', 'jbl-laf-media', 'jbl-laf-media-2', 'jbl-visit-photo-media'].forEach(id => {
+    ['jbl-id-media', 'jbl-id-media-2', 'jbl-id-media-complete', 'jbl-laf-media', 'jbl-laf-media-2', 'jbl-laf-media-complete', 'jbl-visit-photo-media'].forEach(id => {
       el(id)?.addEventListener('change', () => {
         const input = el(id);
-        addJblMediaFiles(input?.dataset.mediaCategory, input?.files, { side: input?.dataset.mediaSide !== undefined ? Number(input.dataset.mediaSide) : null });
+        addJblMediaFiles(input?.dataset.mediaCategory, input?.files, { side: input?.dataset.mediaSide !== undefined ? Number(input.dataset.mediaSide) : null, upload: id.endsWith('-complete') });
         if (input) input.value = '';
         if (!farmer.is_new_jbl_lead) {
           jblDraftInputVersion += 1;
@@ -2424,6 +2489,11 @@
       });
     });
     el('sheet-form')?.querySelector('.media-upload-control')?.addEventListener('click', event => {
+      const swap = event.target.closest('[data-swap-document]');
+      if (swap) {
+        jblMediaSelections[swap.dataset.swapDocument].forEach(item => { item.side = 1 - item.side; });
+        renderJblMediaSelections(); return;
+      }
       const cameraButton = event.target.closest('[data-camera-category]');
       if (cameraButton) {
         startJblLiveCamera(cameraButton.dataset.cameraCategory, { side: cameraButton.dataset.cameraSide !== undefined ? Number(cameraButton.dataset.cameraSide) : null });
@@ -2457,7 +2527,7 @@
         openSelectedJblMediaPreview(previewItem.dataset.mediaItemId);
         return;
       }
-      const sourceButton = event.target.closest('.jbl-media-icon-button');
+      const sourceButton = event.target.closest('.jbl-media-icon-button, .jbl-slot-picker[data-input-id]');
       if (!sourceButton || !['Enter', ' '].includes(event.key)) return;
       event.preventDefault();
       if (sourceButton.getAttribute('aria-disabled') !== 'true') el(sourceButton.dataset.inputId)?.click();
@@ -3185,23 +3255,25 @@
     const farmer = state().selectedFarmer;
     if (!farmer) return;
     if (el('jbl-status')?.value === 'Withdrawn') return submitStageWithdrawal(farmer, el('jbl-comment')?.value, el('btn-submit-jbl'));
-    const isNewLead = Boolean(farmer.is_new_jbl_lead);
+    const isNewLead = Boolean(farmer.is_new_jbl_lead && !savedJblOutcomeSubmission);
     const heldIntake = officeDepositHeld();
     if (pendingJblWorkflowConflict) {
       el('jbl-workflow-conflict')?.focus();
       deps.showToast('Review the latest case before submitting this draft.', 'error');
       return;
     }
-    if (!isNewLead && await reconcilePersistedJblSubmission(farmer)) return;
+    if (!savedJblOutcomeSubmission && !isNewLead && await reconcilePersistedJblSubmission(farmer)) return;
     const visitStatus = el('jbl-status')?.value || '';
-    const fields = portalFormErrors();
-    if (!heldIntake && !commitJblDisplayDate({ showError: false })) fields.visit_date = 'Enter a valid visit date in dd-mm-yy format.';
+    const physical = JBL_FORWARD_VISIT_STATUSES.has(visitStatus) || el('jbl-visit-occurred')?.value === 'true';
+    const forward = JBL_FORWARD_VISIT_STATUSES.has(visitStatus);
+    const fields = savedJblOutcomeSubmission ? {} : portalFormErrors();
+    if (physical && !heldIntake && !commitJblDisplayDate({ showError: false })) fields.visit_date = 'Enter a valid visit date in dd-mm-yy format.';
     if (showJblFieldErrors(fields)) return;
     const visitReason = heldIntake ? '' : validateDecisionReason('jbl', visitStatus);
     if (visitReason === null) return;
 
     stopJblLiveCamera();
-    if (!heldIntake && !selectedJblFilesAreValid()) return;
+    if (forward && !heldIntake && !selectedJblFilesAreValid()) return;
     if (!navigator.onLine) {
       deps.showToast('You are offline. Keep the form open and retry when connected.', 'error');
       return;
@@ -3212,7 +3284,7 @@
       farmerId: String(farmer.id || ''),
       revision: Number(farmer.workflow_revision || 1),
       visitDate: el('jbl-date')?.value || '',
-      visitStatus,
+      visitStatus, physical,
       officer: el('jbl-officer')?.value || '',
       county: el('jbl-county')?.value || '',
       subCounty: el('jbl-sub-county')?.value || '',
@@ -3237,12 +3309,13 @@
     const priorSubmission = pendingJblVisitSubmission?.signature === submissionSignature
       ? pendingJblVisitSubmission
       : persistedSubmission?.signature === submissionSignature ? persistedSubmission : null;
-    const key = priorSubmission?.key || requestId();
+    const key = savedJblOutcomeSubmission?.key || priorSubmission?.key || requestId();
     pendingJblVisitSubmission = { signature: submissionSignature, key };
     if (!isNewLead) sessionStorage.setItem(`portal:jbl:submission:${farmer.id}`, JSON.stringify(pendingJblVisitSubmission));
     formData.set('client_request_id', key);
     formData.set('workflow_revision', String(Number(farmer.workflow_revision || 1)));
-    formData.set('visit_date', el('jbl-date')?.value || '');
+    formData.set('visit_occurred', String(physical));
+    formData.set('visit_date', physical ? el('jbl-date')?.value || '' : '');
     formData.set('visit_status', visitStatus);
     formData.set('reason_code', visitReason);
     formData.set('officer', el('jbl-officer')?.value || '');
@@ -3263,7 +3336,7 @@
     formData.set('location_unavailable_reason', el('jbl-location-unavailable')?.value || '');
     Object.entries(jblDocumentSlots).forEach(([category, slots]) => {
       if (heldIntake) return;
-      jblMediaSelections[category].forEach(item => formData.append(slots[item.side], item.file));
+      jblMediaSelections[category].forEach(item => formData.append(item.complete ? (category === 'CLIENT_ID' ? 'client_id_files' : 'laf_files') : slots[item.side], item.file));
     });
     if (!heldIntake) jblMediaSelections.JBL_VISIT_PHOTO.forEach(item => formData.append('jbl_visit_photo_files', item.file));
     el('sheet-form')?.querySelectorAll('.jbl-media-icon-button, .jbl-media-preview-open, .jbl-media-remove').forEach(control => {
@@ -3299,7 +3372,7 @@
         // response. Keep the exact request key and form so retry is safe.
       }
       if (check.ok && check.data?.completed) {
-        response = { ok: true, data: { ok: true, already_completed: true, stored_count: 0 } };
+        response = { ok: true, data: { ...check.data, ok: true, already_completed: true, stored_count: 0, evidence_pending: !forward && jblMediaItems().length > 0, errors: [{error: 'Outcome confirmed. Retry to confirm the selected evidence.'}] } };
       } else {
         deps.showToast('The visit was not confirmed. Your form is still here; retry to safely continue the same request.', 'warning');
         return;
@@ -3332,7 +3405,24 @@
     pendingJblVisitSubmission = null;
     if (!isNewLead) sessionStorage.removeItem(`portal:jbl:submission:${farmer.id}`);
     const uploaded = Number(data.stored_count || 0);
-    const successMessage = data.intake_saved && data.visit_logged === false ? 'Lead saved; awaiting HB deposit. No JBL visit recorded.' : data.already_completed ? 'This visit was already saved.' : `JBL visit logged${uploaded ? ` with ${uploaded} new evidence file${uploaded === 1 ? '' : 's'}` : ''}.`;
+    if (data.farmer) Object.assign(farmer, data.farmer);
+    (data.successful_categories || []).forEach(category => {
+      jblMediaSelections[category].forEach(revokeJblThumbnail);
+      jblMediaSelections[category] = [];
+    });
+    if (data.evidence_pending) {
+      savedJblOutcomeSubmission = {key};
+      const notice = el('jbl-evidence-pending');
+      notice.hidden = false;
+      notice.textContent = 'Outcome saved. Evidence still pending: ' + (data.errors || []).map(item => item.error).join(' ') + ' Your selected files remain here. Retry evidence or close this form.';
+      el('jbl-evidence-details').open = true;
+      el('sheet-form').querySelectorAll('input:not([type="file"]),select,textarea').forEach(input => { input.disabled = true; });
+      btn.textContent = btn.dataset.mainAction = 'Retry evidence only';
+      renderJblMediaSelections();
+      deps.showToast('Outcome saved. Optional evidence needs attention.', 'warning');
+      return;
+    }
+    const successMessage = data.intake_saved && data.visit_logged === false ? 'Lead saved; awaiting HB deposit. No JBL visit recorded.' : data.visit_logged === false ? 'Outcome saved. No physical visit recorded.' : data.already_completed ? 'This visit was already saved.' : `JBL visit logged${uploaded ? ` with ${uploaded} new evidence file${uploaded === 1 ? '' : 's'}` : ''}.`;
     if (!isNewLead) await clearJblVisitDraft(farmer);
     closeSheet({ saveDraft: false });
     await Promise.all([deps.reloadCurrentQueue(), deps.loadDashboard()]);

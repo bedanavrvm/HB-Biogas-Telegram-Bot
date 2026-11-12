@@ -484,7 +484,9 @@ def _apply_portal_search(qs, *, params):
 
 def _apply_portal_ordering(qs, *, params):
     """Allow only the private workspace's safe alternate ordering."""
-    return qs.order_by('-created_at') if str(params.get('ordering') or '').strip() == 'newest' else qs
+    if str(params.get('ordering') or '').strip() == 'newest':
+        return qs.order_by('_deposit_held', '-created_at', 'pk') if '_deposit_held' in qs.query.annotations else qs.order_by('-created_at')
+    return qs
 
 
 PORTAL_VIEW_ROLES = {'viewer', 'jbl_officer', 'credit_analyst', 'head_rural', 'operations'}
@@ -2345,6 +2347,7 @@ def portal_performance(request):
 PORTAL_JBL_VISIT_DRAFT_FIELDS = (
     'jbl-date',
     'jbl-status',
+    'jbl-visit-occurred',
     'jbl-reason-code',
     'jbl-officer',
     'jbl-county',
@@ -2367,6 +2370,7 @@ def portal_meta(request):
     from core.models import JawabuApprovalDelegation, JawabuFarmerMaster
     from core.services.location_catalog import location_options
     from core.services.access_control import policy_version
+    from core.services.jawabu_pipeline import JBL_VISIT_OUTCOMES, jbl_visit_requirements
     location_catalog = location_options(
         user=getattr(request, 'portal_user', None),
         access=getattr(request, 'portal_access', None),
@@ -2412,6 +2416,8 @@ def portal_meta(request):
             'Rejected by JBL', 'Opted for Cash', 'Opted for Other Partner',
         ],
         'jbl_visit_draft_fields': list(PORTAL_JBL_VISIT_DRAFT_FIELDS),
+        'jbl_visit_requirements': {status: jbl_visit_requirements(status, visit_occurred=False)
+                                   for status in JBL_VISIT_OUTCOMES},
         'credit_decisions': [c[0] for c in JawabuFarmerMaster.CREDIT_DECISION_CHOICES],
         'approval_reasons': [
             {'value': value, 'label': label} for value, label in REASON_CODES
@@ -3829,6 +3835,7 @@ def portal_log_jbl_visit(request, farmer_id: str):
 _PORTAL_JBL_VISIT_DRAFT_FIELD_LIMITS = {
     'jbl-date': 32,
     'jbl-status': 80,
+    'jbl-visit-occurred': 5,
     'jbl-reason-code': 8,
     'jbl-officer': 255,
     'jbl-county': 255,
@@ -4114,9 +4121,12 @@ def portal_complete_jbl_visit(request, farmer_id: str):
     # retry with the same bound request key must reconcile to that success
     # before inspecting files or a voice token that the first request already
     # consumed.
+    replay = None
     if request_id:
-        from core.services.jawabu_case360 import event_request_already_processed
-        if event_request_already_processed(farmer, request_id):
+        replay = farmer.pipeline_events.filter(request_id=request_id).first()
+        if replay and replay.action not in {'jbl_visit_completed', 'jbl_outcome_recorded'}:
+            return JsonResponse({'ok': False, 'error': 'This submission key belongs to a different case action.'}, status=409)
+        if replay and not request.FILES:
             farmer.refresh_from_db()
             return JsonResponse({
                 'ok': True,
@@ -4125,11 +4135,12 @@ def portal_complete_jbl_visit(request, farmer_id: str):
                 'voice_cleanup_pending': False,
                 'already_completed': True,
                 'evidence_saved': True,
-                'visit_logged': True,
+                'visit_logged': replay.action == 'jbl_visit_completed',
+                'outcome_saved': True,
                 'stored_count': 0,
             })
     voice_attempt_id = str(body.get('voice_transcription_id') or '').strip()
-    if voice_attempt_id:
+    if voice_attempt_id and not replay:
         try:
             from core.services.portal_voice import validate_transcription_reference
             validate_transcription_reference(
@@ -4143,17 +4154,23 @@ def portal_complete_jbl_visit(request, farmer_id: str):
     except ValueError as exc:
         response = _portal_workflow_error(exc)
         return response or JsonResponse({'ok': False, 'error': str(exc)}, status=400)
-    visit_date_raw = str(body.get('visit_date') or '').strip()
+    occurrence = str(body.get('visit_occurred', 'true')).strip().lower()
+    if occurrence not in {'true', 'false'}:
+        return JsonResponse({'ok': False, 'error': 'Choose whether a physical visit occurred.'}, status=400)
+    visit_occurred = occurrence == 'true'
+    visit_status = str(body.get('visit_status') or '').strip()
+    forward = visit_status in JBL_FORWARD_STATUSES
+    visit_date_raw = str(body.get('visit_date') or '').strip() if visit_occurred else ''
     try:
-        visit_date = _date.fromisoformat(visit_date_raw) if visit_date_raw else timezone.localdate()
+        visit_date = _date.fromisoformat(visit_date_raw) if visit_date_raw else None
     except ValueError:
         error = 'Visit date must use YYYY-MM-DD.'
         return JsonResponse({
             'ok': False, 'error': error, 'code': 'invalid_visit_date',
             'field_errors': {'visit_date': error},
         }, status=400)
-    latitude = body.get('capture_latitude') or body.get('latitude')
-    longitude = body.get('capture_longitude') or body.get('longitude')
+    latitude = (body.get('capture_latitude') or body.get('latitude')) if forward else None
+    longitude = (body.get('capture_longitude') or body.get('longitude')) if forward else None
     try:
         latitude = float(latitude) if latitude is not None and str(latitude).strip() else None
         longitude = float(longitude) if longitude is not None and str(longitude).strip() else None
@@ -4165,35 +4182,37 @@ def portal_complete_jbl_visit(request, farmer_id: str):
         }, status=400)
     getlist = getattr(request.FILES, 'getlist', None)
     categorized_files = {
+        'CLIENT_ID': getlist('client_id_files') if getlist else [],
+        'LAF': getlist('laf_files') if getlist else [],
         'CLIENT_ID_FRONT': getlist('client_id_front') if getlist else [],
         'CLIENT_ID_BACK': getlist('client_id_back') if getlist else [],
         'LAF_PAGE_1': getlist('laf_page_1') if getlist else [],
         'LAF_PAGE_2': getlist('laf_page_2') if getlist else [],
         'JBL_VISIT_PHOTO': getlist('jbl_visit_photo_files') if getlist else [],
     }
-    if getlist and getlist('laf_files'):
-        return JsonResponse({'ok': False, 'error': 'Refresh the app and capture both LAF pages.',
-                             'code': 'visit_document_capture_upgrade_required'}, status=426)
-    visit_status = str(body.get('visit_status') or '').strip()
     if (reason_error := _portal_pipeline_reason_error(body, visit_status, body.get('comment', ''))):
         return reason_error
     # A rejected or deferred visit can be recorded without evidence.  Require
     # the separate media capability only when this request writes evidence, or
     # when the selected outcome must carry evidence to move the case forward.
-    if any(categorized_files.values()) or visit_status in JBL_FORWARD_STATUSES:
+    optional_media_error = False
+    if any(categorized_files.values()) or forward:
         media_error = _portal_capability_error(request, 'portal.jbl_media.write', farmer)
         if media_error:
-            return media_error
+            if forward:
+                return media_error
+            optional_media_error = True
+            categorized_files = {}
     valid_batch, batch_error, batch_code = validate_jbl_visit_upload_batch(categorized_files)
-    if not valid_batch:
+    if not valid_batch and forward:
         return JsonResponse({
             'ok': False, 'error': batch_error, 'code': batch_code,
             'field_errors': {'jbl_visit_photo_files': batch_error},
         }, status=400)
     location_errors = {}
-    if not str(body.get('county') or '').strip():
+    if forward and not str(body.get('county') or '').strip():
         location_errors['county'] = 'Choose the county where this visit was done.'
-    if not str(body.get('sub_county') or '').strip():
+    if forward and not str(body.get('sub_county') or '').strip():
         location_errors['sub_county'] = 'Choose the constituency where this visit was done.'
     if location_errors:
         return JsonResponse({'ok': False, 'error': 'Choose the visit county and constituency.',
@@ -4204,6 +4223,7 @@ def portal_complete_jbl_visit(request, farmer_id: str):
             farmer,
             categorized_files=categorized_files,
             visit_date=visit_date,
+            visit_occurred=visit_occurred,
             visit_status=visit_status,
             reason_code=str(body.get('reason_code') or '').strip().casefold(),
             officer=str(body.get('officer') or '').strip() or sender,
@@ -4234,9 +4254,11 @@ def portal_complete_jbl_visit(request, farmer_id: str):
             'field_errors': _portal_jbl_visit_field_errors(error, result),
             **result,
         }, status=409 if result.get('evidence_saved') else 400)
+    if optional_media_error:
+        result.update(evidence_pending=True, evidence_saved=False, errors=[{'error': 'Your outcome is saved. Media upload permission is required to attach the selected files.'}])
     farmer.refresh_from_db()
     voice_cleanup_pending = False
-    if voice_attempt_id:
+    if voice_attempt_id and not replay:
         try:
             from core.services.portal_voice import resolve_transcription
             resolve_transcription(
@@ -5026,7 +5048,6 @@ def portal_credit_queue(request):
 def portal_jbl_visit_completion_status(request, farmer_id: str):
     """Resolve an interrupted mobile response without repeating attachments."""
     from core.models import JawabuFarmerMaster
-    from core.services.jawabu_case360 import event_request_already_processed
     from core.services.jawabu_pipeline import farmer_to_card
 
     farmer = JawabuFarmerMaster.objects.filter(pk=farmer_id).first()
@@ -5038,10 +5059,12 @@ def portal_jbl_visit_completion_status(request, farmer_id: str):
     request_id = str(request.GET.get('request_id') or '').strip()
     if not request_id:
         return JsonResponse({'ok': False, 'error': 'The visit request key is required.'}, status=400)
-    completed = event_request_already_processed(farmer, request_id)
+    event = farmer.pipeline_events.filter(request_id=request_id, action__in=['jbl_visit_completed', 'jbl_outcome_recorded']).first()
+    completed = event is not None
     return JsonResponse({
         'ok': True,
         'completed': completed,
+        'visit_logged': bool(event and event.action == 'jbl_visit_completed'),
         'farmer': farmer_to_card(farmer) if completed else None,
         'outcome': farmer.jbl_visit_status if completed else '',
     })
@@ -8036,8 +8059,12 @@ def portal_create_and_complete_jbl_lead(request):
         except DepositError as exc:
             errors['deposit_paid_hbg'] = str(exc)
     held_intake = deposit_paid_hbg is None or deposit_paid_hbg < REQUIRED_DEPOSIT
+    visit_occurred = str(body.get('visit_occurred', 'true')).lower()
+    if visit_occurred not in {'true', 'false'}:
+        errors['visit_occurred'] = 'Choose whether a physical visit occurred.'
+    visit_occurred = visit_occurred == 'true'
     visit_date = None
-    if not held_intake:
+    if not held_intake and visit_occurred:
         try: visit_date = _date.fromisoformat(str(body.get('visit_date') or '').strip())
         except ValueError: errors['visit_date'], visit_date = 'Visit date must use YYYY-MM-DD.', None
     if errors:
@@ -8058,6 +8085,7 @@ def portal_create_and_complete_jbl_lead(request):
         return JsonResponse({'ok': False, 'error': 'Capture the visit location again.', 'field_errors': {'capture_location': 'The captured GPS coordinates are invalid.'}}, status=400)
     getlist = request.FILES.getlist
     categorized_files = {key: getlist(field) for key, field in {
+        'CLIENT_ID': 'client_id_files', 'LAF': 'laf_files',
         'CLIENT_ID_FRONT': 'client_id_front', 'CLIENT_ID_BACK': 'client_id_back',
         'LAF_PAGE_1': 'laf_page_1', 'LAF_PAGE_2': 'laf_page_2', 'JBL_VISIT_PHOTO': 'jbl_visit_photo_files',
     }.items()}
@@ -8119,7 +8147,7 @@ def portal_create_and_complete_jbl_lead(request):
             }, status=201 if created_lead else 200)
     try:
         ok, error, result = complete_jbl_visit(
-            farmer, categorized_files=categorized_files, visit_date=visit_date, visit_status=visit_status,
+            farmer, categorized_files=categorized_files, visit_date=visit_date, visit_status=visit_status, visit_occurred=visit_occurred,
             reason_code=str(body.get('reason_code') or '').strip().casefold(),
             officer=str(body.get('officer') or '').strip() or _portal_sender_from_request(request), comment=str(body.get('comment') or '').strip(),
             sender=_portal_sender_from_request(request), latitude=latitude, longitude=longitude,

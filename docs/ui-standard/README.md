@@ -1,5 +1,8 @@
 # Mini App Design Lab
 
+JBL outcome-driven requirements, complete-document upload and evidence-only retry
+reuse current Portal controls. [Source and local evidence](reviews/2026-11-12-jbl-outcome-documents.md).
+
 Historical workbook updates reuse the Legacy Import comparison and bulk-selection
 workspace. See the [source and evidence record](reviews/2026-11-06-legacy-update-import.md).
 

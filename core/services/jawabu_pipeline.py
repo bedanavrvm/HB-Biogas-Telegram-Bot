@@ -422,15 +422,17 @@ def jbl_visit_queue(search: str = '', *, status=None):
     selected = set(status if isinstance(status, (list, tuple, set)) else [status]) - {None, ''}
     if selected and not selected <= {'deposit_pending', 'awaiting_visit'}:
         return qs.none()
+    from hb_operations.deposits import deposit_queryset, REQUIRED_DEPOSIT
+    qs = deposit_queryset(qs)
+    unforwarded = Q(jbl_visit_date__isnull=True) | Q(jbl_visit_status__in=['Rescheduled', 'Deferred / On Hold'])
+    sufficient = Q(_deposit_total__gte=REQUIRED_DEPOSIT) | ~unforwarded
+    held = unforwarded & (Q(_deposit_total__lt=REQUIRED_DEPOSIT) | Q(_deposit_total__isnull=True))
+    qs = qs.annotate(_deposit_held=Case(When(held, then=Value(1)), default=Value(0)))
     if len(selected) == 1:
-        from hb_operations.deposits import deposit_queryset, REQUIRED_DEPOSIT
-        qs = deposit_queryset(qs)
-        sufficient = Q(_deposit_total__gte=REQUIRED_DEPOSIT) | Q(jbl_visit_date__isnull=False)
-        held = Q(jbl_visit_date__isnull=True) & (Q(_deposit_total__lt=REQUIRED_DEPOSIT) | Q(_deposit_total__isnull=True))
         qs = qs.filter(sufficient if 'awaiting_visit' in selected else held)
     # The operational hand-off starts with the oldest HBG visit. County is
     # not a workflow ordering key and caused records to appear out of sequence.
-    return qs.order_by(F('hbg_visit_date').asc(nulls_last=True), 'sign_date', 'customer_name')
+    return qs.order_by('_deposit_held', F('hbg_visit_date').asc(nulls_last=True), 'sign_date', 'customer_name', 'pk')
 
 
 
@@ -604,6 +606,69 @@ def _jbl_visit_village_error(farmer, village):
     return ''
 
 
+def jbl_visit_requirements(visit_status, visit_occurred=True):
+    forward = visit_status in JBL_FORWARD_STATUSES
+    return {'physical_visit': forward or visit_occurred, 'forward': forward,
+            'location': forward, 'documents': forward, 'deposit': forward}
+
+
+def _validate_jbl_visit_facts(farmer, *, visit_date, visit_status, visit_occurred,
+                              county, sub_county, village, actor_user, request_id,
+                              location_override_reason='', record_policy_event=False):
+    from core.services.jawabu_validation import parse_business_date
+    if visit_status == JBL_SCHEDULING_STATUS:
+        return None, None, 'Choose the outcome of the JBL visit before logging it.'
+    if visit_status not in JBL_VISIT_OUTCOMES:
+        return None, None, 'Choose a valid JBL outcome.'
+    requirements = jbl_visit_requirements(visit_status, visit_occurred)
+    if requirements['forward'] and not visit_occurred:
+        return None, None, 'A physical visit is required before forwarding to credit.'
+    normalized_date = None
+    if requirements['physical_visit']:
+        normalized_date = visit_date if isinstance(visit_date, date) else parse_business_date(visit_date)
+        hbg_date = farmer.hbg_visit_date or parse_business_date(farmer.sign_date)
+        if normalized_date is None:
+            return None, None, 'A valid JBL visit date is required.'
+        if hbg_date and normalized_date < hbg_date:
+            return None, None, 'JBL visit date cannot be earlier than the HBG visit date.'
+        if normalized_date > timezone.localdate():
+            return None, None, 'JBL visit date cannot be later than today.'
+    location = None
+    if requirements['forward']:
+        from hb_operations.deposits import visit_deposit_error
+        if error := visit_deposit_error(farmer):
+            return None, None, error
+        if error := _jbl_visit_village_error(farmer, village):
+            return None, None, error
+        from core.services.location_catalog import LocationCatalogError, validate_location_selection
+        try:
+            location = validate_location_selection(
+                branch_value=farmer.branch_ref or farmer.branch,
+                county_value=farmer.county if county is None else county,
+                sub_county_value=farmer.sub_county if sub_county is None else sub_county,
+                source_workflow='jawabu_portal', source_model='JawabuFarmerMaster',
+                source_record_id=farmer.pk, actor=actor_user, request_id=request_id,
+                override_reason=location_override_reason, record_policy_event=record_policy_event,
+            )
+        except LocationCatalogError as exc:
+            return None, None, str(exc)
+    return normalized_date, location, ''
+
+
+def last_physical_jbl_visit(farmer, events=None):
+    """Keep telephone outcomes from relabelling an earlier physical visit in reports."""
+    if events is None:
+        events = farmer.pipeline_events.filter(action__in=['jbl_visit_completed', 'jbl_outcome_recorded']).order_by('occurred_at', 'created_at')
+    relevant = [event for event in events if event.action in {'jbl_visit_completed', 'jbl_outcome_recorded'}]
+    if relevant:
+        latest = relevant[-1]
+        if latest.action == 'jbl_outcome_recorded':
+            return (latest.metadata or {}).get('last_physical_visit') or {}
+        return latest.new_values or {}
+    return {'visit_date': farmer.jbl_visit_date.isoformat() if farmer.jbl_visit_date else None,
+            'status': farmer.jbl_visit_status, 'officer': farmer.jbl_officer}
+
+
 @transaction.atomic
 def log_jbl_visit(
     farmer: JawabuFarmerMaster,
@@ -611,6 +676,7 @@ def log_jbl_visit(
     visit_date: date,
     officer: str,
     visit_status: str,
+    visit_occurred: bool = True,
     reason_code: str = '',
     comment: str = '',
     sender: str = '',
@@ -637,56 +703,30 @@ def log_jbl_visit(
     source_farmer = farmer
     locked = JawabuFarmerMaster.objects.select_for_update().get(pk=farmer.pk)
     replay = locked.pipeline_events.filter(request_id=request_id).first() if request_id else None
-    if replay and replay.action != 'jbl_visit_completed':
+    if replay and replay.action not in {'jbl_visit_completed', 'jbl_outcome_recorded'}:
         return False, 'This submission key was already used for a different case action.'
     if replay:
         source_farmer.refresh_from_db()
         return True, ''
     validate_workflow_revision(locked, expected_revision)
     farmer = locked
-    from hb_operations.deposits import visit_deposit_error
-    if deposit_error := visit_deposit_error(farmer):
-        return False, deposit_error
     if not _is_actionable_at_stage(farmer, JawabuWorkflowState.JBL_VISIT, deferred_stage='jbl_visit'):
         return False, _wrong_stage_message(farmer, JawabuWorkflowState.JBL_VISIT)
-    # Validate status value
-    if visit_status == JBL_SCHEDULING_STATUS:
-        return False, 'Choose the outcome of the JBL visit before logging it.'
-    if visit_status not in JBL_VISIT_OUTCOMES:
-        return False, f"Invalid JBL visit status: '{visit_status}'"
-    village_error = _jbl_visit_village_error(farmer, village)
-    if village_error:
-        return False, village_error
-
-    # HBG is always the first field visit in this workflow. Reject a JBL
-    # visit dated before that hand-off instead of allowing the timeline to
-    # become chronologically impossible.
-    from core.services.jawabu_validation import parse_business_date
-    hbg_visit_date = farmer.hbg_visit_date or parse_business_date(farmer.sign_date)
-    jbl_visit_date = visit_date if isinstance(visit_date, date) else parse_business_date(visit_date)
-    if hbg_visit_date and jbl_visit_date and jbl_visit_date < hbg_visit_date:
-        return False, 'JBL visit date cannot be earlier than the HBG visit date.'
-    if jbl_visit_date is None:
-        return False, 'A valid JBL visit date is required.'
-    if jbl_visit_date > timezone.localdate():
-        return False, 'JBL visit date cannot be later than today.'
-    visit_date = jbl_visit_date
-
-    from core.services.location_catalog import LocationCatalogError, validate_location_selection
-    try:
-        branch_record, county_record, sub_county_record = validate_location_selection(
-            branch_value=farmer.branch_ref or farmer.branch,
-            county_value=farmer.county if county is None else county,
-            sub_county_value=farmer.sub_county if sub_county is None else sub_county,
-            source_workflow='jawabu_portal',
-            source_model='JawabuFarmerMaster',
-            source_record_id=farmer.pk,
-            actor=actor_user,
-            override_reason=location_override_reason,
-            request_id=request_id,
-        )
-    except LocationCatalogError as exc:
-        return False, str(exc)
+    visit_date, location, error = _validate_jbl_visit_facts(
+        farmer, visit_date=visit_date, visit_status=visit_status, visit_occurred=visit_occurred,
+        county=county, sub_county=sub_county, village=village, actor_user=actor_user,
+        request_id=request_id, location_override_reason=location_override_reason, record_policy_event=True,
+    )
+    if error:
+        return False, error
+    if location:
+        branch_record, county_record, sub_county_record = location
+    else:
+        # Negative outcomes do not edit the customer's governed location.
+        county = sub_county = village = None
+        branch_record, county_record, sub_county_record = farmer.branch_ref, farmer.county_ref, farmer.sub_county_ref
+    if not visit_occurred:
+        latitude = longitude = None
 
     # A forward visit is only meaningful when the required evidence exists.
     # The upload endpoint is idempotent, so callers can safely upload first
@@ -704,17 +744,16 @@ def log_jbl_visit(
     prior_state = current_workflow_state(farmer)
     visit_before = {'visit_date': farmer.jbl_visit_date.isoformat() if farmer.jbl_visit_date else None,
                     'status': farmer.jbl_visit_status, 'comment': farmer.jbl_visit_comment}
-    farmer.jbl_visit_date = visit_date
-    farmer.jbl_officer = str(officer or sender or '').strip()
+    physical_before = last_physical_jbl_visit(farmer)
+    if visit_occurred:
+        farmer.jbl_visit_date = visit_date
+        farmer.jbl_officer = str(officer or sender or '').strip()
     farmer.jbl_visit_status = visit_status
     farmer.jbl_visit_comment = str(comment or '').strip()
 
     if visit_status == 'Deferred / On Hold':
         _set_deferral(farmer, 'jbl_visit', sender or officer, request_id)
         next_state = JawabuWorkflowState.DEFERRED
-    elif farmer.deferred_stage == 'jbl_visit':
-        _clear_deferral(farmer, sender or officer, request_id)
-        next_state = JawabuWorkflowState.CREDIT if visit_status in JBL_FORWARD_STATUSES else JawabuWorkflowState.JBL_VISIT
     elif visit_status == 'Rejected by JBL':
         next_state = JawabuWorkflowState.REJECTED
     elif visit_status in {'Opted for Cash', 'Opted for Other Partner'}:
@@ -724,6 +763,8 @@ def log_jbl_visit(
     else:
         next_state = JawabuWorkflowState.JBL_VISIT
 
+    if visit_status != 'Deferred / On Hold' and farmer.deferred_stage == 'jbl_visit':
+        _clear_deferral(farmer, sender or officer, request_id)
     from_state, revision_before, revision_after = _advance_state(
         farmer,
         next_state,
@@ -788,15 +829,18 @@ def log_jbl_visit(
         )
     from core.services.jawabu_case360 import record_pipeline_event
     event = record_pipeline_event(
-        farmer, action='jbl_visit_completed', stage_key='jbl_visit', actor=sender or officer,
+        farmer, action='jbl_visit_completed' if visit_occurred else 'jbl_outcome_recorded', stage_key='jbl_visit', actor=sender or officer,
         request_id=request_id,
         old_values=visit_before,
         new_values={
-            'visit_date': visit_date.isoformat(),
+            'visit_date': visit_date.isoformat() if visit_occurred else None,
+            'visit_occurred': visit_occurred,
+            'officer': farmer.jbl_officer if visit_occurred else '',
             'status': visit_status,
             'reason_code': reason_code,
             'comment': str(comment or '').strip(),
         },
+        metadata={'last_physical_visit': physical_before} if not visit_occurred else {},
         actor_user=actor_user,
         transition_code='jawabu.jbl_visit.record',
         from_state=from_state,
@@ -835,6 +879,7 @@ def preflight_jbl_visit_completion(
     *,
     visit_date: date,
     visit_status: str,
+    visit_occurred: bool = True,
     latitude: float | None = None,
     longitude: float | None = None,
     location_unavailable_reason: str = '',
@@ -856,47 +901,20 @@ def preflight_jbl_visit_completion(
 
     locked = JawabuFarmerMaster.objects.select_for_update().get(pk=farmer.pk)
     replay = locked.pipeline_events.filter(request_id=request_id).first() if request_id else None
-    if replay and replay.action != 'jbl_visit_completed':
+    if replay and replay.action not in {'jbl_visit_completed', 'jbl_outcome_recorded'}:
         return False, 'This submission key was already used for a different case action.', False
     if replay:
         return True, '', True
     validate_workflow_revision(locked, expected_revision)
     if not _is_actionable_at_stage(locked, JawabuWorkflowState.JBL_VISIT, deferred_stage='jbl_visit'):
         return False, _wrong_stage_message(locked, JawabuWorkflowState.JBL_VISIT), False
-    from hb_operations.deposits import visit_deposit_error
-    if deposit_error := visit_deposit_error(locked):
-        return False, deposit_error, False
-    if visit_status == JBL_SCHEDULING_STATUS:
-        return False, 'Choose the outcome of the JBL visit before logging it.', False
-    if visit_status not in JBL_VISIT_OUTCOMES:
-        return False, f"Invalid JBL visit status: '{visit_status}'", False
-    village_error = _jbl_visit_village_error(locked, village)
-    if village_error:
-        return False, village_error, False
-    from core.services.location_catalog import LocationCatalogError, validate_location_selection
-    try:
-        validate_location_selection(
-            branch_value=locked.branch_ref or locked.branch,
-            county_value=locked.county if county is None else county,
-            sub_county_value=locked.sub_county if sub_county is None else sub_county,
-            source_workflow='jawabu_portal',
-            source_model='JawabuFarmerMaster',
-            source_record_id=locked.pk,
-            actor=actor_user,
-            override_reason=location_override_reason,
-            request_id=request_id,
-            record_policy_event=False,
-        )
-    except LocationCatalogError as exc:
-        return False, str(exc), False
-    hbg_visit_date = locked.hbg_visit_date or parse_business_date(locked.sign_date)
-    normalized_date = visit_date if isinstance(visit_date, date) else parse_business_date(visit_date)
-    if normalized_date is None:
-        return False, 'A valid JBL visit date is required.', False
-    if hbg_visit_date and normalized_date < hbg_visit_date:
-        return False, 'JBL visit date cannot be earlier than the HBG visit date.', False
-    if normalized_date > timezone.localdate():
-        return False, 'JBL visit date cannot be later than today.', False
+    _, _, error = _validate_jbl_visit_facts(
+        locked, visit_date=visit_date, visit_status=visit_status, visit_occurred=visit_occurred,
+        county=county, sub_county=sub_county, village=village, actor_user=actor_user,
+        request_id=request_id, location_override_reason=location_override_reason,
+    )
+    if error:
+        return False, error, False
     if visit_status in JBL_FORWARD_STATUSES:
         has_location = latitude is not None and longitude is not None
         if not has_location and not str(location_unavailable_reason or '').strip():
@@ -916,6 +934,7 @@ def complete_jbl_visit(
     visit_date: date,
     officer: str,
     visit_status: str,
+    visit_occurred: bool = True,
     reason_code: str = '',
     comment: str = '',
     sender: str = '',
@@ -942,18 +961,67 @@ def complete_jbl_visit(
         for category, files in (categorized_files or {}).items()
         if files
     }
+    farmer.refresh_from_db()
+    replay = farmer.pipeline_events.filter(request_id=request_id).first() if request_id else None
+    if replay and replay.action not in {'jbl_visit_completed', 'jbl_outcome_recorded'}:
+        return False, 'This submission key belongs to another case action.', {'code': 'idempotency_conflict'}
+    if replay and (replay.new_values or {}).get('status') not in JBL_FORWARD_STATUSES:
+        visit_status = replay.new_values.get('status', '')
+        visit_occurred = replay.action == 'jbl_visit_completed'
+        if categories:
+            validate_workflow_revision(farmer, expected_revision)
+    if visit_status not in JBL_FORWARD_STATUSES:
+        if reason_code and not replay:
+            from core.services.jawabu_approvals import validate_pipeline_reason, JawabuApprovalError
+            try:
+                reason_code = validate_pipeline_reason(decision=visit_status, reason_code=reason_code, comment=comment)
+            except JawabuApprovalError as exc:
+                return False, ' '.join(exc.messages), {'evidence_saved': False}
+        ok, error = log_jbl_visit(
+            farmer, visit_date=visit_date, visit_status=visit_status, visit_occurred=visit_occurred,
+            officer=officer, sender=sender, reason_code=reason_code, comment=comment,
+            request_id=request_id, expected_revision=expected_revision, actor_user=actor_user,
+        )
+        if not ok:
+            return False, error, {'visit_logged': False}
+        # Replaying this same outcome may finish evidence, never a second transition.
+        result = {'stored_count': 0, 'errors': [], 'successful_categories': []}
+        from core.services.jbl_visit_documents import prepare_visit_documents, VisitDocumentError
+        valid, error, _ = validate_jbl_visit_upload_batch(categories)
+        if not valid:
+            result['errors'].append({'error': error})
+        else:
+            from core.services.jbl_visit_documents import DOCUMENT_SLOTS
+            for category in JBL_MEDIA_CATEGORIES:
+                keys = [category, *[slot.upper() for slot in DOCUMENT_SLOTS.get(category, ())]]
+                selected = {key: categories[key] for key in keys if categories.get(key)}
+                if not selected:
+                    continue
+                try:
+                    prepared = prepare_visit_documents(selected)
+                    upload_ok, upload_error, uploaded = append_jbl_media_uploads(
+                        farmer, categorized_files=prepared, sender=sender, actor_user=actor_user,
+                        expected_revision=farmer.workflow_revision, request_id=request_id,
+                    )
+                    result['stored_count'] += int((uploaded or {}).get('stored_count', 0))
+                    if not upload_ok or (uploaded or {}).get('errors'):
+                        result['errors'].append({'category': category, 'error': upload_error or 'Evidence upload incomplete.'})
+                    else:
+                        result['successful_categories'].append(category)
+                except VisitDocumentError as exc:
+                    result['errors'].append({'category': category, 'error': str(exc)})
+                except Exception:
+                    logger.exception('Optional JBL evidence failed after outcome saved farmer=%s category=%s', farmer.pk, category)
+                    result['errors'].append({'category': category, 'error': 'Evidence could not be saved. Retry the evidence upload.'})
+        return True, '', {**result, 'outcome_saved': True, 'visit_logged': visit_occurred,
+                          'evidence_pending': bool(result['errors']), 'evidence_saved': not result['errors']}
     valid_batch, batch_error, batch_code = validate_jbl_visit_upload_batch(categories)
     if not valid_batch:
         return False, batch_error, {'evidence_saved': False, 'code': batch_code}
-    # Reject held cases before local document work or external evidence upload.
-    # Final locked log_jbl_visit repeats this check to close concurrent edits.
+    # A forward replay never needs another upload or workflow transition.
     from hb_operations.deposits import visit_deposit_error
-    farmer.refresh_from_db()
-    replay = farmer.pipeline_events.filter(request_id=request_id).first() if request_id else None
     if replay:
-        if replay.action != 'jbl_visit_completed':
-            return False, 'This submission key was already used for a different case action.', {'evidence_saved': False, 'code': 'idempotency_conflict'}
-        return True, '', {'already_completed': True, 'evidence_saved': True, 'stored_count': 0}
+        return True, '', {'already_completed': True, 'evidence_saved': True, 'visit_logged': True, 'stored_count': 0}
     if deposit_error := visit_deposit_error(farmer):
         return False, deposit_error, {'evidence_saved': False, 'code': 'deposit_required'}
     from core.services.jbl_visit_documents import prepare_visit_documents, VisitDocumentError, DOCUMENT_SLOTS
@@ -969,7 +1037,7 @@ def complete_jbl_visit(
     if not valid_batch:
         return False, batch_error, {'evidence_saved': False, 'code': batch_code}
     ok, error, already_completed = preflight_jbl_visit_completion(
-        farmer, visit_date=visit_date, visit_status=visit_status,
+        farmer, visit_date=visit_date, visit_status=visit_status, visit_occurred=visit_occurred,
         latitude=latitude, longitude=longitude,
         location_unavailable_reason=location_unavailable_reason,
         expected_revision=expected_revision, request_id=request_id,
@@ -1046,6 +1114,7 @@ def complete_jbl_visit(
             visit_date=visit_date,
             officer=officer,
             visit_status=visit_status,
+            visit_occurred=visit_occurred,
             reason_code=reason_code,
             comment=comment,
             sender=sender,
@@ -1614,9 +1683,8 @@ def _validate_jbl_media_files(uploaded_files: list, media_category: str) -> str:
             try:
                 file_obj.seek(0)
                 reader = PdfReader(file_obj)
-                expected = 1 if media_category == 'CLIENT_ID' else 2
-                if reader.is_encrypted or len(reader.pages) != expected:
-                    return f'{JBL_MEDIA_CATEGORIES[media_category]} must be an unencrypted {expected}-page PDF.'
+                if reader.is_encrypted or not 1 <= len(reader.pages) <= 2:
+                    return f'{JBL_MEDIA_CATEGORIES[media_category]} must be an unencrypted one- or two-page PDF.'
             except Exception:
                 return f'{JBL_MEDIA_CATEGORIES[media_category]} could not be read. Choose a valid PDF.'
             finally:

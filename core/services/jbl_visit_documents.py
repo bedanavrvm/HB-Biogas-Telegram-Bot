@@ -73,7 +73,7 @@ def render_document(category: str, images: list[bytes]) -> bytes:
             raise ValueError('Only embedded document images are permitted.')
         return default_url_fetcher(url, *args, **kwargs)
 
-    height = '120mm' if category == 'CLIENT_ID' else '265mm'
+    height = '120mm' if category == 'CLIENT_ID' and len(images) == 2 else '265mm'
     rows = ''.join(
         f'<section><img src="data:image/jpeg;base64,{base64.b64encode(data).decode("ascii")}"></section>'
         for data in images
@@ -93,20 +93,28 @@ def prepare_visit_documents(categorized_files: dict[str, list]) -> dict[str, lis
     prepared = {key: list(value or []) for key, value in categorized_files.items()}
     for category, slots in DOCUMENT_SLOTS.items():
         selected = [prepared.pop(slot.upper(), []) for slot in slots]
-        if not any(selected):
+        complete = prepared.get(category, [])
+        if complete and any(selected):
+            raise VisitDocumentError('Choose either captured pages or a completed document, not both.', slots[0])
+        if complete:
+            if len(complete) != 1:
+                raise VisitDocumentError('Choose one complete document, or two separate captures.', slots[0])
+            if str(complete[0].name).lower().endswith('.pdf'):
+                continue
+            selected = [complete]
+            slots = (slots[0],)
+        elif not any(selected):
             continue
         for slot, files in zip(slots, selected):
             if len(files) != 1:
                 raise VisitDocumentError(f'Add exactly one photo for {SLOT_LABELS[slot]}.', slot)
-        if prepared.get(category):
-            raise VisitDocumentError('Choose either captured pages or a completed document, not both.', slots[0])
         images = [validated_image(files[0], field=slot) for slot, files in zip(slots, selected)]
-        if images[0] == images[1]:
+        if len(images) == 2 and images[0] == images[1]:
             raise VisitDocumentError('Both captures are the same photo. Capture the other side or page.', slots[1])
         try:
             pdf = render_document(category, images)
             reader = PdfReader(io.BytesIO(pdf))
-            expected_pages = 1 if category == 'CLIENT_ID' else 2
+            expected_pages = 1 if category == 'CLIENT_ID' or len(images) == 1 else 2
             if len(reader.pages) != expected_pages:
                 raise ValueError('Unexpected generated page count')
             # Strip variable producer metadata and bind the exact ordered images.

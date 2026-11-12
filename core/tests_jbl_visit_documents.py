@@ -128,8 +128,8 @@ class VisitDocumentTests(SimpleTestCase):
         self.assertEqual(validate_jbl_visit_upload_batch(source)[2], 'jbl_visit_total_upload_exceeded')
 
     def test_pdf_page_contract_cannot_be_bypassed_by_direct_service_upload(self):
-        self.assertIn('2-page PDF', _validate_jbl_media_files(
-            [SimpleUploadedFile('laf.pdf', pdf_fixture(1))], 'LAF'))
+        self.assertIn('one- or two-page PDF', _validate_jbl_media_files(
+            [SimpleUploadedFile('laf.pdf', pdf_fixture(3))], 'LAF'))
 
     @patch('core.services.jawabu_pipeline.preflight_jbl_visit_completion', return_value=(True, '', False))
     @patch('core.services.jawabu_approvals.visit_evidence_status', return_value={})
@@ -139,7 +139,7 @@ class VisitDocumentTests(SimpleTestCase):
     def test_complete_submission_chains_its_revisions_and_partial_storage_does_not_log(
         self, log_visit, upload, _render, _evidence, _preflight,
     ):
-        farmer = SimpleNamespace(refresh_from_db=Mock(), deposit_paid_hbg=Decimal('5000'), jbl_visit_date=None)
+        farmer = SimpleNamespace(refresh_from_db=Mock(), deposit_paid_hbg=Decimal('5000'), jbl_visit_date=None, hb_deposit_date=None, pipeline_events=Mock())
         upload.return_value = (True, '', {'stored_count': 3, 'errors': [], 'workflow_revision': 4})
         kwargs = dict(visit_date=date(2026, 9, 1), officer='Synthetic officer',
                       visit_status='Visited, Awaiting Credit Analysis', expected_revision=1)
@@ -159,7 +159,7 @@ class VisitDocumentTests(SimpleTestCase):
     @patch('core.services.jawabu_approvals.visit_evidence_status', return_value={'LAF': 1, 'JBL_VISIT_PHOTO': 1})
     @patch('core.services.jawabu_pipeline.append_jbl_media_uploads')
     def test_missing_id_prevents_forwarding_without_any_upload(self, upload, _evidence, _preflight):
-        farmer = SimpleNamespace(refresh_from_db=Mock(), deposit_paid_hbg=Decimal('5000'), jbl_visit_date=None)
+        farmer = SimpleNamespace(refresh_from_db=Mock(), deposit_paid_hbg=Decimal('5000'), jbl_visit_date=None, hb_deposit_date=None, pipeline_events=Mock())
         ok, _, result = complete_jbl_visit(farmer, categorized_files={},
             visit_date=date(2026, 9, 1), officer='Synthetic', visit_status='Visited, Awaiting Credit Analysis')
         self.assertFalse(ok)
@@ -169,7 +169,7 @@ class VisitDocumentTests(SimpleTestCase):
     @patch('core.services.jawabu_pipeline.preflight_jbl_visit_completion', return_value=(True, '', True))
     @patch('core.services.jbl_visit_documents.render_document')
     def test_committed_retry_does_not_require_recapture_or_repeat_rendering(self, renderer, _preflight):
-        farmer = SimpleNamespace(refresh_from_db=Mock(), deposit_paid_hbg=Decimal('5000'), jbl_visit_date=None)
+        farmer = SimpleNamespace(refresh_from_db=Mock(), deposit_paid_hbg=Decimal('5000'), jbl_visit_date=None, hb_deposit_date=None, pipeline_events=Mock())
         ok, _, result = complete_jbl_visit(farmer, categorized_files={},
             visit_date=date(2026, 9, 1), officer='Synthetic', visit_status='Visited, Awaiting Credit Analysis')
         self.assertTrue(ok)

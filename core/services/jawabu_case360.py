@@ -28,6 +28,7 @@ from core.services.workflow_timeline import jawabu_case_timeline
 MILESTONES = (
     ('application_imported', 'Intake completed'),
     ('jbl_visit_completed', 'JBL visit completed'),
+    ('jbl_outcome_recorded', 'JBL outcome recorded without a visit'),
     ('credit_decision_recorded', 'Credit decision recorded'),
     ('final_decision_recorded', 'Final decision recorded'),
     ('order_assigned', 'Order assigned'),
@@ -437,7 +438,7 @@ def calculate_case_tat(farmer: JawabuFarmerMaster, *, now=None, events=None, hb_
         if (
             event.action == 'credit_decision_recorded' and values.get('decision') in {'Rejected'}
             or event.action == 'final_decision_recorded' and values.get('decision') in {'Rejected'}
-            or event.action == 'jbl_visit_completed' and values.get('status') in {'Rejected by JBL', 'Cancelled', 'Client Withdrew', 'Opted for Cash'}
+            or event.action in {'jbl_visit_completed', 'jbl_outcome_recorded'} and values.get('status') in {'Rejected by JBL', 'Cancelled', 'Client Withdrew', 'Opted for Cash'}
             or event.action == 'payment_finalized'
         ):
             terminal_at = event.occurred_at

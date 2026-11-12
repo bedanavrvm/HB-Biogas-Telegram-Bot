@@ -204,7 +204,10 @@ def insights(preset, queryset, filters, period):
             from core.services.portal_report_timing import report_timing
             timing = report_timing(record, now=now, events=record._report_events, hb_events=hb[record.pk], targets=targets, holidays=holidays) if preset != 'finance' else {}
             completed = [s for s in timing.get('stages', []) if s.get('completed_at') and within(s['completed_at'])]
-            facts = [('Visits', record.jbl_visit_date, record.jbl_visit_status, 'visits'),
+            from core.services.jawabu_pipeline import last_physical_jbl_visit
+            from core.services.jawabu_validation import parse_business_date
+            visit = last_physical_jbl_visit(record, record._report_events) if preset != 'finance' else {}
+            facts = [('Visits', parse_business_date(visit.get('visit_date')), visit.get('status'), 'visits'),
                      ('Credit decisions', record.credit_decided_at, record.credit_decision, 'credit'),
                      ('Final decisions', record.final_decided_at, record.final_decision, 'final')]
             relevant = [fact for fact in facts if within(fact[1])]

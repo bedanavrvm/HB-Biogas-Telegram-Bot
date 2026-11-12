@@ -226,7 +226,7 @@ class DepositWorkflowTests(TestCase):
         self.assertIn(self.farmer.pk, jbl_visit_queue().values_list('pk', flat=True))
 
     def test_both_transition_boundaries_reject_held_case(self):
-        kwargs = {'visit_date': date(2026, 10, 2), 'visit_status': 'Rescheduled', 'expected_revision': 1, 'request_id': 'held-visit'}
+        kwargs = {'visit_date': date(2026, 10, 2), 'visit_status': 'Visited, Awaiting Credit Analysis', 'expected_revision': 1, 'request_id': 'held-visit'}
         self.assertFalse(preflight_jbl_visit_completion(self.farmer, **kwargs)[0])
         self.assertFalse(log_jbl_visit(self.farmer, officer='Synthetic', **kwargs)[0])
         self.farmer.refresh_from_db()
@@ -234,7 +234,7 @@ class DepositWorkflowTests(TestCase):
 
     def test_no_document_processing_or_upload_for_held_case(self):
         with patch('core.services.jbl_visit_documents.prepare_visit_documents') as prepare:
-            ok, _, result = complete_jbl_visit(self.farmer, categorized_files={}, visit_date=date(2026, 10, 2), officer='Synthetic', visit_status='Rescheduled', request_id='held')
+            ok, _, result = complete_jbl_visit(self.farmer, categorized_files={}, visit_date=date(2026, 10, 2), officer='Synthetic', visit_status='Visited, Awaiting Credit Analysis', request_id='held')
         self.assertFalse(ok)
         self.assertEqual(result['code'], 'deposit_required')
         prepare.assert_not_called()
@@ -292,10 +292,10 @@ class DepositWorkflowTests(TestCase):
         self.assertEqual(WorkflowRoleCapabilityAuditEvent.objects.count(), count)
         self.assertEqual(WorkflowRoleCapability.objects.get(workflow='jawabu_portal', role='HB_STAFF', capability_key='portal.hb_deposit.write').effect, 'deny')
 
-    def test_server_fragment_disables_held_case_without_phone_link(self):
+    def test_server_fragment_allows_held_case_outcome_without_forwarding(self):
         from django.template.loader import render_to_string
         fragment = render_to_string('portal/partials/farmer_card.html', {'farmer': farmer_to_card(self.farmer, include_detail_metadata=False), 'queue_key': 'jbl'})
-        self.assertIn('aria-disabled="true"', fragment)
+        self.assertNotIn('aria-disabled="true"', fragment)
         self.assertIn('deposit-held-card', fragment)
         self.assertIn('3000.00', fragment)
         self.assertNotIn('href="tel:', fragment)

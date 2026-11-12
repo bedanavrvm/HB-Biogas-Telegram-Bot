@@ -131,7 +131,7 @@ class PrevisitImportTests(LegacyHTTPMixin, TestCase):
                     self.assertEqual(cells[sheet.cells[1].index('Credit Decision')], 'LEGACY')
                     if index < 3:
                         ok, _ = log_jbl_visit(farmer, officer='Synthetic', visit_date=timezone.localdate(),
-                            visit_status='Rescheduled', expected_revision=farmer.workflow_revision,
+                            visit_status='Visited, Awaiting Credit Analysis', expected_revision=farmer.workflow_revision,
                             request_id=f'synthetic-held-{register}-{index}')
                         self.assertFalse(ok)
         for status, count in (('', 8), ('deposit_pending', 6), ('awaiting_visit', 2)):

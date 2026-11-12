@@ -311,20 +311,20 @@ class JblPipelineServiceTestCase(TestCase):
             with self.subTest(village=village):
                 ok, error, result = complete_jbl_visit(
                     self.farmer_stage1, categorized_files={}, visit_date=date(2026, 6, 28),
-                    officer='Test officer', visit_status='Deferred / On Hold', village=village,
+                    officer='Test officer', visit_status='Visited, Awaiting Credit Analysis', village=village,
                 )
                 self.assertFalse(ok)
                 self.assertIn('village', error.casefold())
                 self.assertFalse(result['evidence_saved'])
                 ok, error = log_jbl_visit(
                     self.farmer_stage1, visit_date=date(2026, 6, 28), officer='Test officer',
-                    visit_status='Deferred / On Hold', village=village,
+                    visit_status='Visited, Awaiting Credit Analysis', village=village,
                 )
                 self.assertFalse(ok)
         self.farmer_stage1.village = ''
         self.farmer_stage1.save(update_fields=['village'])
         ok, error, _ = preflight_jbl_visit_completion(
-            self.farmer_stage1, visit_date=date(2026, 6, 28), visit_status='Deferred / On Hold',
+            self.farmer_stage1, visit_date=date(2026, 6, 28), visit_status='Visited, Awaiting Credit Analysis',
         )
         self.assertFalse(ok)
         self.assertEqual(error, 'Enter the village.')
@@ -335,7 +335,7 @@ class JblPipelineServiceTestCase(TestCase):
     @patch('core.services.portal_publication.reserve_farmer_publication')
     def test_visit_saves_trimmed_village_and_replay_does_not_revalidate_it(self, _publication):
         args = dict(visit_date=date(2026, 6, 28), officer='Test officer',
-                    visit_status='Deferred / On Hold', request_id='required-village-visit')
+                    visit_status='Visited, Awaiting Credit Analysis', request_id='required-village-visit')
         ok, error = log_jbl_visit(self.farmer_stage1, village='  Test area  ', **args)
         self.assertTrue(ok, error)
         self.farmer_stage1.refresh_from_db()
@@ -1440,7 +1440,7 @@ class PortalMiniAppAuthTestCase(TestCase):
         self.assertIn('placeholder="dd-mm-yy"', script)
         self.assertIn('id="jbl-date-picker"', script)
         self.assertIn('max="${deps.escapeHtml(today)}"', script)
-        self.assertIn("formData.set('visit_date', el('jbl-date')?.value || '');", script)
+        self.assertIn("formData.set('visit_date', physical ? el('jbl-date')?.value || '' : '');", script)
         self.assertIn('Visit Date <span class="required-marker" aria-hidden="true">*</span>', script)
         self.assertIn('Outcome <span class="required-marker" aria-hidden="true">*</span>', script)
         self.assertNotIn('optional-marker', script)
@@ -2871,7 +2871,7 @@ class JblPipelineApiTestCase(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json()['ok'])
         categorized = mock_complete.call_args.kwargs['categorized_files']
-        self.assertEqual(set(categorized), {'CLIENT_ID_FRONT', 'CLIENT_ID_BACK', 'LAF_PAGE_1', 'LAF_PAGE_2', 'JBL_VISIT_PHOTO'})
+        self.assertEqual(set(categorized), {'CLIENT_ID', 'LAF', 'CLIENT_ID_FRONT', 'CLIENT_ID_BACK', 'LAF_PAGE_1', 'LAF_PAGE_2', 'JBL_VISIT_PHOTO'})
         self.assertEqual(len(categorized['LAF_PAGE_1']), 1)
         self.assertEqual(len(categorized['JBL_VISIT_PHOTO']), 1)
         self.assertEqual(mock_complete.call_args.kwargs['location_override_reason'], '')
@@ -2881,7 +2881,7 @@ class JblPipelineApiTestCase(TestCase):
         response = self.client.post(
             reverse('portal_complete_jbl_visit', args=[self.farmer.pk]),
             {'workflow_revision': self.farmer.workflow_revision, 'visit_date': '2026-07-01',
-             'visit_status': 'Deferred / On Hold', 'reason_code': 'd03', 'county': 'Meru', 'sub_county': 'Imenti', 'village': '   '},
+             'visit_status': 'Visited, Awaiting Credit Analysis', 'county': 'Meru', 'sub_county': 'Imenti', 'village': '   '},
             HTTP_X_MINIAPP_MESSAGE_CONTRACT='2', HTTP_X_REQUEST_ID='missing-village-api',
             HTTP_IDEMPOTENCY_KEY='missing-village-api',
         )
@@ -2894,7 +2894,7 @@ class JblPipelineApiTestCase(TestCase):
         response = self.client.post(
             reverse('portal_complete_jbl_visit', args=[self.farmer.pk]),
             {'client_request_id': 'missing-location-api', 'workflow_revision': self.farmer.workflow_revision,
-             'visit_date': '2026-07-01', 'visit_status': 'Deferred / On Hold', 'reason_code': 'd03', 'village': 'Market'},
+             'visit_date': '2026-07-01', 'visit_status': 'Visited, Awaiting Credit Analysis', 'village': 'Market'},
         )
         self.assertEqual(response.status_code, 400)
         self.assertEqual(set(response.json()['field_errors']), {'county', 'sub_county'})
@@ -2902,10 +2902,10 @@ class JblPipelineApiTestCase(TestCase):
 
     @patch('core.services.portal_voice.validate_transcription_reference')
     @patch('core.services.jawabu_pipeline.complete_jbl_visit')
-    @patch('core.services.jawabu_case360.event_request_already_processed', return_value=True)
     def test_atomic_jbl_visit_retry_reconciles_before_revalidating_consumed_voice(
-        self, _mock_processed, mock_complete, mock_voice_validation,
+        self, mock_complete, mock_voice_validation,
     ):
+        JawabuPipelineEvent.objects.create(farmer=self.farmer, action='jbl_visit_completed', request_id='atomic-visit-lost-response')
         response = self.client.post(
             reverse('portal_complete_jbl_visit', args=[self.farmer.id]),
             {
@@ -2922,8 +2922,8 @@ class JblPipelineApiTestCase(TestCase):
         mock_voice_validation.assert_not_called()
         mock_complete.assert_not_called()
 
-    @patch('core.services.jawabu_case360.event_request_already_processed', return_value=True)
-    def test_jbl_visit_completion_status_confirms_an_interrupted_response(self, _mock_processed):
+    def test_jbl_visit_completion_status_confirms_an_interrupted_response(self):
+        JawabuPipelineEvent.objects.create(farmer=self.farmer, action='jbl_visit_completed', request_id='atomic-visit-lost-response')
         response = self.client.get(
             reverse('portal_jbl_visit_completion_status', args=[self.farmer.id]),
             {'request_id': 'atomic-visit-lost-response'},
@@ -2949,7 +2949,7 @@ class JblPipelineApiTestCase(TestCase):
                 'client_request_id': 'atomic-visit-invalid-gps',
                 'workflow_revision': self.farmer.workflow_revision,
                 'visit_date': '2026-07-01',
-                'visit_status': 'Rescheduled',
+                'visit_status': 'Visited, Awaiting Credit Analysis',
                 'capture_latitude': 'not-a-coordinate',
                 'capture_longitude': '36.8219',
             },

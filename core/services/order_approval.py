@@ -2013,6 +2013,7 @@ def store_uploaded_files_for_order(
                     storage_reference_value or business_key_value,
                     storage_sequence,
                     received_at,
+                    jawabu_farmer=jawabu_farmer,
                     reference_prefix=(
                         storage_reference_prefix
                         or ('CASE' if business_key_type == 'case_reference' else 'ID')
@@ -2788,6 +2789,7 @@ def build_storage_filename(
     received_at: datetime | None = None,
     *,
     reference_prefix: str = 'ID',
+    jawabu_farmer=None,
 ) -> str:
     suffix = PurePosixPath(item.original_filename or '').suffix
     if not suffix:
@@ -2804,11 +2806,19 @@ def build_storage_filename(
     if type_prefix in {'', 'UNKNOWN'}:
         type_prefix = 'FILE'
 
+    customer_name = ''
+    case_reference = ''
+    if jawabu_farmer is not None:
+        from core.services.jawabu_case_reference import display_case_reference
+        customer_name = sanitize_filename_element(jawabu_farmer.customer_name)[:100].strip()
+        case_reference = display_case_reference(jawabu_farmer)
     parts = [
         storage_filename_date(received_at),
+        customer_name,
         type_prefix,
         sanitize_filename_element(profile.get('context', '')),
         storage_filename_reference(business_key_value, prefix=reference_prefix),
+        case_reference,
         file_sequence_suffix(sequence),
         sanitize_filename_element(profile.get('status', '')).upper(),
     ]

@@ -1136,6 +1136,42 @@
       "sha256": "363d617234158f2bdf88a278c4e8939996187cf3a5f99f59b26faa645856b7da",
       "review_reference": "docs/ui-standard/reviews/2026-11-05-portal-legacy-credit-and-current-status.md#10-november-include-known-historical-credit-outcomes",
       "reason": "User-confirmed Legacy credit label for committed initial imports, including historical approval/rejection/deferral. Existing case fields, neutral badges and order preview consume the shared label; stored decisions, pipeline, forms and native review precedence remain intact. Script cache versions advance; no design baseline or Phase 6 migration."
+    },
+    {
+      "path": "core/static/miniapp/portal_farmer_sheet.js",
+      "sha256": "0ec935c63c725bc45d55aa6bd1eda8ec04825f17cb14a033cae7ef9356d6201f",
+      "review_reference": "docs/ui-standard/reviews/2026-11-12-jbl-outcome-documents.md",
+      "reason": "Approved outcome-driven visit requirements, complete document uploads, optional evidence recovery and actionable deposit holds. Existing controls and signed synthetic Portal browser evidence; no design migration or permission expansion."
+    },
+    {
+      "path": "core/static/miniapp/portal.js",
+      "sha256": "63b531fb65443d22414408b3e13d3246a9260ced9eb89b0069c8020621b5f9d7",
+      "review_reference": "docs/ui-standard/reviews/2026-11-12-jbl-outcome-documents.md",
+      "reason": "Approved outcome-driven visit requirements, complete document uploads, optional evidence recovery and actionable deposit holds. Existing controls and signed synthetic Portal browser evidence; no design migration or permission expansion."
+    },
+    {
+      "path": "core/static/miniapp/portal.css",
+      "sha256": "2fbede88a930a7d5828d5ec792f75b7605103fb2da47e8c078964c86e42d0607",
+      "review_reference": "docs/ui-standard/reviews/2026-11-12-jbl-outcome-documents.md",
+      "reason": "Approved outcome-driven visit requirements, complete document uploads, optional evidence recovery and actionable deposit holds. Existing controls and signed synthetic Portal browser evidence; no design migration or permission expansion."
+    },
+    {
+      "path": "core/static/miniapp/portal_hb_deposits.js",
+      "sha256": "6e74afc33b7841ac025a3b39982bcc417b17d968af8299718ba120c4ed44f72c",
+      "review_reference": "docs/ui-standard/reviews/2026-11-12-jbl-outcome-documents.md",
+      "reason": "Approved outcome-driven visit requirements, complete document uploads, optional evidence recovery and actionable deposit holds. Existing controls and signed synthetic Portal browser evidence; no design migration or permission expansion."
+    },
+    {
+      "path": "core/templates/portal/partials/farmer_card.html",
+      "sha256": "889c34871b41db6e7ef35351f384d59f820d4ef85c1d6af3329448ddf262ed12",
+      "review_reference": "docs/ui-standard/reviews/2026-11-12-jbl-outcome-documents.md",
+      "reason": "Approved outcome-driven visit requirements, complete document uploads, optional evidence recovery and actionable deposit holds. Existing controls and signed synthetic Portal browser evidence; no design migration or permission expansion."
+    },
+    {
+      "path": "core/templates/base_shell.html",
+      "sha256": "804bbbd66d93855ffb1ee2c6754ffce48ce153ef914cc8ae22f8f603e6c47006",
+      "review_reference": "docs/ui-standard/reviews/2026-11-12-jbl-outcome-documents.md",
+      "reason": "Approved outcome-driven visit requirements, complete document uploads, optional evidence recovery and actionable deposit holds. Existing controls and signed synthetic Portal browser evidence; no design migration or permission expansion."
     }
   ],
   "source_roots": [

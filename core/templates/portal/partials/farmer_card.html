@@ -1,7 +1,6 @@
 <div
   class="farmer-card htmx-farmer-card{% if queue_key == 'jbl' and farmer.deposit.deposit_hold %} deposit-held-card{% endif %}{% if queue_key == 'requisition' %} requisition-card{% endif %}{% if queue_key != 'jbl' and queue_key != 'my_visits' %} operational-farmer-card{% endif %}"
   data-deposit-hold="{% if queue_key == 'jbl' and farmer.deposit.deposit_hold %}true{% else %}false{% endif %}"
-  {% if queue_key == 'jbl' and farmer.deposit.deposit_hold %}aria-disabled="true"{% endif %}
   data-farmer-id="{{ farmer.id }}"
   data-qkey="{{ queue_key }}"
   data-mode="{{ mode|default:'' }}"
@@ -43,7 +42,7 @@
         {% if queue_key == 'jbl' and farmer.deposit.deposit_hold %}<span>{{ farmer.primary_phone|default:"Phone not provided" }}</span>{% elif farmer.primary_phone %}<a class="portal-phone-link" href="tel:{{ farmer.primary_phone }}">{{ farmer.primary_phone }}</a>{% else %}<span>Phone not provided</span>{% endif %}
       </span>
     </div>
-    {% if queue_key == 'jbl' and farmer.deposit.deposit_hold %}<p class="field-help">Paid: {% if farmer.deposit.recorded_amount %}KES {{ farmer.deposit.recorded_amount }}{% else %}Not recorded{% endif %} · Required: KES 5,000.00 · Outstanding: KES {{ farmer.deposit.shortfall }}</p>{% endif %}
+    {% if queue_key == 'jbl' and farmer.deposit.deposit_hold %}<p class="field-help">Paid: {% if farmer.deposit.recorded_amount %}KES {{ farmer.deposit.recorded_amount }}{% else %}Not recorded{% endif %} · Required: KES 5,000.00 · Outstanding: KES {{ farmer.deposit.shortfall }}. Open to record an outcome; forwarding requires the full deposit.</p>{% endif %}
     <div class="jbl-queue-card-bottom">
       <span class="badge badge-grey">Unit {{ farmer.unit_number|default:"not provided" }}</span>
       <span class="jbl-queue-card-date">

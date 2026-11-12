@@ -1,5 +1,8 @@
 # Component index and migration hold
 
+JBL outcome-driven requirements, complete-document upload and evidence-only retry
+reuse current Portal controls. [Source and local evidence](reviews/2026-11-12-jbl-outcome-documents.md).
+
 Legacy update imports reuse upload/mapping, AG Grid change cells, field checkboxes,
 row dialogs and resumable progress. [Implementation and evidence](reviews/2026-11-06-legacy-update-import.md).
 
