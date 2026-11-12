@@ -1,5 +1,8 @@
 # Component index and migration hold
 
+Portal section labels and Complaints pencil/correction/date/time/filter/media
+controls reuse current patterns. [Source and live-page evidence](reviews/2026-11-12-complaint-corrections-media-spacing-and-order.md).
+
 Visit evidence reuses the Portal disclosure, single-file picker and guided camera.
 [Source and local evidence](reviews/2026-11-12-visit-evidence-single-upload.md).
 

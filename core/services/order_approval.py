@@ -2369,7 +2369,7 @@ class GoogleDriveMediaStorage:
                 fileId=normalized_file_id,
                 supportsAllDrives=True,
             ),
-            chunksize=256 * 1024,
+            chunksize=8 * 1024 * 1024,
         )
         done = False
         while not done:

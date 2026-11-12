@@ -1404,7 +1404,7 @@
         ${jblDocumentMarkup('CLIENT_ID', 'Client ID')}
         ${jblDocumentMarkup('LAF', 'LAF')}
         ${jblMediaCategoryMarkup({
-          category: 'JBL_VISIT_PHOTO', title: 'Supporting Photos', help: 'JPG, PNG or WebP',
+          category: 'JBL_VISIT_PHOTO', title: 'Supporting Photos',
           pickerId: 'jbl-visit-photo-media', cameraId: 'jbl-visit-photo-camera',
           accept: 'image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp',
         })}
@@ -1438,7 +1438,8 @@
       </div>
       <p class="jbl-section-label">Comment</p>
       <section class="jbl-comment-section"><div class="jbl-comment-control"><textarea id="jbl-comment" aria-label="Comment" rows="2" placeholder="Additional notes">${deps.escapeHtml(farmer.jbl_visit_comment || '')}</textarea>${voiceWidget('jbl_visit_comment', 'jbl-comment')}</div></section>
-      <details id="jbl-evidence-details" class="jbl-support-card"><summary id="jbl-evidence-summary">Optional evidence</summary>
+      <details id="jbl-evidence-details"><summary id="jbl-evidence-summary">Optional evidence</summary>
+        <div class="jbl-support-card">
         ${canWriteMedia ? `<div class="media-upload-control">${mediaFields}</div>` : ''}
         <div class="gps-capture-row" data-jbl-field="capture_location" data-jbl-forward>
           <div class="gps-capture-summary"><span class="gps-capture-icon"><i data-lucide="map-pin" aria-hidden="true"></i></span><span><strong>GPS Location</strong><small id="gps-coords" class="field-help">Not captured yet</small></span></div>
@@ -1450,6 +1451,7 @@
             <input type="text" id="jbl-location-unavailable" maxlength="255" placeholder="e.g. phone location was disabled">
           </div>
           <small class="jbl-field-error" data-error-message-for="capture_location"></small>
+        </div>
         </div>
       </details>
       <section id="jbl-repayment-section" class="jbl-support-card" hidden>
@@ -1518,19 +1520,17 @@
     return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>';
   }
 
-  function jblMediaCategoryMarkup({ category, title, help, pickerId, cameraId, accept }) {
+  function jblMediaCategoryMarkup({ category, title, pickerId, cameraId, accept }) {
     const safeTitle = deps.escapeHtml(title);
     const fieldKey = category === 'LAF' ? 'laf_files' : 'jbl_visit_photo_files';
     return `<section class="media-category-upload" data-media-category="${category}" data-jbl-field="${fieldKey}">
       <div class="jbl-media-category-heading">
-        <span>${safeTitle}</span>
+        <div class="jbl-media-category-copy"><strong>${safeTitle}</strong><small class="jbl-media-selection-summary" id="${pickerId}-name" aria-live="polite">No files selected</small></div>
         <div class="jbl-media-source-actions">
+          <button type="button" class="jbl-media-icon-button" data-input-id="${pickerId}" aria-label="Upload ${safeTitle}" title="Upload photos">${pickerIcon()}</button>
           <button type="button" class="jbl-media-icon-button" id="${cameraId}" data-camera-category="${category}" aria-label="Open live camera for ${safeTitle}" title="Open camera">${cameraIcon()}<span class="sr-only">Open camera</span></button>
-          <label class="jbl-media-icon-button" for="${pickerId}" data-input-id="${pickerId}" role="button" tabindex="0" aria-label="Choose files for ${safeTitle}" title="Choose files">${pickerIcon()}<span class="sr-only">Choose files</span></label>
         </div>
       </div>
-      <small>${deps.escapeHtml(help)}</small>
-      <strong class="jbl-media-selection-summary" id="${pickerId}-name" aria-live="polite">No files selected</strong>
       <div class="jbl-media-preview-list" id="${pickerId}-previews"></div>
       <input class="sr-only" type="file" id="${pickerId}" data-media-category="${category}" multiple accept="${accept}">
       <small class="jbl-field-error" data-error-message-for="${fieldKey}"></small>
@@ -1540,10 +1540,12 @@
   function jblDocumentMarkup(category, title) {
     const inputId = jblMediaInputId(category);
     return `<section class="media-category-upload jbl-document-upload" data-media-category="${category}" data-jbl-field="${category === 'CLIENT_ID' ? 'client_id_files' : 'laf_files'}">
-      <div class="jbl-media-category-heading"><span>${title}</span><strong class="jbl-media-selection-summary" id="${inputId}-name" aria-live="polite">No document selected</strong></div>
-      <div class="jbl-document-actions">
-        <label class="jbl-slot-picker" for="${inputId}-complete" data-input-id="${inputId}-complete" role="button" tabindex="0" aria-label="Upload ${title} document">${pickerIcon()}<span>Upload document</span></label>
-        <button type="button" class="jbl-document-capture" data-camera-category="${category}" aria-label="Capture ${title} photos">${cameraIcon()}<span>Capture photos</span></button>
+      <div class="jbl-media-category-heading">
+        <div class="jbl-media-category-copy"><strong>${title}</strong><small class="jbl-media-selection-summary" id="${inputId}-name" aria-live="polite">No document selected</small></div>
+        <div class="jbl-media-source-actions">
+          <button type="button" class="jbl-media-icon-button" data-input-id="${inputId}-complete" aria-label="Upload ${title} document" title="Upload document">${pickerIcon()}</button>
+          <button type="button" class="jbl-media-icon-button" data-camera-category="${category}" aria-label="Capture ${title} photos" title="Capture photos">${cameraIcon()}</button>
+        </div>
       </div>
       <input class="sr-only" type="file" id="${inputId}-complete" data-media-category="${category}" accept="application/pdf,image/jpeg,image/png,image/webp,.pdf,.jpg,.jpeg,.png,.webp">
       <small class="jbl-field-error" data-error-message-for="${category === 'CLIENT_ID' ? 'client_id_files' : 'laf_files'}"></small>
@@ -2363,7 +2365,7 @@
 
   function updateOfficeDepositHold() {
     const held = officeDepositHeld();
-    document.querySelectorAll('[data-jbl-field="visit_date"], [data-jbl-field="visit_status"], .jbl-support-card, .jbl-comment-section').forEach(node => {
+    document.querySelectorAll('[data-jbl-field="visit_date"], [data-jbl-field="visit_status"], #jbl-evidence-details, .jbl-support-card, .jbl-comment-section').forEach(node => {
       node.hidden = held;
       node.querySelectorAll('input,select,textarea,button').forEach(control => { control.disabled = held; });
     });
@@ -2531,6 +2533,11 @@
       });
     });
     el('sheet-form')?.querySelector('.media-upload-control')?.addEventListener('click', event => {
+      const picker = event.target.closest('button[data-input-id]');
+      if (picker) {
+        el(picker.dataset.inputId)?.click();
+        return;
+      }
       const swap = event.target.closest('[data-swap-document]');
       if (swap) {
         jblMediaSelections[swap.dataset.swapDocument].forEach(item => { item.side = 1 - item.side; });
@@ -2569,10 +2576,6 @@
         openSelectedJblMediaPreview(previewItem.dataset.mediaItemId);
         return;
       }
-      const sourceButton = event.target.closest('.jbl-media-icon-button, .jbl-slot-picker[data-input-id]');
-      if (!sourceButton || !['Enter', ' '].includes(event.key)) return;
-      event.preventDefault();
-      if (sourceButton.getAttribute('aria-disabled') !== 'true') el(sourceButton.dataset.inputId)?.click();
     });
   }
 

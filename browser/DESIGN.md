@@ -1,5 +1,10 @@
 # Browser design references and application decisions
 
+12 November: Complaint correction uses an icon-only pencil, paired short fields
+and native EAT date/time pickers. Queue filters share the existing order state;
+attachment dialogs reuse the loaded thumbnail while full-size content arrives.
+[Source and live-page evidence](../docs/ui-standard/reviews/2026-11-12-complaint-corrections-media-spacing-and-order.md).
+
 6 November: account-owned Table Layouts reuse a compact disclosure inside
 Complaints Settings. The first numbering column stays visible and frozen;
 additional left-frozen columns are a contiguous prefix bounded by half the

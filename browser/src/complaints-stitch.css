@@ -221,6 +221,11 @@ body.complaints-stitch-active [data-stitch="toast"] { font: 400 12px/18px Inter,
 .stitch-empty p { margin: 0; color: var(--stitch-muted); }
 
 /* Detail corrections: visible actions, restrained field elevation and responsive threads. */
+.complaint-correction-fields { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; align-items:start; }
+.complaint-correction-fields > div { min-width:0; }
+.complaint-correction-fields input { min-width:0; width:100%; }
+.complaint-correction-fields > [data-correction-field="customer_name"], .complaint-correction-fields > [data-correction-field="complaint_description"] { grid-column:1/-1; }
+@media(max-width:559px){.complaint-correction-fields > [data-correction-field="timestamp"],.complaint-correction-fields > [data-correction-field="date_resolved"] { grid-column:1/-1; }}
 .stitch-toolbar { gap: 8px; }
 .stitch-case-actions, .stitch-case-actions > div, .stitch-case-actions [aria-label="Complaint actions"] { display: contents; }
 .stitch-case-overflow { margin-inline-start: auto; order: 10; }

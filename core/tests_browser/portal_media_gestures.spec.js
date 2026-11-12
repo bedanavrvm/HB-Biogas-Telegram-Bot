@@ -45,6 +45,27 @@ test('closing a selected PDF aborts its render request and cannot replace a late
   await expect(page.locator('#preview')).toHaveText('Later document');
 });
 
+test('selected PDF preview supplies identity and the required submission key', async ({page}) => {
+  await page.setContent('<div id="preview"></div>');
+  await page.addScriptTag({path:asset('utils.js')});
+  await page.addScriptTag({path:asset('secure_media_viewer.js')});
+  await page.evaluate(() => {
+    window.Telegram = {WebApp:{initData:'synthetic-preview-proof'}};
+    window.fetch = async (_url, options) => {
+      window.previewHeaders = options.headers;
+      if (!options.headers['Idempotency-Key']) return new Response('', {status:428});
+      const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j7ioAAAAASUVORK5CYII=';
+      return new Response(`<figure><img src="${png}" alt="Page 1"></figure>`);
+    };
+    SecureMediaViewer.renderBlob(document.getElementById('preview'), new Blob(['%PDF-synthetic'], {type:'application/pdf'}), {rotate:true});
+  });
+  await expect(page.locator('#preview img')).toHaveCount(1);
+  const headers = await page.evaluate(() => previewHeaders);
+  expect(headers['X-Request-ID']).toBe(headers['Idempotency-Key']);
+  expect(headers['Idempotency-Key']).toBeTruthy();
+  expect(headers['X-Telegram-Init-Data']).toBe('synthetic-preview-proof');
+});
+
 for(const width of [320,390,768])test(`shared viewer navigation stays at opposite ends ${width}`,async({page},info)=>{
   await page.setViewportSize({width,height:844});
   await page.setContent('<div id="preview"></div>');

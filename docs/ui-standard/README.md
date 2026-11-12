@@ -1,5 +1,8 @@
 # Mini App Design Lab
 
+Portal media headings and Complaints corrections, date/time, queue order and
+image loading have [live-page evidence](reviews/2026-11-12-complaint-corrections-media-spacing-and-order.md).
+
 Visit evidence uses one complete uploaded file per document and guided camera
 pages. [Source and local evidence](reviews/2026-11-12-visit-evidence-single-upload.md).
 

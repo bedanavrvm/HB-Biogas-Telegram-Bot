@@ -109,10 +109,22 @@ test('Create lead camera permission errors show feedback instead of silently doi
 test('Create lead file picker is wired independently from server draft recovery', async ({page}) => {
   await mountCamera(page,true);
   await page.locator('#jbl-evidence-summary').click();
+  const comment=await page.locator('.jbl-comment-section').boundingBox();
+  const heading=await page.locator('#jbl-evidence-summary').boundingBox();
+  const media=await page.locator('#jbl-evidence-details > .jbl-support-card').boundingBox();
+  expect(heading.y-comment.y-comment.height).toBeGreaterThanOrEqual(10);
+  expect(media.y).toBeGreaterThan(heading.y+heading.height);
+  expect(await page.locator('#jbl-evidence-summary').evaluate(node=>{
+    const reference=[...document.querySelectorAll('.jbl-section-label')].find(item=>item.textContent==='Comment');
+    return ['fontSize','fontWeight','color'].every(property=>getComputedStyle(node)[property]===getComputedStyle(reference)[property]);
+  })).toBe(true);
   await expect(page.locator('.jbl-document-slot:visible')).toHaveCount(0);
   await expect(page.locator('#jbl-id-media-complete')).not.toHaveAttribute('multiple');
   const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aQZkAAAAASUVORK5CYII=','base64');
-  await page.locator('#jbl-id-media-complete').setInputFiles({name:'synthetic-combined-id.png',mimeType:'image/png',buffer:Buffer.concat([png,Buffer.alloc(5000)])});
+  const fileChooser = page.waitForEvent('filechooser');
+  await page.getByRole('button', {name:'Upload Client ID document', exact:true}).focus();
+  await page.keyboard.press('Enter');
+  await (await fileChooser).setFiles({name:'synthetic-combined-id.png',mimeType:'image/png',buffer:Buffer.concat([png,Buffer.alloc(5000)])});
   await expect(page.locator('.jbl-document-slot:visible')).toHaveCount(0);
   await expect(page.locator('#jbl-id-media-complete')).toHaveValue('');
   await expect(page.locator('#jbl-id-media-name')).toHaveText('Document selected');

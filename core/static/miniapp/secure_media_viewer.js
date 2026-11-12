@@ -198,7 +198,7 @@
       const preview = mimeType.includes('pdf') ? (() => {
         const form = new FormData(); form.append('file', blob, settings.name || 'Preview.pdf');
         return fetch('/api/portal/documents/local-preview/', {method:'POST', body:form, credentials:'same-origin', signal:abort.signal,
-          headers:window.MiniAppUtils?.initDataHeader?.(window.Telegram?.WebApp?.initData || '') || {}})
+          headers:{...window.MiniAppUtils?.initDataHeader?.(window.Telegram?.WebApp?.initData || ''), ...window.MiniAppUtils?.idempotencyHeaders?.()}})
           .then(async response => {if (!response.ok) throw new Error('Preview unavailable'); return response.text();});
       })() : blob.text();
       preview.then(html => {

@@ -18,7 +18,7 @@
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-community-36.1.0.min.css' %}">
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-quartz-font-36.1.0.min.css' %}">
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-theme-quartz-36.1.0.min.css' %}">
-  <link rel="stylesheet" href="{% static 'miniapp/complaint_cases.css' %}?v=50">
+  <link rel="stylesheet" href="{% static 'miniapp/complaint_cases.css' %}?v=51">
 </head>
 <body class="complaint-cases-app" data-group-id="{{ group_id|escape }}">
   {% include "complaint_cases/lucide_icons.html" %}
@@ -51,7 +51,7 @@
       <nav id="queuePagination" class="pagination" aria-label="Complaint pages" hidden><button id="queuePreviousBtn" type="button"><svg class="lucide" aria-hidden="true"><use href="#lucide-chevron-left"></use></svg><span>Previous</span></button><span id="queuePageLabel">Page 1 of 1</span><button id="queueNextBtn" type="button"><span>Next</span><svg class="lucide" aria-hidden="true"><use href="#lucide-chevron-right"></use></svg></button></nav>
     </section>
 
-    <div id="complaintQueueFilterOverlay" class="sheet-overlay complaint-report-filter-overlay" role="dialog" aria-modal="true" aria-labelledby="complaintQueueFilterTitle" hidden><section id="complaintQueueFilterSheet" class="complaint-report-filter-sheet" tabindex="-1"><header class="complaint-report-filter-head"><h3 id="complaintQueueFilterTitle">Filter complaints</h3><button id="closeComplaintQueueFilters" type="button" aria-label="Close queue filters">&times;</button></header><form id="complaintQueueFilters" class="register-filters"><label>Branch<select name="branch"><option value="">All branches</option></select></label><label>Complaint type<select name="category"><option value="">All types</option></select></label></form><footer class="complaint-report-filter-actions"><button id="resetComplaintQueueFilters" type="button">Reset</button><button class="primary" type="submit" form="complaintQueueFilters">Apply</button></footer></section></div>
+    <div id="complaintQueueFilterOverlay" class="sheet-overlay complaint-report-filter-overlay" role="dialog" aria-modal="true" aria-labelledby="complaintQueueFilterTitle" hidden><section id="complaintQueueFilterSheet" class="complaint-report-filter-sheet" tabindex="-1"><header class="complaint-report-filter-head"><h3 id="complaintQueueFilterTitle">Filter complaints</h3><button id="closeComplaintQueueFilters" type="button" aria-label="Close queue filters">&times;</button></header><form id="complaintQueueFilters" class="register-filters"><label>Sort by<select name="order"><option value="oldest">Oldest first</option><option value="newest">Newest first</option></select></label><label>Branch<select name="branch"><option value="">All branches</option></select></label><label>Complaint type<select name="category"><option value="">All types</option></select></label></form><footer class="complaint-report-filter-actions"><button id="resetComplaintQueueFilters" type="button">Reset</button><button class="primary" type="submit" form="complaintQueueFilters">Apply</button></footer></section></div>
     <section id="globalView" hidden>
       <button id="reportBackBtn" class="back-button" type="button"><svg class="lucide" aria-hidden="true"><use href="#lucide-arrow-left"></use></svg><span>Complaints</span></button>
       <div class="queue-head"><div><p class="eyebrow">Management Report</p><h2>Complaints Data Overview</h2><p class="muted">Read-only organization-wide complaint data</p></div><div class="report-export-actions"><div class="report-email-actions"><button id="exportResultsBtn" class="primary" type="button" hidden>Download Excel</button><button id="emailResultsBtn" type="button" class="report-email-icon" aria-label="Email report" hidden></button></div><button id="exportAllBtn" type="button" hidden>Export all</button></div></div>
@@ -161,6 +161,6 @@
   <script src="{% static 'miniapp/report_email_export.js' %}?v=2"></script>
   <link rel="stylesheet" href="{% static 'miniapp/miniapp_recovery.css' %}?v=1">
   <script src="{% static 'miniapp/miniapp_recovery.js' %}?v=1"></script>
-  <script src="{% static 'miniapp/complaint_cases.js' %}?v=79"></script>
+  <script src="{% static 'miniapp/complaint_cases.js' %}?v=80"></script>
 </body>
 </html>

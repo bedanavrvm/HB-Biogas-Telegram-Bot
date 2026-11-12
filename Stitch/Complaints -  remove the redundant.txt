@@ -1,0 +1,4 @@
+Complaints -  remove the redundant "Edit complaint fields" -  the pencil icon is enough.
+Also on clicking edit fields the fields show up in a hideous 1 column where 2 col would have been appropriate - Arrange and align them properly
+The time fields should have date/time pickers
+Loading of images takes 5 sec- how do we maki so that it may load instantly

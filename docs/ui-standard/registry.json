@@ -1220,6 +1220,96 @@
       "sha256": "e6792dfff11875b471ba368d2ff0d4406fa29f7e37dcbdc8c795574dd3cd84f6",
       "review_reference": "docs/ui-standard/reviews/2026-11-12-visit-evidence-single-upload.md",
       "reason": "User-requested single complete document upload and guided camera pages, with compact existing Portal disclosure and selection controls; local shell screenshots and focused interaction checks. No Phase 6 migration or permission change."
+    },
+    {
+      "path": "core/static/miniapp/portal_farmer_sheet.js",
+      "sha256": "71771ccdaf198bae0610197217b15006ca9f87851bda969877d3d090fbe72616",
+      "review_reference": "docs/ui-standard/reviews/2026-11-12-visit-evidence-single-upload.md",
+      "reason": "User-requested live Playwright comparison with existing Portal forms: uniform compact media rows, muted status, existing outlined icon actions and native keyboard upload. Signed synthetic local Django/PostgreSQL screenshots and interaction evidence; no Phase 6 migration or permission change."
+    },
+    {
+      "path": "core/static/miniapp/portal.css",
+      "sha256": "aa409e5debccfaf005a00e6a0c8ee046c2e8269985e2f555478b5d6915c507a6",
+      "review_reference": "docs/ui-standard/reviews/2026-11-12-visit-evidence-single-upload.md",
+      "reason": "User-requested live Playwright comparison with existing Portal forms: uniform compact media rows, muted status, existing outlined icon actions and native keyboard upload. Signed synthetic local Django/PostgreSQL screenshots and interaction evidence; no Phase 6 migration or permission change."
+    },
+    {
+      "path": "core/templates/base_shell.html",
+      "sha256": "70a9e9838172c7aadf4278480485598a82ca427b0a296c47cea970367fa15aa2",
+      "review_reference": "docs/ui-standard/reviews/2026-11-12-visit-evidence-single-upload.md",
+      "reason": "User-requested live Playwright comparison with existing Portal forms: uniform compact media rows, muted status, existing outlined icon actions and native keyboard upload. Signed synthetic local Django/PostgreSQL screenshots and interaction evidence; no Phase 6 migration or permission change."
+    },
+    {
+      "path": "core/templates/base_shell.html",
+      "sha256": "9e6c11baf7006292289c37df6d8b5a92af92151575a62fadf3b180a3de382ca1",
+      "review_reference": "docs/ui-standard/reviews/2026-11-12-visit-evidence-single-upload.md",
+      "reason": "Live Playwright exposed HTTP 428 for selected PDF previews. Existing identity plus request-key headers restore the protected local renderer; red/green regression and live HTTP 200 decoded-page evidence. No access-policy change."
+    },
+    {
+      "path": "core/static/miniapp/secure_media_viewer.js",
+      "sha256": "23e5e05b0b64c3c32a978480003261141103a61c5c5221408ce77a1628138fc3",
+      "review_reference": "docs/ui-standard/reviews/2026-11-12-visit-evidence-single-upload.md",
+      "reason": "Live Playwright exposed HTTP 428 for selected PDF previews. Existing identity plus request-key headers restore the protected local renderer; red/green regression and live HTTP 200 decoded-page evidence. No access-policy change."
+    },
+    {
+      "path": "browser/src/complaints-operations-media.tsx",
+      "sha256": "7ed875cbf03f4febd715516e46663b09afd6dd777bb3461975bf7cb8d1b6f827",
+      "review_reference": "docs/ui-standard/reviews/2026-11-12-complaint-corrections-media-spacing-and-order.md",
+      "reason": "User-directed Portal heading/gap and Complaints icon-only full-width paired correction fields, EAT pickers, queue ordering and progressive existing-thumbnail display. Source-bound live local Django/PostgreSQL Playwright evidence; no access expansion or design migration."
+    },
+    {
+      "path": "browser/src/complaints-operations-workspace.tsx",
+      "sha256": "2281df7a0e985d6d625c0f1b51ab8c3aed0edb3c971dafcd02dc803d5c4ae276",
+      "review_reference": "docs/ui-standard/reviews/2026-11-12-complaint-corrections-media-spacing-and-order.md",
+      "reason": "User-directed Portal heading/gap and Complaints icon-only full-width paired correction fields, EAT pickers, queue ordering and progressive existing-thumbnail display. Source-bound live local Django/PostgreSQL Playwright evidence; no access expansion or design migration."
+    },
+    {
+      "path": "browser/src/complaints-stitch.css",
+      "sha256": "2e40fa9a897816725c62d8459899d42246070a86e15569bc0d7b50d7280cbb3d",
+      "review_reference": "docs/ui-standard/reviews/2026-11-12-complaint-corrections-media-spacing-and-order.md",
+      "reason": "User-directed Portal heading/gap and Complaints icon-only full-width paired correction fields, EAT pickers, queue ordering and progressive existing-thumbnail display. Source-bound live local Django/PostgreSQL Playwright evidence; no access expansion or design migration."
+    },
+    {
+      "path": "core/static/miniapp/complaint_cases.css",
+      "sha256": "ad6c7920515e0b8fd2a1cd5bae0ef2bf2a972ba589a770d2072c67ad53c5cc3f",
+      "review_reference": "docs/ui-standard/reviews/2026-11-12-complaint-corrections-media-spacing-and-order.md",
+      "reason": "User-directed Portal heading/gap and Complaints icon-only full-width paired correction fields, EAT pickers, queue ordering and progressive existing-thumbnail display. Source-bound live local Django/PostgreSQL Playwright evidence; no access expansion or design migration."
+    },
+    {
+      "path": "core/static/miniapp/complaint_cases.js",
+      "sha256": "e0a6a03b76dc93d9b1700463ebc5bdaff2eef7b62fb9a646471f513939f6b9e2",
+      "review_reference": "docs/ui-standard/reviews/2026-11-12-complaint-corrections-media-spacing-and-order.md",
+      "reason": "User-directed Portal heading/gap and Complaints icon-only full-width paired correction fields, EAT pickers, queue ordering and progressive existing-thumbnail display. Source-bound live local Django/PostgreSQL Playwright evidence; no access expansion or design migration."
+    },
+    {
+      "path": "core/static/miniapp/portal.css",
+      "sha256": "c75d280c3d63448e39f62387e70e6bbf9076a1d607c7ba22c5132d7d19484e12",
+      "review_reference": "docs/ui-standard/reviews/2026-11-12-complaint-corrections-media-spacing-and-order.md",
+      "reason": "User-directed Portal heading/gap and Complaints icon-only full-width paired correction fields, EAT pickers, queue ordering and progressive existing-thumbnail display. Source-bound live local Django/PostgreSQL Playwright evidence; no access expansion or design migration."
+    },
+    {
+      "path": "core/static/miniapp/portal_farmer_sheet.js",
+      "sha256": "7e3770377d5765d56e0fb1907c946e7fb8e3e6f1da0d56b0390cb8462066164a",
+      "review_reference": "docs/ui-standard/reviews/2026-11-12-complaint-corrections-media-spacing-and-order.md",
+      "reason": "User-directed Portal heading/gap and Complaints icon-only full-width paired correction fields, EAT pickers, queue ordering and progressive existing-thumbnail display. Source-bound live local Django/PostgreSQL Playwright evidence; no access expansion or design migration."
+    },
+    {
+      "path": "core/templates/base_shell.html",
+      "sha256": "d9832c2b1c50334c148b19e45a9baecfe2e71e4ed2853786b216968c3e395ed3",
+      "review_reference": "docs/ui-standard/reviews/2026-11-12-complaint-corrections-media-spacing-and-order.md",
+      "reason": "User-directed Portal heading/gap and Complaints icon-only full-width paired correction fields, EAT pickers, queue ordering and progressive existing-thumbnail display. Source-bound live local Django/PostgreSQL Playwright evidence; no access expansion or design migration."
+    },
+    {
+      "path": "core/templates/complaint_cases/app.html",
+      "sha256": "3d4ea99a49b6d5f0463edea62c0c30cc5fb713238e034e8d9a74f65441737766",
+      "review_reference": "docs/ui-standard/reviews/2026-11-12-complaint-corrections-media-spacing-and-order.md",
+      "reason": "User-directed Portal heading/gap and Complaints icon-only full-width paired correction fields, EAT pickers, queue ordering and progressive existing-thumbnail display. Source-bound live local Django/PostgreSQL Playwright evidence; no access expansion or design migration."
+    },
+    {
+      "path": "core/templates/complaint_cases/lucide_icons.html",
+      "sha256": "08b9ff762e77e99a43837b80a73d2c38b9d733d3daae04a938d0d6efca380c58",
+      "review_reference": "docs/ui-standard/reviews/2026-11-12-complaint-corrections-media-spacing-and-order.md",
+      "reason": "User-directed Portal heading/gap and Complaints icon-only full-width paired correction fields, EAT pickers, queue ordering and progressive existing-thumbnail display. Source-bound live local Django/PostgreSQL Playwright evidence; no access expansion or design migration."
     }
   ],
   "source_roots": [

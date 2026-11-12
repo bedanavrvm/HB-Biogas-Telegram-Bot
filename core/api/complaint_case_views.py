@@ -465,6 +465,7 @@ def complaint_cases_list(request):
             group_config, actor,
             query=str(payload.get('query') or ''), status=str(payload.get('status') or 'pending'),
             branch=str(payload.get('branch') or ''), category=str(payload.get('category') or ''),
+            order=str(payload.get('order') or ''),
             cursor=str(payload.get('cursor') or ''), limit=10,
             page=payload.get('page') if 'page' in payload else None, page_size=10,
         )

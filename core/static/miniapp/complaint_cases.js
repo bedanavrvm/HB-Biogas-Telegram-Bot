@@ -37,7 +37,7 @@
     groupId: document.body.dataset.groupId || '',
     initData: telegram?.initData || '',
     status: 'pending', query: '', page: 1, pages: 1,
-    queueFilters: {branch:'', category:''}, queueSequence: 0, queueFilterReturnFocus: null,
+    queueFilters: {branch:'', category:'', order:'oldest'}, queueSequence: 0, queueFilterReturnFocus: null,
     capabilities: new Set(), currentCase: null, submitting: false,
     debounce: null, suggestionTimer: null, suggestionSequence: 0, suggestionUnavailableUntil: 0,
     suggestedCategory: null, categoryInferenceToken: '', categorySuggestionCache: new Map(), latitude: '', longitude: '',
@@ -822,7 +822,7 @@
       if (selected && ![...select.options].some(option=>option.value===selected)) select.add(new Option(`${selected} (no matches)`, selected));
       select.value = selected;
     }
-    const count = Object.values(state.queueFilters).filter(Boolean).length;
+    const count = Object.entries(state.queueFilters).filter(([name,value])=>name!=='order'&&value).length;
     $('complaintQueueFilterCount').textContent = String(count);
     $('complaintQueueFilterCount').hidden = !count;
   }
@@ -834,7 +834,7 @@
   function openQueueFilters() {
     state.queueFilterReturnFocus = document.activeElement;
     const form = $('complaintQueueFilters');
-    for (const name of ['branch','category']) form.elements[name].value = state.queueFilters[name];
+    for (const name of ['branch','category','order']) form.elements[name].value = state.queueFilters[name];
     $('complaintQueueFilterOverlay').hidden = false;
     document.body.classList.add('complaint-filter-open');
     $('complaintQueueFilterSheet').focus();
@@ -915,11 +915,28 @@
     document.getElementById('complaint-correction')?.remove();
     if(item.correction_values){
       const editor=document.createElement('details');editor.id='complaint-correction';
-      const toggle=textNode('summary','✎ Edit complaint fields');toggle.setAttribute('aria-label','Edit complaint fields');editor.appendChild(toggle);
+      const toggle=document.createElement('summary');toggle.className='complaint-correction-toggle';toggle.setAttribute('aria-label','Edit complaint fields');toggle.title='Edit complaint fields';toggle.appendChild(iconNode('pencil'));editor.appendChild(toggle);
       const formNode=document.createElement('form');formNode.className='complaint-correction-form';
-      Object.entries(item.correction_values).forEach(([key,value])=>{const label=document.createElement('label');label.appendChild(textNode('span',key==='timestamp'?'Reported date/time (EAT, ISO format)':key==='date_resolved'?'Resolved date/time (EAT, ISO format)':key.replaceAll('_',' ')));const input=document.createElement('input');input.name=key;input.value=value||'';label.appendChild(input);formNode.appendChild(label);});
-      const save=textNode('button','Save correction');save.type='submit';formNode.appendChild(save);editor.appendChild(formNode);$('detailCaseId').parentElement.after(editor);
-      formNode.addEventListener('submit',async event=>{event.preventDefault();save.disabled=true;try{const fields={...Object.fromEntries(new FormData(formNode)),expected_revision:item.revision,client_request_id:pendingWriteId('correct:'+item.case_id,'complaint-correction')};const response=await json('cases/'+encodeURIComponent(item.case_id)+'/correct/',fields,item.group_id||state.groupId);settleWrite('correct:'+item.case_id);renderDetail(response.case);notify('Correction saved.');}catch(error){settleWrite('correct:'+item.case_id,error);if(error.status===409)showConflict(error);else presentError(error);}finally{save.disabled=false;}});
+      const labels={customer_name:'Customer Name',customer_id:'National ID',customer_phone:'Primary Phone',secondary_phone:'Alternate Phone',branch_region:'Branch',county:'County',sub_county:'Constituency',village:'Village / Landmark',complaint_category:'Complaint Type',complaint_description:'Description',timestamp:'Reported Date / Time (EAT)',date_resolved:'Resolved Date / Time (EAT)'};
+      Object.entries(labels).forEach(([key,title])=>{
+        if(!(key in item.correction_values))return;
+        const label=document.createElement('label');label.appendChild(textNode('span',title));
+        const input=document.createElement(key==='complaint_description'?'textarea':'input');input.name=key;
+        if(['customer_name','complaint_description'].includes(key))label.className='correction-full';
+        if(['timestamp','date_resolved'].includes(key)){
+          input.type='datetime-local';input.step='1';input.required=key==='timestamp';
+          input.value=(item.correction_values[key]||'').slice(0,19);input.dataset.originalValue=input.value;label.className='correction-date';
+        }else{input.value=item.correction_values[key]||'';if(key==='complaint_description')input.rows=3;}
+        label.appendChild(input);formNode.appendChild(label);
+      });
+      const save=textNode('button','Save correction');save.type='submit';formNode.appendChild(save);editor.appendChild(formNode);$('detailCaseId').closest('.case-title').after(editor);
+      formNode.addEventListener('submit',async event=>{event.preventDefault();save.disabled=true;try{const fields={...Object.fromEntries(new FormData(formNode)),expected_revision:item.revision,client_request_id:pendingWriteId('correct:'+item.case_id,'complaint-correction')};
+        for(const key of ['timestamp','date_resolved']){
+          const input=formNode.elements.namedItem(key);if(!input)continue;
+          const original=item.correction_values[key]||'';
+          fields[key]=input.value===input.dataset.originalValue?original:input.value?input.value+'+03:00':'';
+        }
+        const response=await json('cases/'+encodeURIComponent(item.case_id)+'/correct/',fields,item.group_id||state.groupId);settleWrite('correct:'+item.case_id);renderDetail(response.case);notify('Correction saved.');}catch(error){settleWrite('correct:'+item.case_id,error);if(error.status===409)showConflict(error);else presentError(error);}finally{save.disabled=false;}});
     }
     $('detailName').textContent = item.customer_name || 'Unnamed customer';
     $('detailGroup').textContent = item.group_label || '';
@@ -2156,7 +2173,7 @@
     state.page=1; closeQueueFilters(); loadCases();
   });
   $('resetComplaintQueueFilters').addEventListener('click', ()=>{
-    state.queueFilters={branch:'',category:''}; state.page=1; closeQueueFilters(); loadCases();
+    state.queueFilters={branch:'',category:'',order:'oldest'}; state.page=1; closeQueueFilters(); loadCases();
   });
   $('complaintQueueFilterSheet').addEventListener('keydown', event=>{
     if(event.key==='Escape'){event.preventDefault();closeQueueFilters();return;}
