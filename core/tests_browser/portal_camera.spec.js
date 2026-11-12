@@ -67,6 +67,7 @@ test('new office lead below threshold hides visit capture until deposit is suffi
 for (const newLead of [false, true]) test(`Portal ${newLead ? 'new lead' : 'existing case'} camera icon opens with shared validation active`, async ({page}, info) => {
   await page.setViewportSize({width:390,height:820});
   await mountCamera(page, newLead);
+  await page.locator('#jbl-evidence-summary').click();
   await page.locator('[data-camera-category="CLIENT_ID"] svg').click();
   await expect(page.locator('#jbl-camera-overlay')).toHaveClass(/open/);
   await expect(page.locator('#jbl-camera-shutter')).toBeEnabled();
@@ -95,20 +96,54 @@ for (const newLead of [false, true]) test(`Portal ${newLead ? 'new lead' : 'exis
 
 test('Create lead camera permission errors show feedback instead of silently doing nothing', async ({page}) => {
   await mountCamera(page,true);
+  await page.locator('#jbl-evidence-summary').click();
   await page.evaluate(()=>{navigator.mediaDevices.getUserMedia=async()=>{throw new DOMException('Synthetic permission denial','NotAllowedError');};});
   await page.locator('[data-camera-category="CLIENT_ID"]').click();
   await expect.poll(()=>page.evaluate(()=>window.cameraToasts.at(-1))).toContain('Camera permission was denied');
   await expect(page.locator('#jbl-camera-overlay')).not.toHaveClass(/open/);
   await page.evaluate(()=>{Object.defineProperty(navigator,'mediaDevices',{value:undefined});});
   await page.locator('[data-camera-category="CLIENT_ID"]').click();
-  await expect.poll(()=>page.evaluate(()=>window.cameraToasts.at(-1))).toContain('Use the folder icon');
+  await expect.poll(()=>page.evaluate(()=>window.cameraToasts.at(-1))).toContain('Use Upload document');
 });
 
 test('Create lead file picker is wired independently from server draft recovery', async ({page}) => {
   await mountCamera(page,true);
+  await page.locator('#jbl-evidence-summary').click();
+  await expect(page.locator('.jbl-document-slot:visible')).toHaveCount(0);
+  await expect(page.locator('#jbl-id-media-complete')).not.toHaveAttribute('multiple');
   const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aQZkAAAAASUVORK5CYII=','base64');
-  await page.locator('#jbl-id-media').setInputFiles({name:'synthetic-id-front.png',mimeType:'image/png',buffer:Buffer.concat([png,Buffer.alloc(5000)])});
-  await expect(page.locator('.jbl-document-slot-preview:visible')).toHaveCount(1);
-  await expect(page.locator('#jbl-id-media')).toHaveValue('');
-  await expect(page.locator('#jbl-id-media-name')).toContainText('1 of 2');
+  await page.locator('#jbl-id-media-complete').setInputFiles({name:'synthetic-combined-id.png',mimeType:'image/png',buffer:Buffer.concat([png,Buffer.alloc(5000)])});
+  await expect(page.locator('.jbl-document-slot:visible')).toHaveCount(0);
+  await expect(page.locator('#jbl-id-media-complete')).toHaveValue('');
+  await expect(page.locator('#jbl-id-media-name')).toHaveText('Document selected');
+  await expect(page.locator('#jbl-id-media-previews')).toContainText('synthetic-combined-id.png');
+  await page.locator('#jbl-id-media-complete').evaluate(input => {
+    const files = new DataTransfer();
+    for (const name of ['page1.png', 'page2.png']) files.items.add(new File([new Uint8Array(5000)], name, {type:'image/png'}));
+    input.files = files.files;
+    input.dispatchEvent(new Event('change', {bubbles:true}));
+  });
+  await expect.poll(()=>page.evaluate(()=>window.cameraToasts.at(-1))).toBe('Choose one complete PDF or image.');
+  await expect(page.locator('#jbl-id-media-previews')).toContainText('synthetic-combined-id.png');
+  await page.locator('#jbl-id-media-previews .jbl-media-remove').click();
+  await expect(page.locator('#jbl-id-media-name')).toHaveText('No document selected');
+  await expect(page.locator('.jbl-document-slot:visible')).toHaveCount(0);
+});
+
+test('LAF repayment entry waits for both camera pages and supports page retakes', async ({page}) => {
+  await mountCamera(page);
+  await page.locator('#jbl-evidence-summary').click();
+  await page.locator('[data-camera-category="LAF"]').click();
+  await page.locator('#jbl-camera-shutter').click();
+  await expect(page.locator('#jbl-repayment-section')).toBeHidden();
+  await expect(page.locator('#jbl-live-camera-title')).toContainText('Page 2');
+  await page.locator('#jbl-camera-shutter').click();
+  await expect(page.locator('#jbl-laf-media-name')).toContainText('Ready');
+  await page.locator('#jbl-camera-close').click();
+  await expect(page.locator('#jbl-repayment-section')).toBeVisible();
+  await page.locator('[data-jbl-field="laf_page_1"] .jbl-document-slot-preview').click();
+  await page.locator('[data-selection-preview-action="retake"]').click();
+  await expect(page.locator('#jbl-live-camera-title')).toContainText('Page 1');
+  await page.locator('#jbl-camera-shutter').click();
+  await expect(page.locator('#jbl-laf-media-name')).toContainText('Ready');
 });

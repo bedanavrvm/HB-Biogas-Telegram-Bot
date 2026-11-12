@@ -1,5 +1,8 @@
 # Mini App Design Lab
 
+Visit evidence uses one complete uploaded file per document and guided camera
+pages. [Source and local evidence](reviews/2026-11-12-visit-evidence-single-upload.md).
+
 LAF-dependent visit repayment entry and explicit final-review correction reuse
 current form controls. [Source and local evidence](reviews/2026-11-12-visit-repayment-terms.md).
 

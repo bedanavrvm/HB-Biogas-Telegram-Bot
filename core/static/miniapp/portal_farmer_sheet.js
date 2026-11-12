@@ -1399,6 +1399,7 @@
     const maximumMediaFiles = Number(state().jblVisitMediaMaxFiles || 6);
     const canWriteMedia = hasCapability('portal.jbl_media.write');
     const mediaFields = canWriteMedia ? `
+      <p class="jbl-evidence-help">Upload one complete PDF or image per document, or use the camera for separate sides/pages.</p>
       <div class="jbl-media-grid">
         ${jblDocumentMarkup('CLIENT_ID', 'Client ID')}
         ${jblDocumentMarkup('LAF', 'LAF')}
@@ -1539,18 +1540,18 @@
   function jblDocumentMarkup(category, title) {
     const inputId = jblMediaInputId(category);
     return `<section class="media-category-upload jbl-document-upload" data-media-category="${category}" data-jbl-field="${category === 'CLIENT_ID' ? 'client_id_files' : 'laf_files'}">
-      <div class="jbl-media-category-heading"><span>${title}</span><strong class="jbl-media-selection-summary" id="${inputId}-name" aria-live="polite">0 of 2 captured</strong><button type="button" class="jbl-media-icon-button" data-camera-category="${category}" aria-label="Capture ${title} pair" title="Capture ${title}">${cameraIcon()}</button></div>
-      <label class="jbl-slot-picker" for="${inputId}-complete" data-input-id="${inputId}-complete" role="button" tabindex="0" aria-label="Upload ${title} complete document or two photos">Upload complete document or two photos</label>
-      <input class="sr-only" type="file" id="${inputId}-complete" data-media-category="${category}" multiple accept="application/pdf,image/jpeg,image/png,image/webp,.pdf,.jpg,.jpeg,.png,.webp">
-      <small class="field-help">One PDF (1-2 pages), one image containing both sides/pages, or two separate photos. Preview to check that every side/page is legible.</small>
+      <div class="jbl-media-category-heading"><span>${title}</span><strong class="jbl-media-selection-summary" id="${inputId}-name" aria-live="polite">No document selected</strong></div>
+      <div class="jbl-document-actions">
+        <label class="jbl-slot-picker" for="${inputId}-complete" data-input-id="${inputId}-complete" role="button" tabindex="0" aria-label="Upload ${title} document">${pickerIcon()}<span>Upload document</span></label>
+        <button type="button" class="jbl-document-capture" data-camera-category="${category}" aria-label="Capture ${title} photos">${cameraIcon()}<span>Capture photos</span></button>
+      </div>
+      <input class="sr-only" type="file" id="${inputId}-complete" data-media-category="${category}" accept="application/pdf,image/jpeg,image/png,image/webp,.pdf,.jpg,.jpeg,.png,.webp">
       <small class="jbl-field-error" data-error-message-for="${category === 'CLIENT_ID' ? 'client_id_files' : 'laf_files'}"></small>
       <div class="jbl-media-preview-list" id="${inputId}-previews"></div>
       <button type="button" data-swap-document="${category}" hidden>Swap page order</button>
-      <div class="jbl-document-slots">${jblDocumentSlots[category].map((field, side) => `<div class="jbl-document-slot" data-jbl-field="${field}">
+      <div class="jbl-document-slots" hidden>${jblDocumentSlots[category].map((field, side) => `<div class="jbl-document-slot" data-jbl-field="${field}" hidden>
         <span>${jblDocumentLabels[category][side]}</span>
         <button type="button" class="jbl-document-slot-preview" data-media-item-id="" aria-label="Review ${title} ${jblDocumentLabels[category][side]}" hidden></button>
-        <label class="jbl-slot-picker jbl-media-icon-button" data-input-id="${inputId}${side ? '-2' : ''}" for="${inputId}${side ? '-2' : ''}" role="button" tabindex="0" aria-label="Choose ${title} ${jblDocumentLabels[category][side]}">${pickerIcon()}</label>
-        <input class="sr-only" type="file" id="${inputId}${side ? '-2' : ''}" data-media-category="${category}" data-media-side="${side}" accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp">
         <small class="jbl-field-error" data-error-message-for="${field}"></small></div>`).join('')}</div>
     </section>`;
   }
@@ -1616,7 +1617,8 @@
   }
 
   function advanceJblCameraTarget() {
-    for (const category of ['CLIENT_ID', 'LAF']) {
+    const categories = jblCameraCategory === 'LAF' ? ['LAF', 'CLIENT_ID'] : ['CLIENT_ID', 'LAF'];
+    for (const category of categories) {
       if (jblMediaSelections[category].some(item => item.complete)) continue;
       const side = [0, 1].find(value => !jblMediaSelections[category].some(item => item.side === value));
       if (side !== undefined) { setJblCameraTarget(category, side); return; }
@@ -1630,7 +1632,7 @@
     const status = el('jbl-camera-status');
     const shutter = el('jbl-camera-shutter');
     if (!panel || !video || !navigator.mediaDevices?.getUserMedia) {
-      deps.showToast('Live camera is not available in this Telegram WebView. Use the folder icon to choose a photo.', 'error');
+      deps.showToast('Live camera is not available in this Telegram WebView. Use Upload document to choose a complete PDF or image.', 'error');
       return;
     }
     if (category === 'JBL_VISIT_PHOTO' && !replaceId && jblMediaSelections.JBL_VISIT_PHOTO.length >= Number(state().jblVisitMediaMaxFiles || 6)) {
@@ -1805,12 +1807,12 @@
       summary.textContent = items.length ? `${items.length} selected · ${formatMediaBytes(totalBytes)}` : 'No files selected';
       if (jblDocumentSlots[category]) summary.textContent = items.length === 2
         ? 'Ready · one complete document'
-        : `${items.length} of 2 captured`;
+        : items.length ? `${items.length} of 2 captured` : 'No document selected';
     }
     const complete = items.some(item => item.complete);
     const section = document.querySelector(`[data-media-category="${category}"].jbl-document-upload`);
     if (section) {
-      section.querySelector('.jbl-document-slots').hidden = complete;
+      section.querySelector('.jbl-document-slots').hidden = complete || !items.length;
       section.querySelector('[data-swap-document]').hidden = complete || items.length !== 2;
     }
     if (jblDocumentSlots[category] && !complete) {
@@ -1820,15 +1822,15 @@
         const preview = slot?.querySelector('.jbl-document-slot-preview');
         const item = items.find(candidate => candidate.side === side);
         if (!slot || !preview) return;
+        slot.hidden = !item;
         slot.classList.toggle('captured', Boolean(item));
         preview.hidden = !item;
         preview.dataset.mediaItemId = item?.id || '';
         preview.innerHTML = item?.thumbnailUrl ? `<img src="${item.thumbnailUrl}" alt="">` : '✓';
-        slot.querySelector('.jbl-slot-picker')?.setAttribute('title', item ? `Replace ${jblDocumentLabels[category][side]}` : `Choose ${jblDocumentLabels[category][side]}`);
       });
       return;
     }
-    if (summary && complete) summary.textContent = 'Complete document selected - preview to review';
+    if (summary && complete) summary.textContent = 'Document selected';
     const previews = el(`${inputId}-previews`);
     if (!previews) return;
     previews.innerHTML = items.map(item => {
@@ -1904,8 +1906,8 @@
     const additions = Array.from(files || []);
     if (!additions.length || !jblMediaSelections[category]) return false;
     const complete = Boolean(upload && additions.length === 1);
-    if (upload && (additions.length > 2 || additions.length === 2 && additions.some(file => /\.pdf$/i.test(file.name)))) {
-      deps.showToast('Choose one complete PDF/image or two separate photos.', 'error'); return false;
+    if (upload && additions.length !== 1) {
+      deps.showToast('Choose one complete PDF or image.', 'error'); return false;
     }
     const replacingDocument = Boolean(jblDocumentSlots[category] && (upload || jblMediaSelections[category].some(item => item.complete)));
     if (jblDocumentSlots[category] && !replacingDocument) {
@@ -2517,7 +2519,7 @@
   // Media capture belongs to both Create lead and existing visits. Recovery
   // wiring is separate: an unsaved lead has no server draft to restore/save.
   function wireJblVisitMedia(farmer) {
-    ['jbl-id-media', 'jbl-id-media-2', 'jbl-id-media-complete', 'jbl-laf-media', 'jbl-laf-media-2', 'jbl-laf-media-complete', 'jbl-visit-photo-media'].forEach(id => {
+    ['jbl-id-media-complete', 'jbl-laf-media-complete', 'jbl-visit-photo-media'].forEach(id => {
       el(id)?.addEventListener('change', () => {
         const input = el(id);
         addJblMediaFiles(input?.dataset.mediaCategory, input?.files, { side: input?.dataset.mediaSide !== undefined ? Number(input.dataset.mediaSide) : null, upload: id.endsWith('-complete') });

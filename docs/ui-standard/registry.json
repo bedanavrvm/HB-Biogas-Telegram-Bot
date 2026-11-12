@@ -1202,6 +1202,24 @@
       "sha256": "801312287552c78e199bebc79af05ecebc69d5bfcc8aefbb2057d7ad5655edc7",
       "review_reference": "docs/ui-standard/reviews/2026-11-12-visit-repayment-terms.md",
       "reason": "User-requested repayment pencil proportion correction: match existing 15px case-edit icon, verified in the actual shell at mobile and desktop widths; cache version only otherwise."
+    },
+    {
+      "path": "core/static/miniapp/portal_farmer_sheet.js",
+      "sha256": "b00a0ac6cbecde0e2851dd0dfe59a736dd4e36fc059b89f11db99f4b225bf27d",
+      "review_reference": "docs/ui-standard/reviews/2026-11-12-visit-evidence-single-upload.md",
+      "reason": "User-requested single complete document upload and guided camera pages, with compact existing Portal disclosure and selection controls; local shell screenshots and focused interaction checks. No Phase 6 migration or permission change."
+    },
+    {
+      "path": "core/static/miniapp/portal.css",
+      "sha256": "a2fa7d8285496863df6f42be53a02ecd7cf8606f7102a6100d356c4efcc542ae",
+      "review_reference": "docs/ui-standard/reviews/2026-11-12-visit-evidence-single-upload.md",
+      "reason": "User-requested single complete document upload and guided camera pages, with compact existing Portal disclosure and selection controls; local shell screenshots and focused interaction checks. No Phase 6 migration or permission change."
+    },
+    {
+      "path": "core/templates/base_shell.html",
+      "sha256": "e6792dfff11875b471ba368d2ff0d4406fa29f7e37dcbdc8c795574dd3cd84f6",
+      "review_reference": "docs/ui-standard/reviews/2026-11-12-visit-evidence-single-upload.md",
+      "reason": "User-requested single complete document upload and guided camera pages, with compact existing Portal disclosure and selection controls; local shell screenshots and focused interaction checks. No Phase 6 migration or permission change."
     }
   ],
   "source_roots": [

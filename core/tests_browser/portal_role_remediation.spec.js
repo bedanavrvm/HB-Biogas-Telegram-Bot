@@ -361,14 +361,3 @@ test('Final repayment correction values and editor mode survive reopening',async
   const body=await page.evaluate(()=>JSON.parse(requests.find(item=>item.url.includes('/final-review-queue/')).body));
   expect(body.repayment_date).toBe('20');expect(body.repayment_tenor).toBe('18');
 });
-
-
-test('A single LAF page does not reveal repayment entry; both captures do',async({page})=>{
-  await mountReview(page,'jbl_visit');
-  await page.selectOption('#jbl-status','Visited, Awaiting Credit Analysis');
-  const image={name:'synthetic-page.jpg',mimeType:'image/jpeg',buffer:Buffer.alloc(5000,65)};
-  await page.setInputFiles('#jbl-laf-media',image);
-  await expect(page.locator('#jbl-repayment-section')).toBeHidden();
-  await page.setInputFiles('#jbl-laf-media-2',{...image,name:'synthetic-page2.jpg',buffer:Buffer.alloc(5000,66)});
-  await expect(page.locator('#jbl-repayment-section')).toBeVisible();
-});

@@ -56,11 +56,14 @@ payment columns continue to use the same case fields. No migration is required.
 
 ## Uploading evidence
 
-Camera capture retains ID front/back and LAF page 1/page 2. Upload either:
+Upload one complete file per Client ID or LAF:
 
 - One complete, unencrypted PDF containing one or two pages.
 - One clear image containing the complete document, converted locally to PDF.
-- Two separate photos, reviewed in their named slots; Swap page order reverses them.
+
+For separate sides/pages, use Capture photos. The camera guides ID front/back
+and LAF page 1/page 2. Tap a captured preview to review or retake that page.
+The regular upload picker does not ask for separate sides or pages.
 
 Review that both sides/pages are present and readable. The app does not infer
 missing content or split/crop a combined image. File type, decoded image limits,
