@@ -52,3 +52,13 @@ forward-evidence test passed. The whole browser module has an existing rejected
 case summary/fixture mismatch; the 17 repayment/layout checks pass. These broader
 suites are not claimed green. No production Google or Telegram writes, physical
 camera test, OCR, historical backfill or deployment were performed.
+
+## Pencil-size correction
+
+The repayment edit pencil used Lucide's default 24px size. It now matches the
+existing Case History edit pencil at 15px, with inline vertical alignment.
+The CSS asset version is bumped so returning Mini Apps receive the correction.
+The actual Portal shell/CSS fixture measured 15 by 15px at 390px and 1280px;
+opening the correction still reveals its inputs. Local screenshots are
+`test-results/repayment-pencil-390.png` and `repayment-pencil-1280.png`.
+No workflow or field-validation behavior changed.

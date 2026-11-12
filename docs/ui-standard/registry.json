@@ -1190,6 +1190,18 @@
       "sha256": "c702ca3a44c82c502267c04dae2eb89feeff56ff397e435573fa5ebd382235b9",
       "review_reference": "docs/ui-standard/reviews/2026-11-12-visit-repayment-terms.md",
       "reason": "User-approved LAF-dependent visit repayment capture and explicit Head of Rural correction. Existing form/disclosure/draft patterns and signed synthetic Portal evidence; no Phase 6 migration or permission expansion."
+    },
+    {
+      "path": "core/static/miniapp/portal.css",
+      "sha256": "ef0f94b71210c43a86a15b404f817b345e59135387377464c0b2f58bbafea842",
+      "review_reference": "docs/ui-standard/reviews/2026-11-12-visit-repayment-terms.md",
+      "reason": "User-requested repayment pencil proportion correction: match existing 15px case-edit icon, verified in the actual shell at mobile and desktop widths; cache version only otherwise."
+    },
+    {
+      "path": "core/templates/base_shell.html",
+      "sha256": "801312287552c78e199bebc79af05ecebc69d5bfcc8aefbb2057d7ad5655edc7",
+      "review_reference": "docs/ui-standard/reviews/2026-11-12-visit-repayment-terms.md",
+      "reason": "User-requested repayment pencil proportion correction: match existing 15px case-edit icon, verified in the actual shell at mobile and desktop widths; cache version only otherwise."
     }
   ],
   "source_roots": [
