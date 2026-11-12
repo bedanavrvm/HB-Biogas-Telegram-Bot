@@ -9,9 +9,10 @@ from django.db import transaction
 from django.db.models import Count, Q
 from django.utils import timezone
 
-from core.models import IntegrationOperation, JawabuFarmerMaster
+from core.models import IntegrationOperation, JawabuFarmerMaster, JawabuPipelineEvent
 from core.services.identifiers import normalize_kenyan_phone, validate_kenyan_national_id
 from core.services.jawabu_validation import parse_business_date
+from . import reconciliation
 from .models import LegacyDraft, LegacyEvent, LegacyRow, LegacyUpload
 from .registers import owns_case
 from .workbook import ALIASES, DATES, MONEY, literal, propose, token
@@ -43,12 +44,15 @@ def bind_update_headers(headers):
         'decisionaction': 'legacy_outcome', 'depositpaidtojbl': 'legacy_deposit_paid_jbl',
         'constituency': 'legacy:Constituency', 'homebiogasaction': 'legacy:HomeBiogas Action',
         'total': 'legacy:Total', 'openbalance': 'legacy:Open Balance'}
-    bindings = {}
+    bindings = {}; decision_count = 0
     for index, header in enumerate(headers):
         name = token(header)
-        if not name or name == 'ane':
+        if not name or name == 'ane' or name == 'jawabufinalposition':
             continue
-        field = aliases.get(name) or ALIASES.get(name) or 'legacy:' + str(header).strip()
+        if name == 'decisionaction': decision_count += 1
+        guidance = {'hbaction': 'guidance_hb_action', 'novcommments': 'guidance_november_comment'}
+        field = ('guidance_decision' if name == 'decisionaction' and decision_count == 2 else
+            'guidance_comment' if name.startswith('updatedcommentfornovember') else guidance.get(name)) or aliases.get(name) or ALIASES.get(name) or 'legacy:' + str(header).strip()
         if field in bindings.values():
             raise ValueError(f'Duplicate source header: {header}.')
         bindings[index] = field
@@ -106,6 +110,9 @@ class Matches:
         for row in LegacyRow.objects.filter(farmer_id__in=self.cases, committed_at__isnull=False).prefetch_related('events').order_by('committed_at', 'pk'):
             self.baselines.setdefault(str(row.farmer_id), row)
         self.originals = reviewed_originals(upload, self.baselines)
+        self.accepted = {}
+        for event in JawabuPipelineEvent.objects.filter(farmer_id__in=self.cases, action='source_reconciled').order_by('created_at', 'pk'):
+            self.accepted.setdefault(str(event.farmer_id), {}).update((event.metadata or {}).get('source_values', {}))
         for case_id, case in self.cases.items():
             for key, values in [('id', [case.national_id]), ('phone', [case.primary_phone, case.secondary_phone]),
                                 ('name', [case.customer_name]), ('serial', [current_value(case, 'serial_number', {})])]:
@@ -133,10 +140,23 @@ class Matches:
         phones = set().union(*(self.indices['phone'].get(equivalent('primary_phone', values.get(k)), set()) for k in ('primary_phone', 'secondary_phone')))
         name = self.indices['name'].get(equivalent('name', values.get('customer_name')), set())
         serial = self.indices['serial'].get(equivalent('serial', values.get('serial_number')), set())
+        order = set()
+        if str(values.get('order_number') or '').strip() not in {'', '-'}:
+            from .cleaning import reference_value
+            try:
+                requested = reference_value('order_number', values['order_number'], self.upload.source_sheet)
+                for key in candidates:
+                    try:
+                        if reference_value('order_number', self.cases[key].order_number, self.upload.source_sheet) == requested: order.add(key)
+                    except ValueError: pass
+            except ValueError: pass
         if len(candidates) == 1:
-            return next(iter(candidates)), 'National ID', sorted(candidates)
+            matched = next(iter(candidates))
+            if reconciliation.enabled(self.upload) and not ({matched} & (name | phones | serial)):
+                return '', 'National ID conflicts with the name/contact evidence', sorted(candidates | name | phones)[:10]
+            return matched, 'National ID', sorted(candidates)
         if candidates:
-            for support in (serial, phones & name, name):
+            for support in (serial, order, phones & name, name):
                 narrowed = candidates & support
                 if len(narrowed) == 1:
                     return next(iter(narrowed)), 'National ID and unit/contact', sorted(candidates)
@@ -172,6 +192,11 @@ def reviewed_originals(upload, baselines):
                 if len(parts)>1 and parts[-1]=='Original':
                     name=token(parts[-2])
                     field={'firstphonenumber':'primary_phone','primaryphone':'primary_phone','secondphonenumber':'secondary_phone','secondaryphone':'secondary_phone','idnumber':'national_id','nationalid':'national_id'}.get(name)
+                    if reconciliation.enabled(upload):
+                        field = field or {'name': 'customer_name', 'homebiogasvisitdate': 'hbg_visit_date', 'jawabuvisitdate': 'jbl_visit_date',
+                            'jawaburequsitiondate': 'requisition_date', 'commsioningstatus': 'commissioning_status',
+                            'installationdatescheduleddateestimatedinstallationdate': 'installation_date',
+                            'csremarkssalescommissionstatus': 'cs_remarks'}.get(name) or ALIASES.get(name)
                     if field:columns[cell['column']]=field
             if not source_column or not columns:continue
             for _,(_,cells) in records:
@@ -194,8 +219,14 @@ def compare(draft, matches, explicit=''):
         case = matches.cases[case_id]
         row = matches.baselines.get(case_id)
         baseline = effective_values(row) if row else {}
+        accepted = matches.accepted.get(case_id, {})
+        operational_reconciliation = reconciliation.enabled(draft.upload)
         # Original reviewed source is a baseline, not permission to undo a later app correction.
         for key, raw in draft.values.items():
+            if operational_reconciliation and raw in ('', '-', None):
+                continue
+            if operational_reconciliation and (key in reconciliation.GUIDANCE_FIELDS or key in {'case_comment_history', 'legacy_outcome'}):
+                continue
             if key in {'case_id', 'source_row', 'decision_stage', 'reviewer_notes', 'legacy_progress_notes', 'legacy_reason', 'legacy_reason_code'}:
                 continue
             # Previously unmapped reference columns remain upload evidence, not new case fields.
@@ -203,6 +234,8 @@ def compare(draft, matches, explicit=''):
                 continue
             current = current_value(case, key, baseline)
             reviewed=matches.originals.get(case_id,{})
+            if operational_reconciliation and key in accepted and equivalent(key,raw)==equivalent(key,accepted[key]):
+                continue
             if key in reviewed and equivalent(key,raw)==equivalent(key,reviewed[key]) and equivalent(key,current)==equivalent(key,baseline.get(key)):
                 continue
             if key == 'village' and equivalent(key, raw) == equivalent(key, baseline.get('legacy:Location detail')):
@@ -221,18 +254,36 @@ def compare(draft, matches, explicit=''):
                 error = 'This value needs correction before it can be applied.'
             if row is None and key not in {f.name for f in case._meta.fields if not f.is_relation}:
                 error = 'This is an app-created case. Use its owning workflow for this field.'
+            if operational_reconciliation and key == 'jbl_visit_date':
+                planned = parse_business_date(raw)
+                hbg = parse_business_date(draft.values.get('hbg_visit_date')) or case.hbg_visit_date
+                if not planned or planned > timezone.localdate() or (hbg and planned < hbg):
+                    error = 'Reported JBL visit date must be a real date between the HB visit and today.'
+            if operational_reconciliation and key in reconciliation.FINANCIAL_FIELDS:
+                error = 'Financial/reference differences require their owning workflow review.'
             proposal['changes'][key] = {'before': literal(current), 'after': literal(raw), 'error': error,
-                'app_conflict': key in baseline and equivalent(key, current) != equivalent(key, baseline[key])}
+                'app_conflict': (key in baseline and equivalent(key, current) != equivalent(key, baseline[key]))
+                    or (operational_reconciliation and key == 'jbl_visit_date' and bool(current)
+                        and case.pipeline_events.filter(action='jbl_visit_completed').exists())}
+        if operational_reconciliation:
+            proposal['changes'].update(reconciliation.changes(case, draft.values, {**baseline, **accepted}, draft.reconciliation))
+            proposal['position_choices'] = reconciliation.POSITION_LABELS
+            proposal['policy'] = reconciliation.POLICY
         proposal['kind'] = 'changed' if proposal['changes'] else 'unchanged'
         proposal['state'] = case.workflow_state
         proposal['case_revision'] = case.workflow_revision
     else:
         proposal['issues'] = [method] if candidates else []
+        if reconciliation.enabled(draft.upload) and not candidates:
+            proposal['issues'].append('New current cases require validated FarmUp/office intake; this update does not label them historical.')
+            proposal['new_intake_required'] = True
     draft.proposal = proposal
     draft.approved = False
     previous = draft.reconciliation
     draft.reconciliation = {**previous, 'applied': False, 'selected_fields': [key for key, change in proposal['changes'].items()
         if change['after'] not in ('', '-') and not change['error'] and not change.get('app_conflict')]}
+    if reconciliation.enabled(draft.upload) and any(change.get('error') or change.get('app_conflict') for change in proposal['changes'].values()):
+        draft.reconciliation['selected_fields'] = []
     draft.save(update_fields=['proposal', 'approved', 'reconciliation'])
 
 
@@ -306,7 +357,9 @@ def select(upload, body):
         raise ValueError('Finish comparison before selecting changes.')
     if body.get('all') is True:
         # New records and unresolved matches always require their own explicit selection.
-        upload.drafts.filter(proposal__kind='changed').exclude(reconciliation__applied=True).update(approved=bool(body.get('approved')))
+        selectable = upload.drafts.filter(proposal__kind='changed').exclude(reconciliation__applied=True)
+        if reconciliation.enabled(upload): selectable = selectable.exclude(reconciliation__selected_fields=[])
+        selectable.update(approved=bool(body.get('approved')))
         if not body.get('approved'):
             upload.drafts.all().update(approved=False)
         return
@@ -315,11 +368,24 @@ def select(upload, body):
         draft = upload.drafts.get(pk=item['id'])
         if draft.reconciliation.get('applied'):
             continue
+        if reconciliation.enabled(upload) and ('position_override' in item or 'next_visit_date' in item):
+            choice = str(item.get('position_override', draft.reconciliation.get('position_override', '')))
+            if choice not in {'', 'keep', *reconciliation.POSITION_LABELS}: raise ValueError('Choose a supported reconciliation position.')
+            planned = str(item.get('next_visit_date', draft.reconciliation.get('next_visit_date', '')))
+            if planned:
+                parsed = parse_business_date(planned)
+                if not parsed: raise ValueError('Next visit date must use dd/mm/yyyy.')
+                planned = parsed.isoformat()
+            draft.reconciliation.update(position_override=choice, next_visit_date=planned)
+            matches = matches or Matches(upload)
+            compare(draft, matches, draft.reconciliation.get('existing_case_id', ''))
         explicit = str(item.get('existing_case_id') or '')
         if explicit and (explicit != draft.proposal.get('case_id') or draft.proposal.get('kind')=='ambiguous'):
             matches = matches or Matches(upload)
             compare(draft, matches, explicit)
         fields = draft.reconciliation.get('selected_fields', []) if explicit else item.get('selected_fields', draft.reconciliation.get('selected_fields', []))
+        if isinstance(fields, list) and ('position_override' in item or 'next_visit_date' in item) and 'reconciled_position' not in draft.proposal.get('changes', {}):
+            fields = [field for field in fields if field != 'reconciled_position']
         if not isinstance(fields, list) or not set(fields) <= set(draft.proposal.get('changes', {})):
             raise ValueError('Select only fields in this saved comparison.')
         draft.reconciliation.update(selected_fields=fields, create_new=item.get('create_new') is True)
@@ -340,6 +406,8 @@ def apply_row(draft_id, actor, access):
     p = draft.proposal
     key = f'legacy-update:{draft.pk}'
     if p['kind'] == 'new' and draft.reconciliation.get('create_new'):
+        if reconciliation.enabled(upload):
+            raise ValueError('Use validated current FarmUp/office intake for new cases; updates preserve case origin.')
         # Recheck identity at commit, including cases added after the comparison.
         current_match = Matches(upload).find(draft.values)
         if current_match[0] or current_match[2]:
@@ -374,16 +442,25 @@ def apply_row(draft_id, actor, access):
         for field in fields:
             if p['changes'][field]['error']:
                 raise ValueError(p['changes'][field]['error'])
-        apply_fields(farmer, row, selected, actor, key)
+        virtual = {field: value for field, value in selected.items() if field in {'reported_notes', 'reconciled_position'}}
+        ordinary = {field: value for field, value in selected.items() if field not in virtual}
+        if ordinary: apply_fields(farmer, row, ordinary, actor, key)
+        farmer.refresh_from_db()
+        if reconciliation.enabled(upload): reconciliation.apply(draft, farmer, selected, actor, access, key)
         farmer.refresh_from_db()
         if row:
             normalized=parsed_values(selected)['fields']
+            source_changes = {k:literal(normalized.get(k,value)) for k,value in selected.items()}
+            if reconciliation.enabled(upload) and 'reconciled_position' in selected:
+                target = p['changes']['reconciled_position']['target']
+                source_changes['legacy_outcome'] = reconciliation.OUTCOMES[target]
+                row.continuation_confirmed = True
             LegacyEvent.objects.create(row=row, actor=actor, request_key=key, action='fields_updated', payload={
                 'upload_id': str(upload.pk), 'source_row': draft.source_row, 'source_hash': upload.digest,
-                'source_changes': {k:literal(normalized.get(k,value)) for k,value in selected.items()},
+                'source_changes': source_changes,
                 'before': {k: p['changes'][k]['before'] for k in fields}, 'after': selected})
             row.revision += 1
-            row.save(update_fields=['revision'])
+            row.save(update_fields=['revision', 'continuation_confirmed'])
     operations = reserve_farmer_publication(farmer, request_id=key, requested_by=actor)
     draft.legacy = row
     draft.reconciliation.update(applied=True, operations=[str(o.pk) for o in operations if o.operation_type == MASTER_OPERATION])

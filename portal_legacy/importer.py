@@ -52,10 +52,11 @@ def create(body,actor,access):
         existing=LegacyUpload.objects.filter(batch__group=group,digest=digest,source_sheet=source_sheet,mode=mode).first()
         if existing:
             if existing.phase=='discarded':
-                existing.phase='uploading';existing.state={};save(existing)
+                existing.phase='uploading';existing.state={k:v for k,v in existing.state.items() if k=='update_policy'};save(existing)
             return existing
         batch,_=LegacyBatch.objects.get_or_create(group=group,namespace=namespace,defaults={'source_hash':digest,'created_by':actor})
-        return LegacyUpload.objects.create(batch=batch,actor=actor,filename=str(body.get('filename','source.xlsx'))[:200],digest=digest,size=size,source_sheet=source_sheet,mode=mode)
+        return LegacyUpload.objects.create(batch=batch,actor=actor,filename=str(body.get('filename','source.xlsx'))[:200],digest=digest,size=size,source_sheet=source_sheet,mode=mode,
+            state={'update_policy': 'reconcile-v1'} if mode=='updates' else {})
 
 
 def receive(upload,position,content):
@@ -111,7 +112,8 @@ def payload(upload):
 
 def prepare(upload):
     if upload.phase!='uploading':return
-    upload.state=streaming.mapping(upload);upload.phase='mapping';save(upload)
+    policy={k:v for k,v in upload.state.items() if k=='update_policy'}
+    upload.state={**streaming.mapping(upload),**policy};upload.phase='mapping';save(upload)
 
 
 def stage_step(upload,actor,access):

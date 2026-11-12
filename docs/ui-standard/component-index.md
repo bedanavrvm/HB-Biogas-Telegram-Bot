@@ -1,5 +1,8 @@
 # Component index and migration hold
 
+External reconciliation reuses AG Grid differences, field checkboxes, the row
+dialog and case360-grid selection/date controls. [Source and browser evidence](reviews/2026-11-12-workbook-reconciliation.md).
+
 All date presentation follows `dd/mm/yyyy` with a four-digit year and slashes.
 [Shared formatter and visit-field verification](reviews/2026-11-12-date-format.md).
 

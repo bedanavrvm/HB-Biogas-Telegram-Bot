@@ -1,5 +1,8 @@
 # Mini App Design Lab
 
+Reviewed external workbook updates reuse the Legacy comparison table and row
+controls. [Source, browser and validation evidence](reviews/2026-11-12-workbook-reconciliation.md).
+
 All date presentation follows `dd/mm/yyyy` with a four-digit year and slashes.
 [Shared formatter and visit-field verification](reviews/2026-11-12-date-format.md).
 

@@ -30,7 +30,8 @@
   }
   const reviewable=row=>!row.committed&&row.proposal.review_status!=='blocked'&&row.proposal.kind!=='unchanged'&&['ready','committing'].includes(active?.phase);
   const editable=row=>!updating()&&!busy&&!row.committed&&active?.phase==='ready';
-  const human=value=>({national_id:'National ID',deposit_paid_hbg:'Deposit paid to HB',legacy_deposit_paid_jbl:'Deposit paid to JBL'}[value]||String(value||'').replace(/^legacy:/,'Historical: ').replace(/_/g,' ').replace(/^./,c=>c.toUpperCase()));
+  const human=value=>({national_id:'National ID',deposit_paid_hbg:'Deposit paid to HB',legacy_deposit_paid_jbl:'Deposit paid to JBL',reported_notes:'Additional Comments to append',reconciled_position:'Current position',guidance_decision:'Decision guidance',guidance_hb_action:'HB follow-up',guidance_comment:'Latest source comment'}[value]||String(value||'').replace(/^legacy:/,'Historical: ').replace(/_/g,' ').replace(/^./,c=>c.toUpperCase()));
+  const displayValue=(value)=>/^\d{4}-\d{2}-\d{2}$/.test(String(value||''))?(window.MiniAppUtils?.formatDate(value)||value):value;
   function identityIssues(row){
     if(!row.identity_collision)return [];
     const identity=row.source_values.national_id;
@@ -56,10 +57,12 @@
   function updateCard(row){
     const p=row.proposal,disabled=busy||row.committed;
     return `<article class="case360-section"><strong>${esc(row.name)} · ${esc(human(p.kind))}</strong><p>${esc(p.match_method||'')}${p.case_id?' · '+esc((row.existing_cases||[]).find(c=>c.id===p.case_id)?.reference||p.case_id):''}</p>${issueList(row).map(issue=>`<p class="legacy-review-issues">${esc(issue)}</p>`).join('')}
-      ${Object.entries(p.changes||{}).map(([key,change])=>`<label class="legacy-field-edited"><input type="checkbox" data-update-field="${esc(key)}" data-row-id="${row.id}" ${row.reconciliation.selected_fields?.includes(key)?'checked':''} ${disabled?'disabled':''}><strong>${esc(human(key))}</strong><p>${esc(change.before||'(blank)')} → ${esc(change.after||'(blank)')}</p>${change.error?`<small class="legacy-field-issue">${esc(change.error)}</small>`:''}${change.app_conflict?'<small>The app differs from the previous imported source. Keep or explicitly select this change.</small>':''}</label>`).join('')}
-      ${p.kind==='new'?`<label><input type="checkbox" data-new-case="${row.id}" ${row.reconciliation.create_new?'checked':''} ${disabled?'disabled':''}>Confirm this is a new case</label>`:''}
+      ${Object.entries(p.changes||{}).map(([key,change])=>`<div class="legacy-field-edited"><label class="legacy-row-select"><input type="checkbox" data-update-field="${esc(key)}" data-row-id="${row.id}" ${row.reconciliation.selected_fields?.includes(key)?'checked':''} ${disabled?'disabled':''}><strong>${esc(human(key))}</strong></label><p>${esc(displayValue(change.before)||'(blank)')} → ${esc(displayValue(change.after)||'(blank)')}</p>${change.error?`<small class="legacy-field-issue">${esc(change.error)}</small>`:''}${change.app_conflict?'<small>The app differs from the previous imported source. Keep or explicitly select this change.</small>':''}</div>`).join('')}
+      ${p.position_choices?`<div class="case360-grid"><label>Current position<select data-position-row="${row.id}" ${disabled?'disabled':''}><option value="">Use suggested position</option><option value="keep" ${row.reconciliation.position_override==='keep'?'selected':''}>Keep current position</option>${Object.entries(p.position_choices).map(([key,label])=>`<option value="${esc(key)}" ${row.reconciliation.position_override===key?'selected':''}>${esc(label)}</option>`).join('')}</select></label><label data-next-visit-field ${p.changes?.reconciled_position?.target==='rescheduled'||row.reconciliation.position_override==='rescheduled'?'':'hidden'}>Next visit date<input data-next-visit-row="${row.id}" inputmode="numeric" placeholder="dd/mm/yyyy" maxlength="10" value="${esc(displayValue(row.reconciliation.next_visit_date||''))}" ${disabled?'disabled':''}></label></div>`:''}
+      ${p.new_intake_required?'<p class="legacy-field-issue">Add this current case through FarmUp or office intake after completing its identity details.</p>':''}
+      ${p.kind==='new'&&!p.new_intake_required?`<label><input type="checkbox" data-new-case="${row.id}" ${row.reconciliation.create_new?'checked':''} ${disabled?'disabled':''}>Confirm this is a new case</label>`:''}
       ${!row.committed&&p.kind==='ambiguous'?(row.existing_cases||[]).map(c=>`<button type="button" data-use-case="${c.id}" data-row-id="${row.id}" ${busy?'disabled':''}>Use ${esc(c.reference)} · ${esc(c.name)}</button>`).join(''):''}
-      <label><input type="checkbox" data-select="${row.id}" ${row.approved?'checked':''} ${!reviewable(row)||disabled?'disabled':''}>Apply this row</label></article>`;
+      <label class="legacy-row-select"><input type="checkbox" data-select="${row.id}" ${row.approved?'checked':''} ${!reviewable(row)||disabled?'disabled':''}>Apply this row</label></article>`;
   }
   function openRow(id){
     gridApi?.stopEditing();const row=current.find(r=>String(r.id)===id);if(!row||busy)return;
@@ -117,6 +120,7 @@
     ];
   }
   function updateColumns(keys){
+    keys=[...new Set([...keys,...current.flatMap(row=>Object.keys(row.proposal.changes||{}))])];
     return [
       {field:'source_row',headerName:'Row',width:48,minWidth:48,maxWidth:48,pinned:'left',filter:false,cellRenderer:p=>{const b=document.createElement('button');b.type='button';b.textContent=p.value;b.dataset.rowOpen=p.data.id;b.className='legacy-row-details';b.setAttribute('aria-label',`Review row ${p.value}`);return b;}},
       {colId:'approval',headerName:'',width:42,filter:false,sortable:false,cellRenderer:p=>{const c=document.createElement('input');c.type='checkbox';c.dataset.select=p.data.id;c.checked=p.data.approved;c.disabled=busy||!reviewable(p.data)||['ambiguous','new'].includes(p.data.proposal.kind)&&!p.data.reconciliation.create_new;c.setAttribute('aria-label',`Apply row ${p.data.source_row}`);return c;}},
@@ -124,7 +128,7 @@
       {colId:'review_state',headerName:'Comparison',width:130,valueGetter:p=>p.data.committed?'Applied':human(p.data.proposal.kind)},
       {colId:'match',headerName:'Matched Case',width:145,valueGetter:p=>p.data.existing_cases.find(c=>c.id===p.data.proposal.case_id)?.reference||''},
       {colId:'issues',headerName:'Review Notes',width:260,valueGetter:p=>issues(p.data)},
-      ...keys.filter(k=>current.some(r=>Object.hasOwn(r.proposal.changes||{},k))).map(key=>({colId:key,headerName:human(key),width:230,valueGetter:p=>{const c=p.data.proposal.changes?.[key];return c?`${c.before||'(blank)'} → ${c.after||'(blank)'}`:'';},cellClassRules:{'farmup-cell-edited':p=>Boolean(p.data.proposal.changes?.[key]),'farmup-cell-invalid':p=>Boolean(p.data.proposal.changes?.[key]?.error)}})),
+      ...keys.filter(k=>current.some(r=>Object.hasOwn(r.proposal.changes||{},k))).map(key=>({colId:key,headerName:human(key),width:230,valueGetter:p=>{const c=p.data.proposal.changes?.[key];return c?`${displayValue(c.before)||'(blank)'} → ${displayValue(c.after)||'(blank)'}`:'';},cellClassRules:{'farmup-cell-edited':p=>Boolean(p.data.proposal.changes?.[key]),'farmup-cell-invalid':p=>Boolean(p.data.proposal.changes?.[key]?.error)}})),
     ];
   }
   async function renderReview(){
@@ -250,7 +254,7 @@
     if(!rows.length||!['ready','committing'].includes(active.phase))return;
     gridApi?.stopEditing();
     await command('select',{rows:rows.map(r=>({id:r.id,approved:r.approved,
-      existing_case_id:r.reconciliation.existing_case_id||'',note:r.reconciliation.note||'',...(updating()?{selected_fields:r.reconciliation.selected_fields||[],create_new:!!r.reconciliation.create_new}:{})}))});
+      existing_case_id:r.reconciliation.existing_case_id||'',note:r.reconciliation.note||'',...(updating()?{selected_fields:r.reconciliation.selected_fields||[],create_new:!!r.reconciliation.create_new,...(r.proposal.policy?{position_override:r.reconciliation.position_override||'',next_visit_date:r.reconciliation.next_visit_date||''}:{})}:{})}))});
   }
   async function init() {
     root=document.getElementById('legacy-data-workspace');if(!root||root.dataset.ready)return;root.dataset.ready='true';
@@ -274,6 +278,9 @@
     });};
     node('[data-filter]').onchange=()=>run(async()=>{if(active)await selection(current.filter(r=>!r.committed));offset=0;await refresh();});
     root.addEventListener('input',event=>{
+      if(event.target.dataset.positionRow||event.target.dataset.nextVisitRow){const r=current.find(row=>row.id===(event.target.dataset.positionRow||event.target.dataset.nextVisitRow));if(!r||busy||r.committed)return;
+        if(event.target.dataset.positionRow){r.reconciliation.position_override=event.target.value;const next=event.target.closest('.case360-grid')?.querySelector('[data-next-visit-field]');if(next)next.hidden=event.target.value!=='rescheduled'&&!(event.target.value===''&&r.proposal.changes?.reconciled_position?.target==='rescheduled');}else r.reconciliation.next_visit_date=event.target.value;
+        const fields=new Set(r.reconciliation.selected_fields||[]);r.reconciliation.position_override==='keep'?fields.delete('reconciled_position'):fields.add('reconciled_position');r.reconciliation.selected_fields=[...fields];return;}
       if(event.target.dataset.updateField){const r=current.find(r=>r.id===event.target.dataset.rowId);if(r&&!busy){const fields=new Set(r.reconciliation.selected_fields||[]);event.target.checked?fields.add(event.target.dataset.updateField):fields.delete(event.target.dataset.updateField);r.reconciliation.selected_fields=[...fields];}return;}
       if(event.target.dataset.newCase){const r=current.find(r=>r.id===event.target.dataset.newCase);if(r&&!busy){r.reconciliation.create_new=event.target.checked;r.approved=event.target.checked;}return;}
       const target=event.target,id=target.dataset.select||target.dataset.match||target.dataset.note;

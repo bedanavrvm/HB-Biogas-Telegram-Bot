@@ -238,8 +238,8 @@ def insights(preset, queryset, filters, period):
                     add(key, {'visits': 'Visit outcomes', 'credit': 'Credit decisions', 'final': 'Final decisions'}[key], decision or 'Not recorded', decision or 'Not recorded', record)
                 has_timing = False
                 for stage in completed:
-                    origin = 'Historical estimate' if record.report_historical else 'App estimate' if stage['target_basis'] == 'current_target_estimate' else 'App workflow'
-                    key, label = stage['key'] + ('|historical' if record.report_historical else '|estimate' if origin == 'App estimate' else ''), stage['label'] + ' · ' + origin
+                    origin = 'External spreadsheet estimate' if stage.get('externally_reported') else 'Historical estimate' if record.report_historical else 'App estimate' if stage['target_basis'] == 'current_target_estimate' else 'App workflow'
+                    key, label = stage['key'] + ('|external' if stage.get('externally_reported') else '|historical' if record.report_historical else '|estimate' if origin == 'App estimate' else ''), stage['label'] + ' · ' + origin
                     if stage['precision'] == 'date': label += ' · date precision'
                     if stage.get('minutes') is None or not stage.get('started_at') or parse_datetime(stage['started_at']) > parse_datetime(stage['completed_at']):
                         continue

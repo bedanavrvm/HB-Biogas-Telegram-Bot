@@ -443,6 +443,8 @@ def calculate_case_tat(farmer: JawabuFarmerMaster, *, now=None, events=None, hb_
         ):
             terminal_at = event.occurred_at
 
+    from core.services.report_provenance import external_timing
+    external_fields, external_position = external_timing(current_events)
     stages = []
     total_minutes = Decimal('0')
     total_elapsed_seconds = 0
@@ -454,6 +456,10 @@ def calculate_case_tat(farmer: JawabuFarmerMaster, *, now=None, events=None, hb_
         end_action, end_label = MILESTONES[index + 1]
         start_event = milestone_events.get(start_action)
         end_event = milestone_events.get(end_action)
+        if end_event is None and ((external_position is not None and start_event is not None
+                and start_event.occurred_at <= external_position.occurred_at)
+                or index == 0 and 'jbl_visit_date' in external_fields):
+            start_event = None
         minutes = None
         excluded = Decimal('0')
         if start_event:

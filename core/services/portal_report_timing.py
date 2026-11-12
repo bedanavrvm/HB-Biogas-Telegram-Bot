@@ -18,6 +18,9 @@ def _stamp(value):
 
 
 def report_timing(record, *, now, events, hb_events, targets, holidays):
+    from core.services.report_provenance import external_timing
+    events = list(events)
+    external_fields, external_position = external_timing(events)
     historical = record.report_historical
     stages = [] if historical else calculate_case_tat(record, now=now, events=events,
         hb_events=hb_events, targets=targets, holidays=holidays)['stages']
@@ -56,6 +59,14 @@ def report_timing(record, *, now, events, hb_events, targets, holidays):
         metadata = (getattr(start_event, 'metadata', None) or {}).get('tat_target_snapshot') or (getattr(start_event, 'new_values', None) or {}).get('tat_target_snapshot') or {}
         captured = not historical and metadata.get('stage_key') == key and metadata.get('target_minutes') is not None
         stage['target_basis'] = 'captured' if captured else 'current_target_estimate' if stage.get('target_minutes') else 'unavailable'
+        external = index == 0 and bool(external_fields & {'hbg_visit_date', 'jbl_visit_date'})
+        boundary = external_position is not None and not stage.get('completed_at') and (not first or first <= external_position.occurred_at)
+        if external or boundary:
+            stage['externally_reported'] = True
+            stage['precision'] = 'date' if external and dates.get(start) and dates.get(end) else 'unknown'
+            stage['target_basis'] = 'unavailable'; stage['target_minutes'] = None
+            if boundary:
+                stage['minutes'] = None; stage['running'] = False
         stage.setdefault('precision', 'timestamp')
         stage['historical'] = historical
     return {'stages': stages}

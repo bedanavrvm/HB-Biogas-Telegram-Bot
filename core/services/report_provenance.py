@@ -23,3 +23,18 @@ def report_scope(queryset, workflow, selection=None):
 
 def is_historical(case):
     return bool(getattr(case, 'report_historical', False) or getattr(case, 'source', '') in {'complaint_legacy', 'whatsapp_export', 'portal_legacy'})
+
+
+def external_timing(events):
+    """Only a later native milestone can replace an externally reported endpoint."""
+    fields = set(); position = None
+    for event in events:
+        if event.action == 'source_reconciled':
+            reported = set((event.metadata or {}).get('externally_reported_fields', []))
+            fields.update(reported)
+            if 'reconciled_position' in reported: position = event
+        elif event.action == 'jbl_visit_completed':
+            fields.difference_update({'jbl_visit_date', 'reconciled_position'}); position = None
+        elif event.action == 'application_imported':
+            fields.clear(); position = None
+    return fields, position

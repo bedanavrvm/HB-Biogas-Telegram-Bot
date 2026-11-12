@@ -1103,9 +1103,9 @@
     },
     {
       "path": "core/static/miniapp/portal_legacy_import.js",
-      "sha256": "c7721bb4d28eca1cb0c016a68c6ac2e8e976fb44b472ee535bedbda17598ad57",
-      "review_reference": "docs/ui-standard/reviews/2026-11-06-legacy-update-import.md",
-      "reason": "Approved non-destructive update mode: changes-only comparison, field selection, matching/new-case consent and resumable publication. Existing components and synthetic browser evidence; no design migration."
+      "sha256": "14415928e6f444b36d30213d1cf2bc9e90addc20bea1a874a0fd399856dd3c64",
+      "review_reference": "docs/ui-standard/reviews/2026-11-12-workbook-reconciliation.md",
+      "reason": "User-approved source reconciliation: current-position selection, exact follow-up date, append-only notes, preserved origin and native verified publication. Reused row/table components with real-shell Playwright evidence; no design migration."
     },
     {
       "path": "core/templates/portal/partials/legacy_import.html",
@@ -1295,9 +1295,9 @@
     },
     {
       "path": "core/templates/base_shell.html",
-      "sha256": "aeac1a7faea52cd5fef9822427126be207f72dfbd1b8cd22a014467c9438db2c",
-      "review_reference": "docs/ui-standard/reviews/2026-11-12-date-format.md",
-      "reason": "User-required dd/mm/yyyy presentation: shared formatters, fixed visit input with calendar and cache versions; source-bound Playwright and PostgreSQL verification."
+      "sha256": "834cc0a26058142a91e69653bf21e3836780e5a8de70fc010be20e4bbe4a1cab",
+      "review_reference": "docs/ui-standard/reviews/2026-11-12-workbook-reconciliation.md",
+      "reason": "User-approved source reconciliation: current-position selection, exact follow-up date, append-only notes, preserved origin and native verified publication. Reused row/table components with real-shell Playwright evidence; no design migration."
     },
     {
       "path": "core/templates/complaint_cases/app.html",
