@@ -1078,6 +1078,7 @@
       el('btn-submit-final').addEventListener('click', submitFinalDecision);
       wireDecisionReasonFields('final');
       wireFinalCommentShortcut();
+      wireFinalRepaymentFields(farmer);
       wireWorkflowDraft(farmer, mode);
       wireVoiceWidget('final_decision_comment');
     } else if (mode === 'deferred') {
@@ -1450,6 +1451,14 @@
           <small class="jbl-field-error" data-error-message-for="capture_location"></small>
         </div>
       </details>
+      <section id="jbl-repayment-section" class="jbl-support-card" hidden>
+        <p class="jbl-section-label">Repayment Terms</p>
+        <div class="form-section form-grid jbl-details-grid">
+          <div class="form-row" data-jbl-field="repayment_date"><label for="jbl-repayment-day">Repayment day <span class="required-marker" aria-hidden="true">*</span></label><input type="number" id="jbl-repayment-day" min="1" max="31" step="1" inputmode="numeric" placeholder="1–31" value="${deps.escapeHtml(farmer.repayment_day || '')}" disabled><small class="jbl-field-error" data-error-message-for="repayment_date"></small></div>
+          <div class="form-row" data-jbl-field="repayment_tenor"><label for="jbl-repayment-tenor">Period (months) <span class="required-marker" aria-hidden="true">*</span></label><input type="number" id="jbl-repayment-tenor" min="1" max="120" step="1" inputmode="numeric" placeholder="Months" value="${deps.escapeHtml(farmer.repayment_tenor_months || '')}" disabled><small class="jbl-field-error" data-error-message-for="repayment_tenor"></small></div>
+        </div>
+        <small class="field-help" id="jbl-repayment-help">Enter the agreed terms from the LAF.</small>
+      </section>
       <section id="jbl-evidence-pending" class="jbl-workflow-conflict" role="status" hidden></section>
     `;
   }
@@ -1837,6 +1846,7 @@
   }
 
   function renderJblMediaSelections() {
+    updateJblRepaymentFields();
     renderJblMediaCategory('CLIENT_ID');
     renderJblMediaCategory('LAF');
     renderJblMediaCategory('JBL_VISIT_PHOTO');
@@ -2384,8 +2394,32 @@
     if (details) details.open = forward;
     if (el('jbl-evidence-summary')) el('jbl-evidence-summary').textContent = forward ? 'Required visit evidence and location' : 'Optional evidence';
     if (el('jbl-outcome-help')) el('jbl-outcome-help').textContent = forward ? 'A physical visit, full deposit, location and complete evidence are required to forward.' : 'Outcome only saves the decision without adding a visit date or visit credit.';
+    updateJblRepaymentFields();
     const button = el('btn-submit-jbl');
     if (button) button.textContent = button.dataset.mainAction = physical ? 'Save visit outcome' : 'Save outcome';
+  }
+
+  function hasCompleteJblLaf() {
+    const selected = jblMediaSelections.LAF || [];
+    return Number(state().selectedFarmer?.visit_evidence?.LAF || 0) > 0
+      || selected.some(item => item.complete)
+      || [0, 1].every(side => selected.some(item => item.side === side));
+  }
+
+  function updateJblRepaymentFields() {
+    const section = el('jbl-repayment-section');
+    if (!section) return;
+    const ready = hasCompleteJblLaf();
+    const forward = JBL_FORWARD_VISIT_STATUSES.has(el('jbl-status')?.value || '');
+    section.hidden = !ready;
+    ['jbl-repayment-day', 'jbl-repayment-tenor'].forEach(id => {
+      const input = el(id);
+      input.disabled = !ready || !forward;
+      input.required = ready && forward;
+      input.setAttribute('aria-required', String(input.required));
+    });
+    section.querySelectorAll('.required-marker').forEach(marker => { marker.hidden = !forward; });
+    el('jbl-repayment-help').textContent = forward ? 'Enter the agreed repayment day and period from the LAF before forwarding.' : 'Not required for this outcome. Existing repayment terms are kept.';
   }
 
   function validateJblVisitFields() {
@@ -2419,6 +2453,12 @@
         if (!jblMediaSelections[category].some(item => item.side === side)) errors[field] = `Capture ${category === 'CLIENT_ID' ? 'Client ID' : 'LAF'} ${jblDocumentLabels[category][side]}.`;
       });
     });
+    if (forward && hasCompleteJblLaf()) {
+      const day = el('jbl-repayment-day')?.value.trim() || '';
+      const months = el('jbl-repayment-tenor')?.value.trim() || '';
+      if (!/^[0-9]{1,2}$/.test(day) || Number(day) < 1 || Number(day) > 31) errors.repayment_date = 'Enter a repayment day from 1 to 31.';
+      if (!/^[0-9]{1,3}$/.test(months) || Number(months) < 1 || Number(months) > 120) errors.repayment_tenor = 'Enter a repayment period from 1 to 120 whole months.';
+    }
     if (JBL_FORWARD_VISIT_STATUSES.has(status)) {
       if (!jblMediaSelections.JBL_VISIT_PHOTO.length && !Number(state().selectedFarmer?.visit_evidence?.JBL_VISIT_PHOTO || 0)) errors.jbl_visit_photo_files = 'Add at least one supporting photo for this outcome.';
       const hasCoordinates = Boolean(el('jbl-lat')?.value && el('jbl-lng')?.value);
@@ -2541,7 +2581,7 @@
       endpoint: farmerId => `/api/portal/credit-queue/${encodeURIComponent(farmerId)}/draft/`,
     },
     final_review: {
-      fields: ['final-decision', 'final-reason-code', 'final-repayment-date', 'final-repayment-tenor', 'final-comment'],
+      fields: ['final-decision', 'final-reason-code', 'final-repayment-date', 'final-repayment-tenor', 'final-edit-repayment', 'final-comment'],
       endpoint: farmerId => `/api/portal/final-review-queue/${encodeURIComponent(farmerId)}/draft/`,
     },
   };
@@ -2584,6 +2624,12 @@
       el('credit-reason-code')?.dispatchEvent(new Event('change'));
     }
     if (mode === 'final_review') {
+      const editor = el('final-repayment-editor');
+      if (editor) {
+        const modeValue = draft.values['final-edit-repayment'];
+        editor.open = modeValue === 'true' || modeValue === undefined && ['final-repayment-date', 'final-repayment-tenor'].some(id => draft.values[id] !== undefined && draft.values[id] !== el(id)?.dataset.savedValue);
+        syncFinalRepaymentFields();
+      }
       el('final-decision')?.dispatchEvent(new Event('change'));
       el('final-reason-code')?.dispatchEvent(new Event('change'));
     }
@@ -2982,14 +3028,38 @@
         </div>
         <div class="form-row"><label>Final Decision <span class="required-marker" aria-hidden="true">*</span><span class="sr-only"> required</span></label><select id="final-decision" aria-required="true"><option value="">- Select -</option>${decisionOptions}</select></div>
         ${decisionReasonMarkup('final', false)}
-        <div class="form-row"><label for="final-repayment-date">Repayment day</label><input type="number" id="final-repayment-date" min="1" max="31" step="1" inputmode="numeric" placeholder="1–31" value="${deps.escapeHtml(farmer.repayment_day || farmer.repayment_date || '')}"></div>
-        <div class="form-row"><label for="final-repayment-tenor">Tenor (months)</label><input type="number" id="final-repayment-tenor" min="1" max="120" step="1" inputmode="numeric" placeholder="Months" value="${deps.escapeHtml(farmer.repayment_tenor_months || Number.parseInt(farmer.repayment_tenor, 10) || '')}"></div>
+        <div class="form-row form-row-wide">
+          <p class="field-help">Repayment day: <strong>${deps.escapeHtml(farmer.repayment_day || 'Not captured')}</strong> · Period: <strong>${farmer.repayment_tenor_months ? deps.escapeHtml(farmer.repayment_tenor_months) + ' months' : 'Not captured'}</strong></p>
+          <details id="final-repayment-editor"><summary><i data-lucide="pencil" aria-hidden="true"></i> Edit repayment terms</summary>
+            <div class="form-section form-grid">
+              <div class="form-row"><label for="final-repayment-date">Repayment day</label><input type="number" id="final-repayment-date" min="1" max="31" step="1" inputmode="numeric" placeholder="1–31" value="${deps.escapeHtml(farmer.repayment_day || '')}" data-saved-value="${deps.escapeHtml(farmer.repayment_day || '')}" disabled></div>
+              <div class="form-row"><label for="final-repayment-tenor">Period (months)</label><input type="number" id="final-repayment-tenor" min="1" max="120" step="1" inputmode="numeric" placeholder="Months" value="${deps.escapeHtml(farmer.repayment_tenor_months || '')}" data-saved-value="${deps.escapeHtml(farmer.repayment_tenor_months || '')}" disabled></div>
+            </div>
+            <small class="field-help">Corrections save with this final review and appear in Case History.</small>
+          </details><input type="hidden" id="final-edit-repayment" value="false">
+        </div>
         <div class="form-row form-row-wide final-comment-row"><label for="final-comment">After-call Comments <span id="final-comment-required" class="required-marker" aria-hidden="true" hidden>*</span></label><button type="button" id="final-ready-comment" class="btn btn-secondary final-comment-shortcut"${farmer.final_decision !== 'Approved' ? ' hidden' : ''}>READY FOR INSTALLATION &amp; PAYMENT</button><textarea id="final-comment" rows="3" placeholder="Add call notes or other details">${deps.escapeHtml(farmer.final_decision_comment || '')}</textarea><small class="jbl-field-error" id="final-comment-error" role="alert"></small>${voiceWidget('final_decision_comment', 'final-comment')}</div>
         <p id="workflow-draft-state" class="field-help jbl-draft-state form-row-wide" aria-live="polite" title="Form fields save automatically.">Autosave on</p>
       </div>
       ${productConfigurationMarkup(farmer, 'final_decision')}
       ${farmer.jbl_visit_comment ? `<div class="info-row"><span class="ir-label">BRO Comment</span><span class="ir-value">${deps.escapeHtml(farmer.jbl_visit_comment)}</span></div>` : ''}
     `;
+  }
+
+  function syncFinalRepaymentFields() {
+    const editor = el('final-repayment-editor');
+    if (!editor) return;
+    el('final-edit-repayment').value = String(editor.open);
+    ['final-repayment-date', 'final-repayment-tenor'].forEach(id => { el(id).disabled = !editor.open; });
+  }
+
+  function wireFinalRepaymentFields(farmer) {
+    const editor = el('final-repayment-editor');
+    editor?.addEventListener('toggle', () => {
+      syncFinalRepaymentFields();
+      saveWorkflowDraft(farmer, 'final_review');
+    });
+    syncFinalRepaymentFields();
   }
 
   function wireFinalCommentShortcut() {
@@ -3285,6 +3355,8 @@
       revision: Number(farmer.workflow_revision || 1),
       visitDate: el('jbl-date')?.value || '',
       visitStatus, physical,
+      repaymentDate: forward ? el('jbl-repayment-day')?.value || '' : null,
+      repaymentTenor: forward ? el('jbl-repayment-tenor')?.value || '' : null,
       officer: el('jbl-officer')?.value || '',
       county: el('jbl-county')?.value || '',
       subCounty: el('jbl-sub-county')?.value || '',
@@ -3317,6 +3389,10 @@
     formData.set('visit_occurred', String(physical));
     formData.set('visit_date', physical ? el('jbl-date')?.value || '' : '');
     formData.set('visit_status', visitStatus);
+    if (forward && !heldIntake) {
+      formData.set('repayment_date', el('jbl-repayment-day')?.value || '');
+      formData.set('repayment_tenor', el('jbl-repayment-tenor')?.value || '');
+    }
     formData.set('reason_code', visitReason);
     formData.set('officer', el('jbl-officer')?.value || '');
     formData.set('county', el('jbl-county')?.value || '');
@@ -3492,8 +3568,7 @@
         reason_code: reasonCode,
         decision_comment: decisionComment,
         voice_transcription_id: acceptedVoiceAttempts.final_decision_comment || '',
-        repayment_date: repaymentDate,
-        repayment_tenor: repaymentTenor,
+        ...(el('final-repayment-editor')?.open ? {repayment_date: repaymentDate, repayment_tenor: repaymentTenor} : {}),
         product_requirement_evidence: productConfiguration.requirementEvidence,
         product_custom_values: productConfiguration.customValues,
       }),

@@ -5332,3 +5332,6 @@ body.portal-app .payment-search-results-heading.miniapp-panel-heading{margin:0;p
 .portal-map-zoom button:disabled { opacity:.5; }
 .leaflet-popup-close-button { display:grid; place-items:center; }
 .leaflet-popup-close-button svg { width:14px; height:14px; stroke:currentColor; stroke-width:2; }
+
+.jbl-visit-sheet #jbl-repayment-section[hidden] { display:none !important; }
+.jbl-document-slots[hidden], [data-swap-document][hidden] { display:none !important; }

@@ -32,6 +32,28 @@ Creating an office lead retains its required intake identity/location. A new
 lead below the deposit threshold is saved as intake awaiting HB payment; open
 that saved case to record a later outcome.
 
+## Repayment terms on the LAF
+
+Repayment day (1-31) and Period (months, 1-120) are entered by the JBL officer
+below the media section. A complete selected LAF (PDF/image or both captures)
+or an already stored LAF reveals the fields. A partial capture does not.
+The officer reads the agreed values from the document; there is no automatic
+extraction. Valid existing values are prefilled.
+
+Both fields are required before forwarding to credit. The server checks them
+before uploading evidence and saves them atomically with the visit and audit.
+Negative/paused outcomes do not require them and preserve earlier saved terms.
+Removing an unsaved LAF hides the inputs but keeps their draft values; selecting
+it again restores entry. Draft field recovery includes both values, but uploaded
+file bytes still need selecting again after closing the app.
+
+Head of Rural reviews the terms in a compact summary. Edit repayment terms opens
+an explicit correction, saved with the final review and recorded before/after in
+Case History. Closing the correction omits those keys so the ordinary decision
+cannot clear the terms. Existing cases missing values can still be completed
+here. No case is backfilled or given invented terms. Existing Sheet, order and
+payment columns continue to use the same case fields. No migration is required.
+
 ## Uploading evidence
 
 Camera capture retains ID front/back and LAF page 1/page 2. Upload either:

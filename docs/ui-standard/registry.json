@@ -1172,6 +1172,24 @@
       "sha256": "804bbbd66d93855ffb1ee2c6754ffce48ce153ef914cc8ae22f8f603e6c47006",
       "review_reference": "docs/ui-standard/reviews/2026-11-12-jbl-outcome-documents.md",
       "reason": "Approved outcome-driven visit requirements, complete document uploads, optional evidence recovery and actionable deposit holds. Existing controls and signed synthetic Portal browser evidence; no design migration or permission expansion."
+    },
+    {
+      "path": "core/static/miniapp/portal_farmer_sheet.js",
+      "sha256": "0fa1cebad4b4e5438665084e0a4786958a8d4320a9f4184d1f23b56f68d56704",
+      "review_reference": "docs/ui-standard/reviews/2026-11-12-visit-repayment-terms.md",
+      "reason": "User-approved LAF-dependent visit repayment capture and explicit Head of Rural correction. Existing form/disclosure/draft patterns and signed synthetic Portal evidence; no Phase 6 migration or permission expansion."
+    },
+    {
+      "path": "core/static/miniapp/portal.css",
+      "sha256": "2466c5d207f5d6cf36c10dc0598a9db920a743d38a409d0e60563ffce90631e1",
+      "review_reference": "docs/ui-standard/reviews/2026-11-12-visit-repayment-terms.md",
+      "reason": "User-approved LAF-dependent visit repayment capture and explicit Head of Rural correction. Existing form/disclosure/draft patterns and signed synthetic Portal evidence; no Phase 6 migration or permission expansion."
+    },
+    {
+      "path": "core/templates/base_shell.html",
+      "sha256": "c702ca3a44c82c502267c04dae2eb89feeff56ff397e435573fa5ebd382235b9",
+      "review_reference": "docs/ui-standard/reviews/2026-11-12-visit-repayment-terms.md",
+      "reason": "User-approved LAF-dependent visit repayment capture and explicit Head of Rural correction. Existing form/disclosure/draft patterns and signed synthetic Portal evidence; no Phase 6 migration or permission expansion."
     }
   ],
   "source_roots": [

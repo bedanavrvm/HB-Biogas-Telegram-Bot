@@ -2348,6 +2348,8 @@ PORTAL_JBL_VISIT_DRAFT_FIELDS = (
     'jbl-date',
     'jbl-status',
     'jbl-visit-occurred',
+    'jbl-repayment-day',
+    'jbl-repayment-tenor',
     'jbl-reason-code',
     'jbl-officer',
     'jbl-county',
@@ -3836,6 +3838,8 @@ _PORTAL_JBL_VISIT_DRAFT_FIELD_LIMITS = {
     'jbl-date': 32,
     'jbl-status': 80,
     'jbl-visit-occurred': 5,
+    'jbl-repayment-day': 16,
+    'jbl-repayment-tenor': 16,
     'jbl-reason-code': 8,
     'jbl-officer': 255,
     'jbl-county': 255,
@@ -3919,6 +3923,10 @@ def _portal_jbl_visit_field_errors(error: str, result: dict | None = None) -> di
         errors.setdefault('sub_county', message)
     elif 'service area' in lowered or 'county' in lowered or 'location choice' in lowered:
         errors.setdefault('county', message)
+    if 'repayment day' in lowered:
+        errors.setdefault('repayment_date', message)
+    if 'repayment period' in lowered:
+        errors.setdefault('repayment_tenor', message)
     if 'village' in lowered:
         errors.setdefault('village', message)
     if 'laf document' in lowered and 'laf_files' not in errors:
@@ -4014,6 +4022,7 @@ _PORTAL_CASE_DRAFT_CONFIG = {
             'final-reason-code': 80,
             'final-repayment-date': 80,
             'final-repayment-tenor': 80,
+            'final-edit-repayment': 8,
             'final-comment': 2_000,
         },
     },
@@ -4224,6 +4233,8 @@ def portal_complete_jbl_visit(request, farmer_id: str):
             categorized_files=categorized_files,
             visit_date=visit_date,
             visit_occurred=visit_occurred,
+            repayment_date=body.get('repayment_date') if 'repayment_date' in body else None,
+            repayment_tenor=body.get('repayment_tenor') if 'repayment_tenor' in body else None,
             visit_status=visit_status,
             reason_code=str(body.get('reason_code') or '').strip().casefold(),
             officer=str(body.get('officer') or '').strip() or sender,
@@ -8148,6 +8159,8 @@ def portal_create_and_complete_jbl_lead(request):
     try:
         ok, error, result = complete_jbl_visit(
             farmer, categorized_files=categorized_files, visit_date=visit_date, visit_status=visit_status, visit_occurred=visit_occurred,
+            repayment_date=body.get('repayment_date') if 'repayment_date' in body else None,
+            repayment_tenor=body.get('repayment_tenor') if 'repayment_tenor' in body else None,
             reason_code=str(body.get('reason_code') or '').strip().casefold(),
             officer=str(body.get('officer') or '').strip() or _portal_sender_from_request(request), comment=str(body.get('comment') or '').strip(),
             sender=_portal_sender_from_request(request), latitude=latitude, longitude=longitude,

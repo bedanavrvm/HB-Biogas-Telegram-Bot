@@ -612,9 +612,30 @@ def jbl_visit_requirements(visit_status, visit_occurred=True):
             'location': forward, 'documents': forward, 'deposit': forward}
 
 
+def jbl_repayment_terms(farmer, *, repayment_date=None, repayment_tenor=None):
+    """Validate entered whole numbers while retaining readable historical terms."""
+    from core.services.jawabu_validation import parse_repayment_day, parse_tenor_months
+    if repayment_date is None:
+        day = farmer.repayment_day or parse_repayment_day(farmer.repayment_date)
+    else:
+        raw_day = str(repayment_date or '').strip()
+        day = int(raw_day) if len(raw_day) <= 2 and raw_day.isascii() and raw_day.isdecimal() else None
+    if repayment_tenor is None:
+        months = farmer.repayment_tenor_months or parse_tenor_months(farmer.repayment_tenor)
+    else:
+        raw_months = str(repayment_tenor or '').strip()
+        months = int(raw_months) if len(raw_months) <= 3 and raw_months.isascii() and raw_months.isdecimal() else None
+    if day is None or not 1 <= day <= 31:
+        return {}, 'Enter the LAF repayment day as a whole number from 1 to 31 before forwarding.'
+    if months is None or not 1 <= months <= 120:
+        return {}, 'Enter the LAF repayment period as whole months from 1 to 120 before forwarding.'
+    return {'repayment_date': str(day), 'repayment_day': day,
+            'repayment_tenor': str(months), 'repayment_tenor_months': months}, ''
+
+
 def _validate_jbl_visit_facts(farmer, *, visit_date, visit_status, visit_occurred,
                               county, sub_county, village, actor_user, request_id,
-                              location_override_reason='', record_policy_event=False):
+                              location_override_reason='', record_policy_event=False, repayment_date=None, repayment_tenor=None):
     from core.services.jawabu_validation import parse_business_date
     if visit_status == JBL_SCHEDULING_STATUS:
         return None, None, 'Choose the outcome of the JBL visit before logging it.'
@@ -652,6 +673,10 @@ def _validate_jbl_visit_facts(farmer, *, visit_date, visit_status, visit_occurre
             )
         except LocationCatalogError as exc:
             return None, None, str(exc)
+    if requirements['forward']:
+        _, error = jbl_repayment_terms(farmer, repayment_date=repayment_date, repayment_tenor=repayment_tenor)
+        if error:
+            return None, None, error
     return normalized_date, location, ''
 
 
@@ -677,6 +702,8 @@ def log_jbl_visit(
     officer: str,
     visit_status: str,
     visit_occurred: bool = True,
+    repayment_date: str | None = None,
+    repayment_tenor: str | None = None,
     reason_code: str = '',
     comment: str = '',
     sender: str = '',
@@ -716,6 +743,7 @@ def log_jbl_visit(
         farmer, visit_date=visit_date, visit_status=visit_status, visit_occurred=visit_occurred,
         county=county, sub_county=sub_county, village=village, actor_user=actor_user,
         request_id=request_id, location_override_reason=location_override_reason, record_policy_event=True,
+        repayment_date=repayment_date, repayment_tenor=repayment_tenor,
     )
     if error:
         return False, error
@@ -741,9 +769,16 @@ def log_jbl_visit(
         if not has_location and not str(location_unavailable_reason or '').strip():
             return False, 'Capture the visit location or explain why location was unavailable before forwarding the case.'
 
+    repayment_terms = {}
+    repayment_before = {}
+    if visit_status in JBL_FORWARD_STATUSES:
+        repayment_terms, _ = jbl_repayment_terms(farmer, repayment_date=repayment_date, repayment_tenor=repayment_tenor)
+        repayment_before = {field: getattr(farmer, field) for field in repayment_terms}
+        for field, value in repayment_terms.items():
+            setattr(farmer, field, value)
     prior_state = current_workflow_state(farmer)
     visit_before = {'visit_date': farmer.jbl_visit_date.isoformat() if farmer.jbl_visit_date else None,
-                    'status': farmer.jbl_visit_status, 'comment': farmer.jbl_visit_comment}
+                    'status': farmer.jbl_visit_status, 'comment': farmer.jbl_visit_comment, **repayment_before}
     physical_before = last_physical_jbl_visit(farmer)
     if visit_occurred:
         farmer.jbl_visit_date = visit_date
@@ -777,6 +812,8 @@ def log_jbl_visit(
         'deferred_at', 'deferred_stage', 'deferred_until',
         'workflow_state', 'workflow_state_entered_at', 'workflow_revision',
     ]
+
+    update_fields.extend(repayment_terms)
 
     if county is not None:
         county_text = str(county or '').strip()
@@ -838,6 +875,7 @@ def log_jbl_visit(
             'officer': farmer.jbl_officer if visit_occurred else '',
             'status': visit_status,
             'reason_code': reason_code,
+            **repayment_terms,
             'comment': str(comment or '').strip(),
         },
         metadata={'last_physical_visit': physical_before} if not visit_occurred else {},
@@ -880,6 +918,8 @@ def preflight_jbl_visit_completion(
     visit_date: date,
     visit_status: str,
     visit_occurred: bool = True,
+    repayment_date: str | None = None,
+    repayment_tenor: str | None = None,
     latitude: float | None = None,
     longitude: float | None = None,
     location_unavailable_reason: str = '',
@@ -912,6 +952,7 @@ def preflight_jbl_visit_completion(
         locked, visit_date=visit_date, visit_status=visit_status, visit_occurred=visit_occurred,
         county=county, sub_county=sub_county, village=village, actor_user=actor_user,
         request_id=request_id, location_override_reason=location_override_reason,
+        repayment_date=repayment_date, repayment_tenor=repayment_tenor,
     )
     if error:
         return False, error, False
@@ -935,6 +976,8 @@ def complete_jbl_visit(
     officer: str,
     visit_status: str,
     visit_occurred: bool = True,
+    repayment_date: str | None = None,
+    repayment_tenor: str | None = None,
     reason_code: str = '',
     comment: str = '',
     sender: str = '',
@@ -1038,6 +1081,7 @@ def complete_jbl_visit(
         return False, batch_error, {'evidence_saved': False, 'code': batch_code}
     ok, error, already_completed = preflight_jbl_visit_completion(
         farmer, visit_date=visit_date, visit_status=visit_status, visit_occurred=visit_occurred,
+        repayment_date=repayment_date, repayment_tenor=repayment_tenor,
         latitude=latitude, longitude=longitude,
         location_unavailable_reason=location_unavailable_reason,
         expected_revision=expected_revision, request_id=request_id,
@@ -1115,6 +1159,7 @@ def complete_jbl_visit(
             officer=officer,
             visit_status=visit_status,
             visit_occurred=visit_occurred,
+            repayment_date=repayment_date, repayment_tenor=repayment_tenor,
             reason_code=reason_code,
             comment=comment,
             sender=sender,
@@ -1446,6 +1491,11 @@ def set_final_decision(
     if repayment_tenor and tenor_months is None:
         return False, 'Repayment tenor must be 1 to 120 months.'
 
+    repayment_before = {}
+    if repayment_date is not None:
+        repayment_before.update(repayment_date=farmer.repayment_date, repayment_day=farmer.repayment_day)
+    if repayment_tenor is not None:
+        repayment_before.update(repayment_tenor=farmer.repayment_tenor, repayment_tenor_months=farmer.repayment_tenor_months)
     old_decision = farmer.final_decision
     old_comment = farmer.final_decision_comment
     farmer.final_decision = final_decision
@@ -1506,9 +1556,10 @@ def set_final_decision(
     event = record_pipeline_event(
         farmer, action='final_decision_recorded', stage_key='final_review', actor=sender,
         request_id=request_id,
-        old_values={'decision': old_decision, 'comment': old_comment},
+        old_values={'decision': old_decision, 'comment': old_comment, **repayment_before},
         new_values={
             'decision': final_decision,
+            **{field: getattr(farmer, field) for field in repayment_before},
             'reason_code': reason_code,
             'comment': str(decision_comment or '').strip(),
         },

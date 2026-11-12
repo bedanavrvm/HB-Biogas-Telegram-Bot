@@ -1,5 +1,8 @@
 # Mini App Design Lab
 
+LAF-dependent visit repayment entry and explicit final-review correction reuse
+current form controls. [Source and local evidence](reviews/2026-11-12-visit-repayment-terms.md).
+
 JBL outcome-driven requirements, complete-document upload and evidence-only retry
 reuse current Portal controls. [Source and local evidence](reviews/2026-11-12-jbl-outcome-documents.md).
 

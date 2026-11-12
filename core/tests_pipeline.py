@@ -223,6 +223,10 @@ class JblPipelineServiceTestCase(TestCase):
             status='active',
         )
 
+        self.farmer_stage1.repayment_date, self.farmer_stage1.repayment_day = '15', 15
+        self.farmer_stage1.repayment_tenor, self.farmer_stage1.repayment_tenor_months = '12', 12
+        self.farmer_stage1.save(update_fields=['repayment_date', 'repayment_day', 'repayment_tenor', 'repayment_tenor_months'])
+
     def test_jbl_visit_queue(self):
         """Verify that jbl_visit_queue only returns Stage 1 (HB visited but JBL not)."""
         queue = list(jbl_visit_queue())

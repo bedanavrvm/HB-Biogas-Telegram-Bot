@@ -19,7 +19,10 @@ async function mountReview(page, mode = 'final_review') {
     const el = id => document.getElementById(id);
     const escapeHtml = value => {const node = document.createElement('span'); node.textContent = String(value ?? ''); return node.innerHTML;};
     window.fixtureState = {
-      capabilities:new Set(['portal.credit.write','portal.final_review.write','portal.case.read','portal.jbl_media.view']),
+      capabilities:new Set(['portal.credit.write','portal.final_review.write','portal.case.read','portal.jbl_media.view','portal.jbl_visit.write','portal.jbl_media.write']),
+      metaStatuses:['Visited, Awaiting Credit Analysis','Rescheduled','Rejected by JBL'],
+      metaCounties:['Training county'],
+      jblVisitDraftFields:['jbl-date','jbl-status','jbl-repayment-day','jbl-repayment-tenor'],
       metaDecisions:['Pending','Approved','Rejected','Deferred / On Hold'], metaImabOptions:['Yes','No','Pending'],
       metaFinalDecisions:['Approved','Rejected','Deferred / On Hold'],
       metaPipelineReasons:{rejected:[{value:'r01',label:'Affordability'},{value:'r07',label:'Other reason'}],deferred:[{value:'d01',label:'Customer deciding'},{value:'d12',label:'Other reason'}]},
@@ -49,6 +52,7 @@ for (const width of [320,360,390,430,768,1280]) for (const theme of ['light','da
         document.documentElement.style.setProperty(`--tg-theme-${key.replaceAll('_','-')}-color`,value);
       }
     });
+    await page.locator('#final-repayment-editor summary').click();
     const controls = ['#final-decision','#final-repayment-date','#final-repayment-tenor'];
     const boxes = await Promise.all(controls.map(selector=>page.locator(selector).boundingBox()));
     for(const box of boxes) {expect(box.height).toBeGreaterThanOrEqual(40); expect(Math.abs(box.height-boxes[0].height)).toBeLessThan(2);}
@@ -297,4 +301,74 @@ test('Camera uses one document target and an accessible icon-only capture contro
   await page.evaluate(()=>window.testRetake());
   await expect(page.locator('#jbl-camera-shutter')).toHaveAttribute('aria-label','Retake Client ID Front');
   await expect(page.locator('#jbl-camera-capture-state')).toBeEmpty();
+});
+
+
+test('Visit repayment terms follow complete LAF selection and preserve their draft',async({page})=>{
+  await mountReview(page,'jbl_visit');
+  await page.selectOption('#jbl-status','Visited, Awaiting Credit Analysis');
+  await expect(page.locator('#jbl-repayment-section')).toBeHidden();
+  const laf={name:'synthetic-laf.pdf',mimeType:'application/pdf',buffer:Buffer.alloc(5000,65)};
+  await page.setInputFiles('#jbl-laf-media-complete',laf);
+  await expect(page.locator('#jbl-repayment-section')).toBeVisible();
+  await expect(page.locator('#jbl-repayment-day')).toHaveAttribute('required','');
+  await page.fill('#jbl-repayment-day','17');await page.fill('#jbl-repayment-tenor','18');
+  await page.locator('#jbl-laf-media-previews .jbl-media-remove').click();
+  await expect(page.locator('#jbl-repayment-section')).toBeHidden();
+  await expect(page.locator('#jbl-repayment-day')).toHaveValue('17');
+  await page.setInputFiles('#jbl-laf-media-complete',laf);
+  await expect(page.locator('#jbl-repayment-tenor')).toHaveValue('18');
+  await page.selectOption('#jbl-status','Rescheduled');
+  await expect(page.locator('#jbl-repayment-day')).toBeDisabled();
+  await expect(page.locator('#jbl-repayment-day')).not.toHaveAttribute('required');
+  await page.selectOption('#jbl-status','Visited, Awaiting Credit Analysis');
+  await expect(page.locator('#jbl-repayment-day')).toBeEnabled();
+  await expect(page.locator('#jbl-repayment-day')).toHaveValue('17');
+});
+
+test('An existing stored LAF reveals saved repayment terms without another upload',async({page})=>{
+  await mountReview(page,'jbl_visit');
+  await page.evaluate(()=>{
+    fixtureCase.visit_evidence={LAF:1};
+    PortalMiniAppFarmerSheet.openFarmerSheet(fixtureCase,'jbl_visit');
+  });
+  await page.selectOption('#jbl-status','Visited, Awaiting Credit Analysis');
+  await expect(page.locator('#jbl-repayment-section')).toBeVisible();
+  await expect(page.locator('#jbl-repayment-day')).toHaveValue('12');
+  await expect(page.locator('#jbl-repayment-tenor')).toHaveValue('24');
+  await expect(page.locator('#jbl-evidence-details #jbl-repayment-section')).toHaveCount(0);
+});
+
+test('Final review submits no repayment changes unless correction is opened',async({page})=>{
+  await mountReview(page);
+  await expect(page.locator('#final-repayment-date')).toBeHidden();
+  await expect(page.locator('#final-repayment-date')).toBeDisabled();
+  await page.locator('#btn-submit-final').click();
+  const body=await page.evaluate(()=>JSON.parse(requests.find(item=>item.url.includes('/final-review-queue/')).body));
+  expect(body).not.toHaveProperty('repayment_date');expect(body).not.toHaveProperty('repayment_tenor');
+});
+
+test('Final repayment correction values and editor mode survive reopening',async({page})=>{
+  await mountReview(page);
+  await page.locator('#final-repayment-editor summary').click();
+  await page.fill('#final-repayment-date','20');await page.fill('#final-repayment-tenor','18');
+  await page.locator('#sheet-back').click();
+  await page.evaluate(()=>PortalMiniAppFarmerSheet.openFarmerSheet(fixtureCase,'final_review'));
+  await expect(page.locator('#final-repayment-editor')).toHaveAttribute('open','');
+  await expect(page.locator('#final-repayment-date')).toHaveValue('20');
+  await expect(page.locator('#final-repayment-tenor')).toHaveValue('18');
+  await page.locator('#btn-submit-final').click();
+  const body=await page.evaluate(()=>JSON.parse(requests.find(item=>item.url.includes('/final-review-queue/')).body));
+  expect(body.repayment_date).toBe('20');expect(body.repayment_tenor).toBe('18');
+});
+
+
+test('A single LAF page does not reveal repayment entry; both captures do',async({page})=>{
+  await mountReview(page,'jbl_visit');
+  await page.selectOption('#jbl-status','Visited, Awaiting Credit Analysis');
+  const image={name:'synthetic-page.jpg',mimeType:'image/jpeg',buffer:Buffer.alloc(5000,65)};
+  await page.setInputFiles('#jbl-laf-media',image);
+  await expect(page.locator('#jbl-repayment-section')).toBeHidden();
+  await page.setInputFiles('#jbl-laf-media-2',{...image,name:'synthetic-page2.jpg',buffer:Buffer.alloc(5000,66)});
+  await expect(page.locator('#jbl-repayment-section')).toBeVisible();
 });
