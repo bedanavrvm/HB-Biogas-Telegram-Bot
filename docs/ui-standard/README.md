@@ -1,5 +1,8 @@
 # Mini App Design Lab
 
+Complaints report context is compact, with provenance near the end of the table.
+[Source and Playwright evidence](reviews/2026-11-13-complaint-report-context.md).
+
 Reviewed external workbook updates reuse the Legacy comparison table and row
 controls. [Source, browser and validation evidence](reviews/2026-11-12-workbook-reconciliation.md).
 

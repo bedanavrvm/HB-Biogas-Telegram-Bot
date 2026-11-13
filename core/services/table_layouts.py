@@ -3,11 +3,11 @@ from core.services.workflow_capabilities import has_capability
 
 
 COMPLAINT_COLUMNS = (
-    'row_number', 'complaint_id', 'timing_note', 'date_reported', 'status', 'customer_name',
+    'row_number', 'complaint_id', 'date_reported', 'status', 'customer_name',
     'customer_id', 'phone_number', 'secondary_phone_number', 'county', 'constituency', 'village',
     'branch_region', 'reported_by', 'complaint_category', 'complaint_description', 'gps_link',
     'resolution_details', 'resolution_comments', 'jbl_verification_comments', 'date_resolved',
-    'days_open', 'resolution_hours', 'hb_response_hours', 'resolution_history_count',
+    'days_open', 'resolution_hours', 'hb_response_hours', 'timing_note', 'resolution_history_count',
     'target_outcome', 'target_hours',
 )
 FARMUP_COLUMNS = ('row_number', 'selected', 'state', 'Source Row', 'Customer Name', 'National ID',

@@ -1,5 +1,8 @@
 # Component index and migration hold
 
+Complaints report provenance reuses single-line grid cells and existing tooltips.
+[Source and Playwright evidence](reviews/2026-11-13-complaint-report-context.md).
+
 External reconciliation reuses AG Grid differences, field checkboxes, the row
 dialog and case360-grid selection/date controls. [Source and browser evidence](reviews/2026-11-12-workbook-reconciliation.md).
 

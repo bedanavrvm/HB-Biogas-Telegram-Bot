@@ -1277,9 +1277,9 @@
     },
     {
       "path": "core/static/miniapp/complaint_cases.js",
-      "sha256": "e0a6a03b76dc93d9b1700463ebc5bdaff2eef7b62fb9a646471f513939f6b9e2",
-      "review_reference": "docs/ui-standard/reviews/2026-11-12-complaint-corrections-media-spacing-and-order.md",
-      "reason": "User-directed Portal heading/gap and Complaints icon-only full-width paired correction fields, EAT pickers, queue ordering and progressive existing-thumbnail display. Source-bound live local Django/PostgreSQL Playwright evidence; no access expansion or design migration."
+      "sha256": "484b73c214c8003dcf998edf670d4e55413f49f388f0f718afe709ae9ef02d31",
+      "review_reference": "docs/ui-standard/reviews/2026-11-13-complaint-report-context.md",
+      "reason": "User-requested compact Complaint Reports: remove historical prose summary, shorten provenance cells and move their default column near the end. Existing grid/tooltips, retained personal layouts, dd/mm/yyyy display and signed real-shell Playwright evidence; no role/schema/design migration."
     },
     {
       "path": "core/static/miniapp/portal.css",
@@ -1301,9 +1301,9 @@
     },
     {
       "path": "core/templates/complaint_cases/app.html",
-      "sha256": "d77b3e7829987c28758690ba6f14c6f72ba46196151597f866d43cf6bb743fee",
-      "review_reference": "docs/ui-standard/reviews/2026-11-12-date-format.md",
-      "reason": "User-required dd/mm/yyyy presentation: shared formatters, fixed visit input with calendar and cache versions; source-bound Playwright and PostgreSQL verification."
+      "sha256": "0a812dc1a0a7deb13aec4f68cc98b92a0669f223f074ca98a29d321fe7a24bec",
+      "review_reference": "docs/ui-standard/reviews/2026-11-13-complaint-report-context.md",
+      "reason": "User-requested compact Complaint Reports: remove historical prose summary, shorten provenance cells and move their default column near the end. Existing grid/tooltips, retained personal layouts, dd/mm/yyyy display and signed real-shell Playwright evidence; no role/schema/design migration."
     },
     {
       "path": "core/templates/complaint_cases/lucide_icons.html",
@@ -1364,6 +1364,12 @@
       "sha256": "f8a408041ee7c4d60b07dd265c1b785f1e11303ad45336b41cb078f966209527",
       "review_reference": "docs/ui-standard/reviews/2026-11-12-date-format.md",
       "reason": "User-required dd/mm/yyyy presentation: shared formatters, fixed visit input with calendar and cache versions; source-bound Playwright and PostgreSQL verification."
+    },
+    {
+      "path": "core/services/table_layouts.py",
+      "sha256": "23cf5ff4d87be4535f706a76405eb4750ca4b43daa2a5cd424b67193002cd16e",
+      "review_reference": "docs/ui-standard/reviews/2026-11-13-complaint-report-context.md",
+      "reason": "User-requested compact Complaint Reports: remove historical prose summary, shorten provenance cells and move their default column near the end. Existing grid/tooltips, retained personal layouts, dd/mm/yyyy display and signed real-shell Playwright evidence; no role/schema/design migration."
     }
   ],
   "source_roots": [

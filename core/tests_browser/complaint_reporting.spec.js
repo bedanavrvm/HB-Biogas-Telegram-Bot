@@ -200,6 +200,37 @@ test('empty timing charts remain honest and keyboard-friendly', async ({page})=>
   await expect(page.locator('#complaintChartPosition')).toHaveText('2 of 8');
 });
 
+test('historical report context stays compact and near the end of the table', async ({page})=>{
+  await openReport(page);
+  const nativeMetric=await page.locator('.metric-resolution strong').innerText();
+  await page.evaluate(()=>{
+    const original=ComplaintCasesMiniAppApi.getJson;
+    ComplaintCasesMiniAppApi.getJson=async(route,params)=>{
+      const result=await original(route,params);
+      if(route==='reports/summary/')return {...result,historical:{timing:{median_resolution_hours:48,median_response_hours:null,on_time_percent:null,resolution_count:1,resolution_excluded:849,on_time:0,late:0},resolution_trend:[],response_trend:[],resolution_by_category:[]}};
+      if(route==='reports/data/')result.results=result.results.map((row,index)=>({...row,historical:index<2,target_basis:index<2?'current_target_estimate':'captured',timing_note:index<2?'Historical — may be inaccurate; approximate duration from recorded dates; current target estimate.':'Recorded workflow timing',resolution_hours:index===0?null:row.resolution_hours,hb_response_hours:index===0?null:row.hb_response_hours}));
+      return result;
+    };
+  });
+  await page.locator('#openComplaintReportFilters').click();
+  await page.locator('[name=include_historical]').check();
+  await page.locator('#globalApplyFiltersBtn').click();
+  await expect(page.locator('[data-historical-timing]')).toHaveCount(0);
+  await expect(page.locator('body')).not.toContainText('Historical median resolution:');
+  await expect(page.locator('.metric-resolution strong')).toHaveText(nativeMetric);
+  const order=await page.evaluate(()=>{
+    const api=agGrid.getGridApi(document.getElementById('complaintReportGrid'));
+    api.ensureColumnVisible('timing_note','end');
+    return api.getColumnState().map(column=>column.colId);
+  });
+  expect(order.at(-2)).toBe('timing_note');
+  await expect(page.locator('.ag-cell[col-id="timing_note"]').nth(0)).toHaveText('Historical · No timing');
+  await expect(page.locator('.ag-cell[col-id="timing_note"]').nth(1)).toHaveText('Historical · Estimate');
+  await expect(page.locator('.ag-cell[col-id="timing_note"]').nth(2)).toHaveText('App workflow');
+  await page.evaluate(()=>agGrid.getGridApi(document.getElementById('complaintReportGrid')).ensureColumnVisible('date_reported','start'));
+  await expect(page.locator('.ag-cell[col-id="date_reported"]').first()).toHaveText('12/09/2026');
+});
+
 test('complaint report controls use compact icons, a Quarter filter and one KPI row', async ({page}, info) => {
   await page.setViewportSize({width:320,height:850}); await openReport(page);
   const activity=page.locator('[data-complaint-chart="activity"]');
@@ -223,7 +254,7 @@ test('complaint report controls use compact icons, a Quarter filter and one KPI 
   await page.locator('#globalApplyFiltersBtn').click();
   await expect.poll(()=>page.evaluate(()=>__reportQueries.filter(item=>item.route==='reports/data/').at(-1).params)).toMatchObject({date_from:'2026-07-01',date_to:'2026-09-30'});
   await expect(page.locator('#complaintReportCharts')).not.toContainText('Received');
-  expect(await page.evaluate(()=>{const c=Chart.getChart(document.getElementById('timeChart'));return c.data.labels;})).toEqual(['01-09-26']);
+  expect(await page.evaluate(()=>{const c=Chart.getChart(document.getElementById('timeChart'));return c.data.labels;})).toEqual(['01/09/2026']);
 });
 
 test('complaint charts show their units on the value axis and in tooltips', async ({page}) => {

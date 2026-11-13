@@ -1705,14 +1705,6 @@
     state.globalPage = 1; loadGlobalCases(currentTableFilters());
   }
   function renderReportCharts(summary) {
-    let historical=$('complaintReportCharts').parentElement.querySelector('[data-historical-timing]');
-    if(!historical){historical=document.createElement('section');historical.dataset.historicalTiming='';$('complaintReportCharts').after(historical);}
-    historical.replaceChildren();
-    if(currentReportFilters().historical_scope==='include'){
-      historical.appendChild(textNode('p','Historical — may be inaccurate. App timing above excludes historical cases.'));
-      const t=summary.historical?.timing;
-      if(t)for(const [label,value] of [['Historical median resolution',window.ComplaintReportCharts.hours(t.median_resolution_hours)],['Historical median first response',window.ComplaintReportCharts.hours(t.median_response_hours)],['Historical on time (current target estimate)',t.on_time_percent==null?'Not available':t.on_time_percent+'%'],['Timed historical resolutions',t.resolution_count],['Historical timing unavailable',t.resolution_excluded]])historical.appendChild(textNode('p',`${label}: ${value}`));
-    }
     window.ComplaintReportCharts.render(summary, {
       categoryType: state.categoryChartType, onSelect: selectComplaintChart,
       formatPeriod: formatChartPeriodDate,
@@ -1897,12 +1889,11 @@
   }
   function formatReportDate(value) {
     if (!value) return '';
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     const match = String(value).match(/^(\d{4})-(\d{2})-(\d{2})/);
-    if (match) return `${match[3]}-${months[Number(match[2]) - 1]}-${match[1]}`;
+    if (match) return `${match[3]}/${match[2]}/${match[1]}`;
     const parsed = new Date(value);
     if (Number.isNaN(parsed.getTime())) return value;
-    return [String(parsed.getDate()).padStart(2, '0'), months[parsed.getMonth()], parsed.getFullYear()].join('-');
+    return [String(parsed.getDate()).padStart(2, '0'), String(parsed.getMonth()+1).padStart(2, '0'), parsed.getFullYear()].join('/');
   }
   function formatReportUppercase(value) {
     return typeof value === 'string' ? value.toUpperCase() : value;
@@ -1944,7 +1935,6 @@
       columnDefs: [
         { headerName: '#', colId: 'row_number', width: 52, minWidth: 52, maxWidth: 52, sortable: false, resizable: false, pinned: 'left', valueGetter: p => ((state.globalPage - 1) * state.globalPageSize) + p.node.rowIndex + 1 },
         { headerName: 'Complaint ID', field: 'complaint_id', width: 125, sortable: false, cellRenderer: p => { const link=textNode('button',formatReportUppercase(p.value),'report-case-link');link.type='button';link.setAttribute('aria-label',`Open complaint ${p.value}`);link.onclick=()=>openGlobalCase(p.data.record_id);return link;} },
-        { headerName: 'Data origin / timing', field: 'timing_note', width: 250, sortable: false, wrapText:true, autoHeight:true },
         { headerName: 'Date Reported', field: 'date_reported', width: 130, valueFormatter: p => formatReportDate(p.value) },
         { headerName: 'Status', field: 'status', width: 170, cellRenderer: reportStatusRenderer },
         { headerName: 'Customer Name', field: 'customer_name', width: 190, sortable: false, valueFormatter: p => formatReportUppercase(p.value) },
@@ -1966,6 +1956,7 @@
         { headerName: 'Days Open', field: 'days_open', width: 105, type: 'numericColumn' },
         { headerName: 'Resolution time', field: 'resolution_hours', width: 130, sortable: false, valueFormatter: p => window.ComplaintReportCharts.hours(p.value) },
         { headerName: 'HB response', field: 'hb_response_hours', width: 125, sortable: false, valueFormatter: p => window.ComplaintReportCharts.hours(p.value) },
+        { headerName: 'Data origin / timing', field: 'timing_note', width: 185, sortable: false, tooltipField: 'timing_note', valueFormatter: p => p.data?.historical ? ([p.data.resolution_hours,p.data.hb_response_hours].some(value=>value!=null) ? 'Historical · Estimate' : 'Historical · No timing') : p.data?.target_basis==='current_target_estimate' ? 'App · Estimate' : 'App workflow' },
         { headerName: 'Resolution History', field: 'resolution_history_count', width: 145, sortable: false, valueFormatter: p => p.value ? `${p.value} ${p.value === 1 ? 'entry' : 'entries'}` : 'No history' },
       ],
       onSortChanged: event => {
