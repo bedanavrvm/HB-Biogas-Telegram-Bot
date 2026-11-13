@@ -1,6 +1,9 @@
 from datetime import timedelta
 from decimal import Decimal
 from io import BytesIO
+from copy import deepcopy
+from unittest.mock import patch
+import uuid
 
 from django.test import TestCase, override_settings
 from django.utils import timezone
@@ -11,6 +14,51 @@ from core.tests_telegram_authentication import BOT_TOKEN
 from .models import LegacyBatch, LegacyRow, LegacyUpload
 from .reconciliation import POLICY
 from .tests import LegacyHTTPMixin
+
+
+class ReconciledSheetIdentityTests(TestCase):
+    def setUp(self):
+        from core.models import GroupSheetConfiguration
+        from core.tests import FakeMasterDataSheet, FakeJawabuService
+        self.group = GroupSheetConfiguration.objects.create(group_id='synthetic-reconciled-units', sheet_id='synthetic-sheet',
+            workflow={'type': 'jawabu_homebiogas', 'master_sync_enabled': True, 'master_header_row': 1, 'master_data_start_row': 2})
+        self.first = JawabuFarmerMaster.objects.create(group_configuration=self.group, customer_name='FIRST UNIT',
+            national_id='12345678', primary_phone='254712345678', workflow_state='credit')
+        self.second = JawabuFarmerMaster.objects.create(group_configuration=self.group, customer_name='SECOND UNIT',
+            national_id='12345678', primary_phone='254712345679')
+        headers = ['No.', 'Customer Name', 'National ID', 'Primary Phone', 'Master Record ID', 'Current Pipeline State', 'Staff formula']
+        self.sheet = FakeMasterDataSheet(headers)
+        self.sheet.values = [headers, [1, 'FIRST UNIT', '12345678', self.first.primary_phone, str(self.first.pk), 'Awaiting JBL Visit', '=1+1'],
+            [2, 'SECOND UNIT', '12345678', self.second.primary_phone, str(self.second.pk), 'Awaiting JBL Visit', '=2+2']]
+        transport = patch('core.services.sheets.GoogleSheetsService.get_instance', return_value=FakeJawabuService(self.sheet))
+        transport.start(); self.addCleanup(transport.stop)
+
+    def test_unique_owned_uuid_updates_its_row_when_another_unit_shares_national_id(self):
+        from core.services.jawabu_pipeline import sync_farmer_to_master_sheet
+        other = deepcopy(self.sheet.values[2]); failure = {}
+        self.assertTrue(sync_farmer_to_master_sheet(self.first, failure_context=failure), failure)
+        self.assertEqual(self.sheet.values[1][4], str(self.first.pk))
+        self.assertEqual(self.sheet.values[1][5].casefold(), 'under review')
+        self.assertEqual(self.sheet.values[1][6], '=1+1')
+        self.assertEqual(self.sheet.values[2][:len(other)], other)
+        self.assertEqual(len(self.sheet.values), 3)
+
+    def test_two_rows_claiming_the_same_uuid_remain_blocked(self):
+        from core.services.jawabu_pipeline import sync_farmer_to_master_sheet
+        self.sheet.values[2][4] = str(self.first.pk)
+        self.assert_identity_hold()
+
+    def test_repeated_national_id_without_an_owned_uuid_remains_blocked(self):
+        self.sheet.values[1][4] = str(uuid.uuid4())
+        self.assert_identity_hold()
+
+    def assert_identity_hold(self):
+        from core.services.jawabu_pipeline import sync_farmer_to_master_sheet
+        before = deepcopy(self.sheet.values[1:]); failure = {}
+        self.assertFalse(sync_farmer_to_master_sheet(self.first, failure_context=failure))
+        self.assertEqual(failure['phase'], 'identity')
+        for observed, original in zip(self.sheet.values[1:], before):
+            self.assertEqual(observed[:len(original)], original)
 
 
 def source(*, outcome='Deferred', guide='', comment='', hb='', visit='', name='SYNTHETIC CLIENT', national_id='12345678', final='Ignored', phone='0712345678'):

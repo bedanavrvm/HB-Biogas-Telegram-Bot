@@ -1121,9 +1121,9 @@
     },
     {
       "path": "core/services/jawabu_pipeline.py",
-      "sha256": "2f715771ce187850c2160ed05c62629eeffc16e09325549935081c52e02247a4",
-      "review_reference": "docs/ui-standard/reviews/2026-11-05-portal-legacy-credit-and-current-status.md#10-november-include-known-historical-credit-outcomes",
-      "reason": "User-confirmed Legacy credit label for committed initial imports, including historical approval/rejection/deferral. Existing case fields, neutral badges and order preview consume the shared label; stored decisions, pipeline, forms and native review precedence remain intact. Script cache versions advance; no design baseline or Phase 6 migration."
+      "sha256": "029538f2a4c672c31ff6f07b11dfc6ea9a96badb394767ad4e57f6658886e2e8",
+      "review_reference": "docs/ui-standard/reviews/2026-11-12-workbook-reconciliation.md#13112026-publication-fallback-correction",
+      "reason": "Nonvisual publication correction: a unique owned Sheet UUID takes precedence over a shared National ID; duplicate UUID and unowned duplicate-ID holds remain. Three publisher regressions and native queue tests; no appearance, role or schema change."
     },
     {
       "path": "core/static/miniapp/portal_helpers.js",

@@ -2844,7 +2844,7 @@ def sync_farmer_to_master_sheet(
                      if row_owner(row).casefold() == str(farmer.pk).casefold()]
             same_id = [(number, row) for number, row in rows
                        if incoming_id and row_id(row) == incoming_id]
-            if len(owned) > 1 or len(same_id) > 1:
+            if len(owned) > 1 or (not owned and len(same_id) > 1):
                 note_failure(phase='identity', detail=f'Multiple rows claim this case or National ID in {sheet_name}; identity review is required.')
                 return False
             if owned:

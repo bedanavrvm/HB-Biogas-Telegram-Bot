@@ -87,3 +87,15 @@ occurred. After approved release, recompare against live case revisions before
 applying; the rehearsal is not authority to overwrite intervening app changes.
 
 Operator instructions: [Reviewed workbook reconciliation](../../runbooks/portal-workbook-reconciliation.md).
+
+## 13/11/2026: publication fallback correction
+
+Live publication exposed one existing-row update held solely because another
+unit shared its National ID. The selected case had one unique immutable Sheet
+UUID. The fallback lookup now uses that owned row before considering National ID
+ambiguity, matching the existing fast-pointer behavior. Multiple rows claiming
+the same UUID and repeated IDs without an owned row remain blocked. No identity
+values, field ownership, permissions or UI elements change. Three synthetic
+publisher regressions cover the allowed update and both denied paths. An exhausted
+operation is retried through a new native reviewed-retry record; the original
+failure evidence remains retained.
