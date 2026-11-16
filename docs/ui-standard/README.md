@@ -1,5 +1,8 @@
 # Mini App Design Lab
 
+Optional Portal Biogas LAF filling retains primary upload/camera and reuses paired
+fields, date controls and shared signing. [Source and real-shell browser evidence](reviews/2026-11-16-portal-biogas-laf.md).
+
 Complaints report context is compact, with provenance near the end of the table.
 [Source and Playwright evidence](reviews/2026-11-13-complaint-report-context.md).
 

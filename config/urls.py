@@ -12,6 +12,7 @@ urlpatterns = [
     path('complaints/legacy-import/', complaint_legacy_page, name='complaint_legacy_page'),
     path('', include('staff_auth.production_urls')),
     path('api/', include('core.api.urls')),
+    path('api/portal/', include('portal_lafs.urls')),
     path('', include('core.api.browser_urls')),
     path('', include('core.api.legacy_urls')),
 ]

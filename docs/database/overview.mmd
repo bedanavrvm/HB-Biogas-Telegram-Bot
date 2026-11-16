@@ -12,6 +12,7 @@ flowchart LR
   origination["Origination"]
   payments["Payments"]
   platform["Platform"]
+  portal_lafs["Portal Lafs"]
   portal_legacy["Portal Legacy"]
   portal_recognition["Portal Recognition"]
   report_delivery["Report Delivery"]
@@ -47,6 +48,8 @@ flowchart LR
   payments --> platform
   platform --> complaints
   platform --> jawabu
+  portal_lafs --> jawabu
+  portal_lafs --> origination
   portal_legacy --> jawabu
   portal_legacy --> platform
   report_delivery --> platform

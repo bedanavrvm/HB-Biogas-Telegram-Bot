@@ -39,7 +39,7 @@ def _decorator_name(node: ast.expr) -> str:
 
 def _view_contracts() -> dict[str, tuple[frozenset[str], frozenset[str]]]:
     contracts: dict[str, tuple[frozenset[str], frozenset[str]]] = {}
-    for source_path in sorted([*API_ROOT.glob('*.py'), ROOT / 'hb_operations/deposit_views.py', ROOT / 'origination' / 'views.py', ROOT / 'ui_review/views.py', ROOT / 'portal_legacy/views.py', ROOT / 'portal_legacy/import_views.py', ROOT / 'complaint_legacy/views.py']):
+    for source_path in sorted([*API_ROOT.glob('*.py'), ROOT / 'hb_operations/deposit_views.py', ROOT / 'origination' / 'views.py', ROOT / 'ui_review/views.py', ROOT / 'portal_legacy/views.py', ROOT / 'portal_legacy/import_views.py', ROOT / 'complaint_legacy/views.py', ROOT / 'portal_lafs/views.py']):
         tree = ast.parse(source_path.read_text(encoding='utf-8'), filename=str(source_path))
         for node in tree.body:
             if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -69,7 +69,8 @@ def _view_contracts() -> dict[str, tuple[frozenset[str], frozenset[str]]]:
 def discover_write_routes() -> dict[str, DiscoveredRoute]:
     contracts = _view_contracts()
     tree = ast.parse(URLS_FILE.read_text(encoding='utf-8') + '\n' + (ROOT / 'origination/urls.py').read_text(encoding='utf-8')
-                     + '\n' + (ROOT / 'ui_review/urls.py').read_text(encoding='utf-8'))
+                     + '\n' + (ROOT / 'ui_review/urls.py').read_text(encoding='utf-8')
+                     + '\n' + (ROOT / 'portal_lafs/urls.py').read_text(encoding='utf-8'))
     discovered: dict[str, DiscoveredRoute] = {}
     for node in ast.walk(tree):
         if not (

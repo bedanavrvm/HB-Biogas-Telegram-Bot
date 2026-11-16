@@ -17,7 +17,7 @@ from django.db import connection
 
 
 ROOT = Path(__file__).resolve().parents[2]
-CATALOGUE_APP_LABELS = ('complaint_legacy', 'portal_legacy', 'origination', 'core', 'requisitions', 'payments', 'credit_assessments', 'hb_operations', 'tat_recognition', 'portal_recognition', 'report_delivery', 'ui_review', 'staff_auth', 'complaint_conversations', 'complaint_publications')
+CATALOGUE_APP_LABELS = ('complaint_legacy', 'portal_legacy', 'origination', 'core', 'requisitions', 'payments', 'credit_assessments', 'hb_operations', 'tat_recognition', 'portal_recognition', 'report_delivery', 'ui_review', 'staff_auth', 'complaint_conversations', 'complaint_publications', 'portal_lafs')
 USAGE_ROOTS = (
     ROOT / 'complaint_legacy',
     ROOT / 'portal_legacy',
@@ -26,6 +26,7 @@ USAGE_ROOTS = (
     ROOT / 'ui_review',
     ROOT / 'staff_auth',
     ROOT / 'origination',
+    ROOT / 'portal_lafs', ROOT / 'document_signing',
     ROOT / 'core' / 'api', ROOT / 'core' / 'services', ROOT / 'core' / 'management',
     ROOT / 'requisitions', ROOT / 'payments', ROOT / 'credit_assessments', ROOT / 'hb_operations', ROOT / 'tat_recognition', ROOT / 'portal_recognition',
 )
@@ -536,3 +537,5 @@ MODEL_OVERRIDES.update(CONVERSATION_METADATA)
 
 from complaint_publications.catalogue import MODEL_METADATA as COMPLAINT_PUBLICATION_METADATA
 MODEL_OVERRIDES.update(COMPLAINT_PUBLICATION_METADATA)
+from portal_lafs.catalogue import MODEL_METADATA as PORTAL_LAF_METADATA
+MODEL_OVERRIDES.update(PORTAL_LAF_METADATA)

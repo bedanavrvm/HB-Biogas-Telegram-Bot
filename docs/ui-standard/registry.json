@@ -1370,6 +1370,60 @@
       "sha256": "23cf5ff4d87be4535f706a76405eb4750ca4b43daa2a5cd424b67193002cd16e",
       "review_reference": "docs/ui-standard/reviews/2026-11-13-complaint-report-context.md",
       "reason": "User-requested compact Complaint Reports: remove historical prose summary, shorten provenance cells and move their default column near the end. Existing grid/tooltips, retained personal layouts, dd/mm/yyyy display and signed real-shell Playwright evidence; no role/schema/design migration."
+    },
+    {
+      "path": "core/static/miniapp/portal_farmer_sheet.js",
+      "sha256": "106e708d8f12d6afb5f9ca09320222ac162e1037baa51201269068b068a6fd14",
+      "review_reference": "docs/ui-standard/reviews/2026-11-16-portal-biogas-laf.md",
+      "reason": "User-approved optional Portal form filling and shared in-app signing; upload remains primary. Source-bound synthetic native Django/PostgreSQL Playwright evidence. Original workflow grants, prior signed bytes and Phase 6 hold preserved."
+    },
+    {
+      "path": "core/templates/base_shell.html",
+      "sha256": "5820f5ed800d16e05a62d82a55c8c2ac21455c0c0eec529f53fd7a9f44055e99",
+      "review_reference": "docs/ui-standard/reviews/2026-11-16-portal-biogas-laf.md",
+      "reason": "User-approved optional Portal form filling and shared in-app signing; upload remains primary. Source-bound synthetic native Django/PostgreSQL Playwright evidence. Original workflow grants, prior signed bytes and Phase 6 hold preserved."
+    },
+    {
+      "path": "origination/templates/loan_origination/app.html",
+      "sha256": "8bcbac2d8af8428c90d71616bdf303429b68acb625932aff82e24ff22998aa23",
+      "review_reference": "docs/ui-standard/reviews/2026-11-16-portal-biogas-laf.md",
+      "reason": "User-approved optional Portal form filling and shared in-app signing; upload remains primary. Source-bound synthetic native Django/PostgreSQL Playwright evidence. Original workflow grants, prior signed bytes and Phase 6 hold preserved."
+    },
+    {
+      "path": "origination/templates/loan_origination/sign.html",
+      "sha256": "cc4777a18e386fa546768acbe3dcf2fba2aa28b045f37f68d8ce314435c70283",
+      "review_reference": "docs/ui-standard/reviews/2026-11-16-portal-biogas-laf.md",
+      "reason": "User-approved optional Portal form filling and shared in-app signing; upload remains primary. Source-bound synthetic native Django/PostgreSQL Playwright evidence. Original workflow grants, prior signed bytes and Phase 6 hold preserved."
+    },
+    {
+      "path": "portal_lafs/static/portal_lafs/form.css",
+      "sha256": "c70d2b6f40389807939553f4bf839f8e34d92d4761687764a79d6bf69c3b8da6",
+      "review_reference": "docs/ui-standard/reviews/2026-11-16-portal-biogas-laf.md",
+      "reason": "User-approved optional Portal form filling and shared in-app signing; upload remains primary. Source-bound synthetic native Django/PostgreSQL Playwright evidence. Original workflow grants, prior signed bytes and Phase 6 hold preserved."
+    },
+    {
+      "path": "portal_lafs/static/portal_lafs/form.js",
+      "sha256": "2b1e1a5acd3441cf61a8ce386178107e493cc128d56157ddb816a6cf254614b9",
+      "review_reference": "docs/ui-standard/reviews/2026-11-16-portal-biogas-laf.md",
+      "reason": "User-approved optional Portal form filling and shared in-app signing; upload remains primary. Source-bound synthetic native Django/PostgreSQL Playwright evidence. Original workflow grants, prior signed bytes and Phase 6 hold preserved."
+    },
+    {
+      "path": "document_signing/static/document_signing/dialog.js",
+      "sha256": "0c210ec4373c607b1b8abff0b39339baabc683acb8f1b4caca1a1cceda3757e7",
+      "review_reference": "docs/ui-standard/reviews/2026-11-16-portal-biogas-laf.md",
+      "reason": "User-approved optional Portal form filling and shared in-app signing; upload remains primary. Source-bound synthetic native Django/PostgreSQL Playwright evidence. Original workflow grants, prior signed bytes and Phase 6 hold preserved."
+    },
+    {
+      "path": "document_signing/static/document_signing/signature.css",
+      "sha256": "e47b12a12f5fcf834011888ccd05697d797e39d51e2b088cceb14b90a0eb62d5",
+      "review_reference": "docs/ui-standard/reviews/2026-11-16-portal-biogas-laf.md",
+      "reason": "User-approved optional Portal form filling and shared in-app signing; upload remains primary. Source-bound synthetic native Django/PostgreSQL Playwright evidence. Original workflow grants, prior signed bytes and Phase 6 hold preserved."
+    },
+    {
+      "path": "document_signing/static/document_signing/signature.js",
+      "sha256": "39292d9ae2492c041b03d31b5db5e91a66bd89ef86739f880e46b36c6c39e01b",
+      "review_reference": "docs/ui-standard/reviews/2026-11-16-portal-biogas-laf.md",
+      "reason": "User-approved optional Portal form filling and shared in-app signing; upload remains primary. Source-bound synthetic native Django/PostgreSQL Playwright evidence. Original workflow grants, prior signed bytes and Phase 6 hold preserved."
     }
   ],
   "source_roots": [
@@ -1383,7 +1437,9 @@
     "browser/src",
     "complaint_publications/templates",
     "docs/ui-standard/reviews/portal-ux-options-2026-10-29",
-    "complaint_legacy/templates"
+    "complaint_legacy/templates",
+    "portal_lafs/static",
+    "document_signing/static"
   ],
   "source_hash_format": "lf-text-v1"
 }

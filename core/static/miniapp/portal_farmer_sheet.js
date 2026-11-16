@@ -1124,6 +1124,8 @@
     if (!isNewLead) {
       formEl.insertAdjacentHTML('beforeend', withdrawalMarkup(farmer));
       wireWithdrawal(formEl, farmer);
+      window.PortalLaf?.mount({farmer, mode, root: formEl, apiFetch: deps.apiFetch,
+        onChange: () => { if (mode === 'jbl_visit') updateJblRepaymentFields(); }});
     }
     sheetOverlay?.classList.add('open');
     window.MiniAppUtils?.bindAccessibleForm?.(el('sheet-form'), {

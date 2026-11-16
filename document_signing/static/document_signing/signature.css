@@ -1,0 +1,10 @@
+.signature-styles{border:0;padding:0;margin:8px 0;display:grid;grid-template-columns:1fr 1fr;gap:6px;min-width:0}
+.signature-styles legend{font-size:.85rem;margin-bottom:6px}
+.signature-styles label{display:flex!important;align-items:center;gap:6px;padding:8px;border:1px solid var(--border,#cbd5d0);border-radius:8px;min-height:44px;cursor:pointer;font-size:.85rem}
+.signature-styles label:has(:checked){border-color:var(--laf-green,var(--brand,#397444));background:color-mix(in srgb,var(--laf-green,var(--brand,#397444)) 12%,var(--laf-surface,var(--surface,#fff)));color:var(--laf-dark,var(--text,#18211e))}
+.signature-styles label span{color:inherit!important;font-style:normal}
+.signature-styles input{appearance:auto!important;width:16px!important;height:16px!important;min-height:0!important;margin:0!important;padding:0!important;box-shadow:none!important;flex:none}
+.typed-mark-frame{background:#fff;border:1px solid #d5dbd7;border-radius:8px;aspect-ratio:750/209;display:grid;place-items:center;overflow:hidden;margin:8px 0}
+.typed-mark-frame img{display:block;width:100%;height:100%;object-fit:contain}
+.typed-mark-frame [hidden]{display:none!important}
+.typed-mark-frame span{padding:8px;color:#405046;font-size:.85rem;text-align:center}

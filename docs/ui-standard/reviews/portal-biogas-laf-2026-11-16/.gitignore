@@ -1,0 +1,7 @@
+# Only these synthetic, source-bound review images belong in version control.
+!visit-options-final.png
+!form-desktop-final.png
+!form-mobile-final.png
+!in-app-signature.png
+!in-person-signature-mobile.png
+!signed-mobile-dark.png

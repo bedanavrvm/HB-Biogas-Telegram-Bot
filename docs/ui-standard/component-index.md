@@ -1,5 +1,8 @@
 # Component index and migration hold
 
+Portal Biogas LAF reuses existing form rows, calendar controls, compact state and
+the shared signature appearance. [Source and browser evidence](reviews/2026-11-16-portal-biogas-laf.md).
+
 Complaints report provenance reuses single-line grid cells and existing tooltips.
 [Source and Playwright evidence](reviews/2026-11-13-complaint-report-context.md).
 

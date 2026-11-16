@@ -4555,6 +4555,13 @@ def portal_jbl_media(request, farmer_id: str):
             }
             for index, _url in enumerate(legacy_links)
         ]
+    from portal_lafs.services import active_version
+    digital_laf = active_version(farmer)
+    if digital_laf and digital_laf.pdf:
+        document_url = f'/api/portal/cases/{farmer.pk}/laf/{digital_laf.pk}/document/'
+        media.append({'id': f'laf:{digital_laf.pk}', 'category': 'LAF', 'name': 'Biogas LAF',
+            'mime_type': 'application/pdf', 'view_url': document_url, 'preview_url': document_url + '?preview=1',
+            'created_at': digital_laf.created_at.isoformat(), 'captured_at': '', 'open_url': document_url})
     laf_media = [item for item in media if item['category'] in {'LAF', 'LEGACY'}]
     jbl_visit_photo_media = [item for item in media if item['category'] == 'JBL_VISIT_PHOTO']
     response = JsonResponse({

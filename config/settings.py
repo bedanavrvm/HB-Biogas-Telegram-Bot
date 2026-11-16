@@ -65,6 +65,8 @@ INSTALLED_APPS = [
     'payments',
     'credit_assessments',
     'hb_operations',
+    'portal_lafs',
+    'document_signing',
     'portal_legacy',
     'complaint_legacy',
     'qa_tracker',
@@ -76,6 +78,9 @@ INSTALLED_APPS = [
     'complaint_conversations',
     'complaint_publications',
 ]
+
+# Optional Portal-owned Biogas LAF; upload remains the primary path.
+PORTAL_LAF_FORM_ENABLED = config('PORTAL_LAF_FORM_ENABLED', default=False, cast=bool)
 
 # ADR 0075 conditionally serves the native Complaints browser client. Default-off
 # flags never disable Telegram's independent signed credentials.

@@ -26,6 +26,12 @@ Changes can affect operational data, customer records, approvals, financial valu
 
 ## Quick reference (read this first)
 
+For Portal Biogas form filling or shared signing changes, read ADR 0084 and
+`docs/runbooks/portal-biogas-laf.md`. Upload stays primary; form filling defaults
+off via `PORTAL_LAF_FORM_ENABLED`. In-person client/guarantor signing uses consent
+and the authenticated officer's witness, without OTP. `document_signing` shares
+rendering and UI, never grants or approvals. Portal remote signing remains deferred.
+
 For browser authentication cache, concurrency or release-readiness work, read
 ADR 0074 and `docs/runbooks/browser-channel-parity.md`: the approved route is
 PostgreSQL-only native security state. For production routes, onboarding or

@@ -3082,3 +3082,15 @@ python manage.py migrate core 0072_miniapp_drafts
   IDs in Portal, TAT and Complaints; it no longer requires a shell command.
 - Settings shows provider acceptance or a safe failure reason and wakes pending
   work on reopening. Unattended recurring schedules still require the runner.
+
+# 16/11/2026 — Optional Portal Biogas LAF (pending deployment)
+
+- Keep LAF upload/camera primary and add secondary form filling with persisted drafts,
+  page preview, in-app BRO/analyst/Head of Rural signatures and configured in-person
+  client/guarantor signing with consent and officer witnessing, without OTP.
+  Portal remote signing is deferred.
+- Reuse shared signature/PDF components without creating Origination applications
+  or sharing grants. Preserve signed versions, original uploads and existing links.
+- Add default-off `PORTAL_LAF_FORM_ENABLED`, checked-in LAF migrations and durable
+  Drive archive recovery. Production activation, actual template readiness
+  and delivery remain unverified. See the Portal Biogas LAF runbook.

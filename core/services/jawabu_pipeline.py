@@ -1309,6 +1309,11 @@ def set_credit_decision(
     if decision == 'Pending':
         return False, 'Pending is the initial credit state and cannot be selected as an analyst decision.'
     if decision == CREDIT_APPROVED:
+        from portal_lafs.services import require_stage, LafError
+        try:
+            require_stage(farmer, 'credit')
+        except LafError as exc:
+            return False, str(exc)
         product_error = _validate_farmer_product_configuration(
             farmer, stage='credit_decision',
             requirement_evidence=product_requirement_evidence,
@@ -1476,6 +1481,12 @@ def set_final_decision(
         return False, f"Invalid final decision: '{final_decision}'. Must be one of: {', '.join(sorted(valid_decisions))}"
     if final_decision == 'Under Review':
         return False, 'Under Review is the initial state and cannot be selected as a final decision.'
+    if final_decision == FINAL_DECISION_APPROVED:
+        from portal_lafs.services import require_stage, LafError
+        try:
+            require_stage(farmer, 'final')
+        except LafError as exc:
+            return False, str(exc)
     product_error = _validate_farmer_product_configuration(
         farmer, stage='final_decision',
         requirement_evidence=product_requirement_evidence,
@@ -2340,12 +2351,18 @@ def farmer_to_card(
         'latitude': farmer.latitude,
         'longitude': farmer.longitude,
         'jbl_media_urls': farmer.jbl_media_urls,
-        'jbl_media_count': len([line for line in str(farmer.jbl_media_urls or '').splitlines() if line.strip()]),
+        'jbl_media_count': len([line for line in str(farmer.jbl_media_urls or '').splitlines() if line.strip()]) + (_digital_laf_media_count(farmer) if include_detail_metadata else 0),
         'visit_evidence': visit_evidence_status(farmer) if include_detail_metadata else {},
         'approvals': approvals,
         'decision_context': decision_context(farmer, approvals) if include_detail_metadata else None,
         'legacy': case_payload(farmer) if include_detail_metadata else None,
     }
+
+
+def _digital_laf_media_count(farmer):
+    from portal_lafs.services import active_version
+    version = active_version(farmer)
+    return int(bool(version and version.pdf))
 
 
 def _pipeline_stage(farmer: JawabuFarmerMaster) -> int:

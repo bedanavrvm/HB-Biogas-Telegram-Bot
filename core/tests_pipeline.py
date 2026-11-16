@@ -2580,7 +2580,7 @@ class JblPipelineApiTestCase(TestCase):
         self.assertContains(response, 'Kiambu | Kieni | Mweiga')
         self.assertNotContains(response, 'Kiambu | Kieni | Mweiga | Ruiru')
         self.assertContains(response, 'htmx-farmer-card')
-        self.assertContains(response, 'HB visit: 24-06-2026')
+        self.assertContains(response, 'HB visit: 24/06/2026')
         self.assertContains(response, 'Pending Visit')
         self.assertContains(response, 'data-lucide="calendar-days"')
         self.assertContains(response, 'aria-label="Queue position 1"')
@@ -3331,7 +3331,7 @@ class JblPipelineApiTestCase(TestCase):
         response = self.client.post(url, json.dumps(payload), content_type='application/json')
         self.assertEqual(response.status_code, 400)
         self.assertFalse(response.json()['ok'])
-        self.assertEqual(response.json()['code'], 'invalid_request')
+        self.assertEqual(response.json()['code'], 'portal_credit_decision_blocked')
 
         self.farmer.refresh_from_db()
         self.assertEqual(self.farmer.credit_decision, before)

@@ -1,0 +1,17 @@
+erDiagram
+  portal_lafs_case_record {
+    string id
+  }
+  portal_lafs_document_version {
+    string id
+  }
+  portal_lafs_request_event {
+    string id
+  }
+  portal_lafs_signature_evidence {
+    string id
+  }
+  portal_lafs_document_version ||--o{ portal_lafs_case_record : contains
+  portal_lafs_case_record ||--o{ portal_lafs_document_version : contains
+  portal_lafs_case_record ||--o{ portal_lafs_request_event : contains
+  portal_lafs_document_version ||--o{ portal_lafs_signature_evidence : contains

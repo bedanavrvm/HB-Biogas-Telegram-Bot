@@ -506,6 +506,9 @@ def visit_evidence_status(farmer) -> dict[str, int]:
     counts = {'CLIENT_ID': 0, 'LAF': 0, 'JBL_VISIT_PHOTO': 0}
     for row in rows:
         counts[str(row)] = counts.get(str(row), 0) + 1
+    from portal_lafs.services import active_version, evidence_ready
+    if active_version(farmer):
+        counts['LAF'] = int(evidence_ready(farmer))
     return counts
 
 

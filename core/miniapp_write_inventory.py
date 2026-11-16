@@ -47,6 +47,16 @@ def _add(
 
 
 _add(
+    'portal_case_laf',
+    authentication='portal_auth_required and current independent Portal grants',
+    capability='portal.jbl_media.view plus the existing visit, credit or final-review write gate',
+    scope='Exact case group/branch/product, captured LAF version and signing stage',
+    request_key_binding='Canonical Portal request identity, expected document revision and reviewed PDF hash',
+    domain_replay='Case-row mutex, actor/payload fingerprint receipts, unique version-role signatures and durable archive operations',
+)
+
+
+_add(
     'complaint_legacy_uploads complaint_legacy_template complaint_legacy_upload complaint_legacy_action',
     authentication='miniapp_write_response plus signed Telegram Complaint identity; browser uses independent native MFA/CSRF adapter',
     capability='complaint.legacy.manage plus an active whole-workspace Complaint IT grant; test deletion and register clearing require active Superuser',

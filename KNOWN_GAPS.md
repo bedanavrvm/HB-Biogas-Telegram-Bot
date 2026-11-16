@@ -2966,3 +2966,10 @@ change and must be reconciled with the current document catalogue contract.
 The repository also retains pre-existing broad gate failures in the Portal
 Ruff check, Mini App write inventory, environment parity and dependency exception
 expiry. A passing focused check does not establish a passing full release gate.
+
+# 16/11/2026 — Existing database catalogue index check
+
+The broad catalogue check reports the pre-existing duplicate explicit index on
+`core.RequisitionBatch.order_number` (`core_requis_order_n_097497_idx`). The Portal
+Biogas LAF change does not alter this financial model or index. Resolving that
+separate schema issue remains outside this implementation.

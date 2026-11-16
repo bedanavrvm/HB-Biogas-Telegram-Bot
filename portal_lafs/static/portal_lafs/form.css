@@ -1,0 +1,24 @@
+.portal-laf-panel { margin-block: 16px; }
+.portal-laf-panel p { margin-block: 6px; }
+.portal-laf-dialog { width: min(900px, calc(100vw - 24px)); max-height: calc(100dvh - 32px); border: 1px solid var(--border, #dfe1e6); border-radius: 12px; padding: 20px; background: var(--bg, #fff); color: var(--text, #172b4d); }
+.portal-laf-dialog::backdrop { background: #091e4280; }
+.portal-laf-dialog header { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
+.portal-laf-dialog[open] > header { flex-direction: row; text-align: left; }
+.portal-laf-dialog[open] h2 { font-size: 20px; }
+.portal-laf-dialog [hidden] { display: none !important; }
+.portal-laf-dialog h2 { margin: 0; font-size: 20px; }
+.portal-laf-dialog h3 { margin: 20px 0 12px; font-size: 16px; }
+.laf-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.laf-form-grid label { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.laf-form-grid input, .laf-form-grid select, .laf-form-grid textarea, .laf-signature input:not([type="checkbox"]) { width: 100%; box-sizing: border-box; }
+.laf-wide { grid-column: 1 / -1; }
+.laf-repeat-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 12px 0; padding: 12px; border: 1px solid var(--border, #dfe1e6); border-radius: 8px; }
+.laf-date { display: flex; gap: 6px; position: relative; }
+.laf-date input[type="date"] { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.laf-field-error, .portal-laf-dialog [role="alert"] { color: var(--danger, #b42318); }
+.laf-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+.laf-pages img { display: block; width: 100%; height: auto; margin-bottom: 16px; border: 1px solid var(--border, #dfe1e6); }
+.laf-signature canvas { width: 100%; max-width: 560px; height: 180px; display: block; background: #fff; border: 1px solid var(--border, #dfe1e6); touch-action: none; }
+.portal-laf-dialog .laf-consent { display: flex; flex-direction: row; align-items: flex-start; justify-content: flex-start; gap: 8px; margin-block: 16px; text-align: left; }
+.portal-laf-dialog .laf-consent input[type="checkbox"] { flex: none; width: 16px; height: 16px; min-height: 0; margin: 2px 0 0; padding: 0; }
+@media(max-width: 600px) { .laf-form-grid, .laf-repeat-row { grid-template-columns: 1fr; } .portal-laf-dialog { padding: 16px; } }
