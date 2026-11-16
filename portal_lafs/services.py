@@ -675,35 +675,43 @@ def mutate(case_id, actor, access, payload, request_id):
 
 
 def archive(version_id):
-    version = PortalLafVersion.objects.select_related("laf__case").get(pk=version_id)
-    if version.archive_file_id or not ready(version, "final"):
-        return
-    try:
-        from core.services.order_approval import GoogleDriveMediaStorage
-        from django.utils.text import slugify
+    failed = False
+    with transaction.atomic():
+        from core.services.miniapp_deletion_sheets import lock_sheet_mutations
 
-        case = version.laf.case
-        name = f"{slugify(case.customer_name)}-{slugify(case.national_id)}-biogas-laf-{version.pk}.pdf"
-        file_id, _url = GoogleDriveMediaStorage().upload(
-            BytesIO(bytes(version.pdf)),
-            name,
-            "application/pdf",
-            id_number=f"case-{case.pk}",
-            received_at=timezone.now(),
-            workflow_key="jawabu_portal",
-            record_type="biogas-laf",
-            record_key=str(version.pk),
-            publication_key=f"portal-laf:{version.pk}:{version.digest}",
-            recover_uncertain=True,
-            attempt_budget=1,
-        )
-        if not file_id:
-            raise ValueError("Missing archive receipt")
-        PortalLafVersion.objects.filter(pk=version.pk, digest=version.digest).update(
-            archive_file_id=file_id, archive_error=""
-        )
-    except Exception:
-        PortalLafVersion.objects.filter(pk=version.pk).update(
-            archive_error="Drive archive unavailable. Your signed LAF is saved. Retry archive."
-        )
+        # A publisher that loaded its operation before deletion must recheck under the same mutex.
+        lock_sheet_mutations()
+        version = PortalLafVersion.objects.select_related("laf__case").filter(pk=version_id).first()
+        if not version or version.archive_file_id or not ready(version, "final"):
+            return
+        try:
+            from core.services.order_approval import GoogleDriveMediaStorage
+            from django.utils.text import slugify
+
+            case = version.laf.case
+            name = f"{slugify(case.customer_name)}-{slugify(case.national_id)}-biogas-laf-{version.pk}.pdf"
+            file_id, _url = GoogleDriveMediaStorage().upload(
+                BytesIO(bytes(version.pdf)),
+                name,
+                "application/pdf",
+                id_number=f"case-{case.pk}",
+                received_at=timezone.now(),
+                workflow_key="jawabu_portal",
+                record_type="biogas-laf",
+                record_key=str(version.pk),
+                publication_key=f"portal-laf:{version.pk}:{version.digest}",
+                recover_uncertain=True,
+                attempt_budget=1,
+            )
+            if not file_id:
+                raise ValueError("Missing archive receipt")
+            PortalLafVersion.objects.filter(pk=version.pk, digest=version.digest).update(
+                archive_file_id=file_id, archive_error=""
+            )
+        except Exception:
+            PortalLafVersion.objects.filter(pk=version.pk).update(
+                archive_error="Drive archive unavailable. Your signed LAF is saved. Retry archive."
+            )
+            failed = True
+    if failed:
         raise RuntimeError("Portal LAF archive unavailable") from None

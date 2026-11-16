@@ -71,6 +71,25 @@ bytes, then `python manage.py migrate portal_lafs zero`. This removes the new
 tables; do not run it before evidence export. Original upload and Origination
 records are not removed. Restore the matching code/configuration release.
 
+## Removing a test case
+
+With `MINIAPP_TEST_DELETION_ENABLED=True`, an active Superuser can select the
+test case in Admin → Jawabu farmer masters and choose **Delete selected test
+records**. Review the impact before confirming. Draft and signed digital LAFs,
+all superseded versions, signatures and request receipts belong to that case
+and are included. Selecting LAF evidence also includes its owning case; it
+cannot remove a signature from a surviving case.
+
+Unrelated cases and shared LAF templates survive. Linked order/payment workspaces
+appear in the impact preview; keep test cases in separate batches. Finance
+numbers remain consumed. Independent compliance evidence and Drive files are
+retained; exact Sheet-row cleanup is queued and retriable. Pending LAF archive
+work is cancelled. An archive already running finishes before deletion can
+proceed; a changed receipt requires a fresh impact confirmation.
+
+This is selected-record test cleanup, not a group-wide Portal reset. The setting
+defaults off; no deletion is authorized by deployment alone.
+
 ## Verification boundary
 
 Local tests and browser review use synthetic cases and blocked external sockets.

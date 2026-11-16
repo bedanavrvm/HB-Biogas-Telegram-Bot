@@ -1029,6 +1029,7 @@
         "origination/tests_phone_identity.py",
         "origination/tests_signing_plans.py",
         "origination/tests_unsigned_applications.py",
+        "portal_lafs/tests_deletion.py",
         "portal_legacy/tests.py",
         "report_delivery/tests_one_off.py",
         "staff_auth/tests_complaints_transport.py",
@@ -1063,6 +1064,7 @@
         "origination/tests_phone_identity.py",
         "origination/tests_signing_plans.py",
         "origination/tests_unsigned_applications.py",
+        "portal_lafs/tests_deletion.py",
         "portal_legacy/tests.py",
         "report_delivery/tests_one_off.py",
         "staff_auth/tests_complaints_transport.py",
@@ -1112,6 +1114,7 @@
         "core/services/compliance_audit.py",
         "core/services/portal_maintenance.py",
         "origination/tests_workflow_improvements.py",
+        "portal_lafs/tests_deletion.py",
         "staff_auth/transport_test_runner.py"
       ],
       "django_model": "core.ComplianceAuditEvent",
@@ -1152,6 +1155,7 @@
         "origination/tests_laf_bootstrap.py",
         "origination/tests_workflow_improvements.py",
         "payments/receipt_batches.py",
+        "portal_lafs/tests_deletion.py",
         "portal_legacy/tests_completion.py",
         "portal_legacy/tests_report_reads.py",
         "staff_auth/browser_api.py",
@@ -1462,6 +1466,7 @@
         "payments/tests.py",
         "payments/tests_invoice_agreements.py",
         "payments/tests_signed_scan_upload.py",
+        "portal_lafs/tests_deletion.py",
         "portal_legacy/tests.py",
         "portal_legacy/tests_reconciliation.py",
         "report_delivery/tests.py",
@@ -1560,6 +1565,7 @@
         "payments/tests.py",
         "payments/tests_invoice_agreements.py",
         "payments/tests_signed_scan_upload.py",
+        "portal_lafs/tests_deletion.py",
         "portal_legacy/import_views.py",
         "portal_legacy/importer.py",
         "portal_legacy/models.py",
@@ -1640,6 +1646,7 @@
         "origination/tests_phone_identity.py",
         "origination/tests_workflow_improvements.py",
         "portal_lafs/publication.py",
+        "portal_lafs/tests_deletion.py",
         "portal_legacy/tests.py",
         "portal_legacy/tests_live_cases.py"
       ],
@@ -1702,6 +1709,7 @@
         "origination/tests_workflow_improvements.py",
         "portal_lafs/management/commands/drain_portal_lafs.py",
         "portal_lafs/publication.py",
+        "portal_lafs/tests_deletion.py",
         "portal_legacy/fence.py",
         "portal_legacy/tests.py",
         "portal_legacy/tests_live_cases.py",
@@ -2299,6 +2307,7 @@
         "payments/tests_signed_scan_upload.py",
         "portal_lafs/services.py",
         "portal_lafs/tests.py",
+        "portal_lafs/tests_deletion.py",
         "portal_legacy/services.py",
         "portal_legacy/tests.py",
         "portal_legacy/tests_browser.py",
@@ -2398,6 +2407,7 @@
         "portal_lafs/models.py",
         "portal_lafs/services.py",
         "portal_lafs/tests.py",
+        "portal_lafs/tests_deletion.py",
         "portal_lafs/views.py",
         "portal_legacy/fence.py",
         "portal_legacy/importer.py",
@@ -3693,7 +3703,8 @@
         "origination/tests_value_contracts.py",
         "portal_lafs/models.py",
         "portal_lafs/services.py",
-        "portal_lafs/tests.py"
+        "portal_lafs/tests.py",
+        "portal_lafs/tests_deletion.py"
       ]
     },
     {
@@ -5385,6 +5396,7 @@
         "core/api/portal_views.py",
         "core/services/portal_full_reset.py",
         "hb_operations/tests.py",
+        "portal_lafs/tests_deletion.py",
         "portal_legacy/fence.py",
         "portal_legacy/tests_live_cases.py",
         "portal_legacy/tests_reconciliation.py",
@@ -5424,6 +5436,7 @@
         "hb_operations/models.py",
         "hb_operations/services.py",
         "hb_operations/tests.py",
+        "portal_lafs/tests_deletion.py",
         "portal_legacy/fence.py",
         "portal_legacy/reconciliation.py",
         "portal_legacy/tests_live_cases.py",
@@ -7645,6 +7658,7 @@
         "core/services/portal_full_reset.py",
         "payments/services.py",
         "payments/tests.py",
+        "portal_lafs/tests_deletion.py",
         "portal_legacy/fence.py",
         "requisitions/tests.py"
       ],
@@ -7684,6 +7698,7 @@
         "payments/services.py",
         "payments/tests.py",
         "payments/tests_signed_scan_upload.py",
+        "portal_lafs/tests_deletion.py",
         "portal_legacy/fence.py",
         "requisitions/tests.py"
       ]
@@ -7701,7 +7716,8 @@
       ],
       "direct_orm_writers": [
         "core/services/portal_full_reset.py",
-        "payments/services.py"
+        "payments/services.py",
+        "portal_lafs/tests_deletion.py"
       ],
       "django_model": "payments.PaymentBatchCase",
       "domain": "payments",
@@ -7731,6 +7747,7 @@
         "payments/migrations/0002_case_specific_payment_mode.py",
         "payments/models.py",
         "payments/services.py",
+        "portal_lafs/tests_deletion.py",
         "portal_legacy/reconciliation.py",
         "portal_legacy/updates.py",
         "requisitions/services.py"
@@ -8062,7 +8079,8 @@
       ],
       "direct_orm_writers": [
         "portal_lafs/services.py",
-        "portal_lafs/tests.py"
+        "portal_lafs/tests.py",
+        "portal_lafs/tests_deletion.py"
       ],
       "django_model": "portal_lafs.PortalLaf",
       "domain": "portal_lafs",
@@ -8077,11 +8095,13 @@
       "source_of_truth": true,
       "table": "portal_lafs_case_record",
       "used_by": [
+        "core/services/miniapp_deletion_registry.py",
         "portal_lafs/catalogue.py",
         "portal_lafs/migrations/0001_initial.py",
         "portal_lafs/models.py",
         "portal_lafs/services.py",
-        "portal_lafs/tests.py"
+        "portal_lafs/tests.py",
+        "portal_lafs/tests_deletion.py"
       ]
     },
     {
@@ -8098,7 +8118,8 @@
       ],
       "direct_orm_writers": [
         "portal_lafs/services.py",
-        "portal_lafs/tests.py"
+        "portal_lafs/tests.py",
+        "portal_lafs/tests_deletion.py"
       ],
       "django_model": "portal_lafs.PortalLafVersion",
       "domain": "portal_lafs",
@@ -8114,12 +8135,14 @@
       "source_of_truth": true,
       "table": "portal_lafs_document_version",
       "used_by": [
+        "core/services/miniapp_deletion_registry.py",
         "portal_lafs/catalogue.py",
         "portal_lafs/migrations/0001_initial.py",
         "portal_lafs/models.py",
         "portal_lafs/publication.py",
         "portal_lafs/services.py",
         "portal_lafs/tests.py",
+        "portal_lafs/tests_deletion.py",
         "portal_lafs/views.py"
       ]
     },
@@ -8146,11 +8169,13 @@
       "source_of_truth": true,
       "table": "portal_lafs_request_event",
       "used_by": [
+        "core/services/miniapp_deletion_registry.py",
         "portal_lafs/catalogue.py",
         "portal_lafs/migrations/0001_initial.py",
         "portal_lafs/models.py",
         "portal_lafs/services.py",
         "portal_lafs/tests.py",
+        "portal_lafs/tests_deletion.py",
         "portal_lafs/views.py"
       ]
     },
@@ -8178,11 +8203,13 @@
       "source_of_truth": true,
       "table": "portal_lafs_signature_evidence",
       "used_by": [
+        "core/services/miniapp_deletion_registry.py",
         "portal_lafs/catalogue.py",
         "portal_lafs/migrations/0001_initial.py",
         "portal_lafs/models.py",
         "portal_lafs/services.py",
-        "portal_lafs/tests.py"
+        "portal_lafs/tests.py",
+        "portal_lafs/tests_deletion.py"
       ]
     },
     {

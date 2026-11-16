@@ -33,6 +33,14 @@ Number claims are retired, never released for reuse;
 explicit operational cancellation remains the sole number-release path (ADR 0039).
 Historical aggregate metrics and captured recognition snapshots are not rewritten.
 
+16/11/2026: Portal digital LAF roots, versions, signatures and request receipts
+are reviewed case-owned evidence. Selecting any of them promotes deletion to
+its Portal case; all retained versions are disclosed, while shared templates
+and other cases survive. Existing exact-source cancellation includes pending
+LAF archive work. Archive writes use the deletion mutex and recheck the version
+after acquiring it, so stale work cannot publish after committed deletion.
+Existing Drive copies remain retained. This does not change group-reset policy.
+
 ## Release and rollback
 
 27 October 2026 resource correction: relationship traversal and row locks are

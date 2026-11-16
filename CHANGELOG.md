@@ -3094,3 +3094,11 @@ python manage.py migrate core 0072_miniapp_drafts
 - Add default-off `PORTAL_LAF_FORM_ENABLED`, checked-in LAF migrations and durable
   Drive archive recovery. Production activation, actual template readiness
   and delivery remain unverified. See the Portal Biogas LAF runbook.
+
+## 16/11/2026 — Portal digital LAF test cleanup
+
+- Include draft and signed Portal LAFs, superseded versions and signature/request
+  evidence in the existing Superuser selected-test-deletion impact confirmation.
+- Cancel only the deleted versions' archive work and serialize in-flight archives
+  with deletion. Keep shared templates, other cases, compliance evidence and Drive
+  files. No schema migration or new setting; testing deletion remains default-off.
