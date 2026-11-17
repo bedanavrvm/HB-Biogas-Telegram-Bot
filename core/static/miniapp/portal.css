@@ -5287,7 +5287,7 @@ body.portal-app .payment-search-results-heading.miniapp-panel-heading{margin:0;p
 #portal-performance-awaiting-content { padding:0 16px 12px; }
 .portal-performance-awaiting-case { display:flex; align-items:center; justify-content:space-between; gap:10px; min-height:52px; padding:7px 0; border-bottom:1px solid var(--border-color); color:var(--text-primary); text-decoration:none; }
 .portal-performance-awaiting-case:last-child { border-bottom:0; }
-.farmer-card.deposit-held-card { cursor:pointer; background:var(--bg-secondary); color:var(--text-muted); border-style:dashed; }
+.farmer-card.deposit-held-card { cursor:not-allowed; background:var(--bg-secondary); color:var(--text-muted); border-style:dashed; }
 .farmer-card.deposit-held-card .fc-name { color:var(--text-muted); }
 .farmer-card.deposit-held-card:hover { transform:none; box-shadow:none; }
 .jbl-visit-sheet [data-jbl-physical][hidden], .jbl-visit-sheet [data-jbl-forward][hidden], .jbl-visit-sheet [data-jbl-field][hidden], .jbl-visit-sheet .jbl-support-card[hidden], .jbl-visit-sheet .jbl-comment-section[hidden] { display:none !important; }
@@ -5337,4 +5337,6 @@ body.portal-app .payment-search-results-heading.miniapp-panel-heading{margin:0;p
 .leaflet-popup-close-button svg { width:14px; height:14px; stroke:currentColor; stroke-width:2; }
 
 .jbl-visit-sheet #jbl-repayment-section[hidden] { display:none !important; }
+.jbl-camera-overlay #jbl-camera-retry[hidden] { display:none !important; }
+.jbl-camera-overlay #jbl-camera-retry { flex:0 0 40px; height:40px; min-height:40px; width:auto; align-self:center; margin:8px 12px; padding:8px 16px; }
 .jbl-document-slots[hidden], .jbl-document-slot[hidden], [data-swap-document][hidden] { display:none !important; }

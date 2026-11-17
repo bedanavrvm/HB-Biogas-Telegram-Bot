@@ -1,0 +1,14 @@
+carousel  - the controls should be at the side and the carousel doesn't need a visible scroll bar
+
+the thickness of the text  could be increased a bit
+
+rule of thumb, if the bg is blue and the headers are green and the text is white, what do you think the text color on hover should be?? common sense
+
+green buttons in blue bg on hover what color should it be????
+
+
+the resources cards revert to the way they were - using solid color there was a mistake. also on hover of the cards, be smart with the hover color
+
+highlight on hover on the products buttons should be green
+
+i dont like the border lines i see between the sections, 

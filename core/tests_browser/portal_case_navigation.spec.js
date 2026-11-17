@@ -30,7 +30,7 @@ async function boot(page, queue, serverCards = false, capabilities = null, optio
   }, {panel:orderPanel,tabs:partnerTabs});
   await page.addStyleTag({ content: '.sheet-overlay{display:none}.sheet-overlay.open{display:block}.farmer-card{padding:12px;border:1px solid #ddd;cursor:pointer}.sheet-close-button{width:28px;height:28px}' });
   for (const name of ['utils.js', 'components.js', 'portal_helpers.js', 'portal_queues.js', 'portal_filters.js', 'portal_case_navigation.js', 'portal_farmer_sheet.js', 'portal_requisitions.js']) await page.addScriptTag({ path: asset(name) });
-  await page.evaluate(({ serverCards, capabilities, delayMeta }) => {
+  await page.evaluate(({ serverCards, capabilities, delayMeta, depositHeld, detailHeld }) => {
     window.__writes = [];
     window.__revision = 7;
     window.__backHandler = null;
@@ -42,7 +42,7 @@ async function boot(page, queue, serverCards = false, capabilities = null, optio
     } } };
     const originalInit = window.PortalMiniAppRequisitions.init;
     window.PortalMiniAppRequisitions.init = deps => { window.__state = deps.state; originalInit(deps); };
-    const farmer = () => ({ id: 'case-1', customer_name: 'Synthetic farmer', workflow_revision: window.__revision, final_decision: 'Approved', deferred_stage: 'credit', deferred_at: '2026-09-01', deferred_until: '2026-12-01', credit_decision: 'Deferred / On Hold', location_label: '-', jbl_visit_status: 'Visited' });
+    const farmer = () => ({ id: 'case-1', customer_name: 'Synthetic farmer', workflow_revision: window.__revision, final_decision: 'Approved', deferred_stage: 'credit', deferred_at: '2026-09-01', deferred_until: '2026-12-01', credit_decision: 'Deferred / On Hold', location_label: '-', jbl_visit_status: 'Visited', deposit:{deposit_hold:Boolean(depositHeld), shortfall:'3000.00'} });
     window.PortalMiniAppApi = {
       initDataHeader: () => ({}),
       apiFetch: async url => {
@@ -53,18 +53,18 @@ async function boot(page, queue, serverCards = false, capabilities = null, optio
         }
         if (url === '/settings/') return { ok: true, data: { ok: true, data: {} } };
         if (url.startsWith('/requisition-queue/options/')) return { ok: true, data: { ok: true, order_number: url.includes('ECOCONSERVE') ? 'ECO-24' : 'HB-104' } };
-        if (url.startsWith('/farmers/case-1/')) return { ok: true, data: { ok: true, farmer: farmer(), case360: { identity: { customer_name: 'Synthetic farmer' }, intake: {}, stages: {}, timeline: [], documents: {} } } };
+        if (url.startsWith('/farmers/case-1/')) return { ok: true, data: { ok: true, farmer: {...farmer(), ...(detailHeld ? {deposit:{deposit_hold:true}} : {})}, case360: { identity: { customer_name: 'Synthetic farmer' }, intake: {}, stages: {}, timeline: [], documents: {} } } };
         return { ok: true, data: { ok: true, farmers: [farmer()], pagination: { page: 1, pages: 1 } } };
       },
       fetchHtml: async url => {
         window.__fragmentLoads += 1;
         const key = url.match(/\/queues\/(\w+)\//)[1];
-        return `<div class="farmer-card htmx-farmer-card" data-farmer-id="case-1" data-qkey="${key}">${key === 'requisition' ? `<input type="checkbox" class="farmer-card-checkbox" data-id="case-1" data-revision="${window.__revision}">` : ''}Synthetic farmer</div>`;
+        return `<div class="farmer-card htmx-farmer-card" data-farmer-id="case-1" data-deposit-hold="${Boolean(depositHeld)}" data-qkey="${key}">${key === 'requisition' ? `<input type="checkbox" class="farmer-card-checkbox" data-id="case-1" data-revision="${window.__revision}">` : ''}Synthetic farmer</div>`;
       },
       postJson: async (url, payload) => { window.__writes.push({ url, payload }); return { ok: false, data: { ok: false, error: 'This case changed. Review it before preparing the order.' } }; },
     };
     if (serverCards) window.htmx = { config: {} };
-  }, { serverCards, capabilities, delayMeta: Boolean(options.delayMeta) });
+  }, { serverCards, capabilities, delayMeta: Boolean(options.delayMeta), depositHeld:options.depositHeld, detailHeld:options.detailHeld });
   await page.addScriptTag({ path: asset('portal.js') });
   if (options.activateDuringMeta) {
     await page.evaluate(queueKey => window.PortalAppShell.activate(queueKey), queue);
@@ -75,6 +75,22 @@ async function boot(page, queue, serverCards = false, capabilities = null, optio
   await page.addScriptTag({ path: asset('miniapp-nav.js') });
   await expect(page.locator('.farmer-card')).toHaveCount(1);
 }
+
+for (const serverCards of [false,true]) {
+  test(`deposit-held JBL card cannot open the visit sheet (${serverCards?'server':'client'})`, async ({page}) => {
+    await boot(page,'jbl',serverCards,null,{depositHeld:true});
+    await page.locator('.farmer-card').dispatchEvent('click');
+    await expect(page.locator('#sheet-overlay')).not.toHaveClass(/open/);
+    expect(await page.evaluate(()=>window.__state.selectedFarmer)).toBeFalsy();
+  });
+}
+
+test('a newly held canonical case cannot open from a stale cleared queue card', async ({page}) => {
+  await boot(page,'jbl',false,null,{detailHeld:true});
+  await page.locator('.farmer-card').click();
+  await expect(page.locator('#toast')).toContainText('Awaiting HB deposit');
+  await expect(page.locator('#sheet-overlay')).not.toHaveClass(/open/);
+});
 
 for (const serverCards of [false,true]) for (const width of [320,768]) {
   test(`order selection immediately opens date, number and preview at ${width}px (${serverCards?'server':'client'})`, async ({page},info) => {

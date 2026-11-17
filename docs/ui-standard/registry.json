@@ -1424,6 +1424,42 @@
       "sha256": "39292d9ae2492c041b03d31b5db5e91a66bd89ef86739f880e46b36c6c39e01b",
       "review_reference": "docs/ui-standard/reviews/2026-11-16-portal-biogas-laf.md",
       "reason": "User-approved optional Portal form filling and shared in-app signing; upload remains primary. Source-bound synthetic native Django/PostgreSQL Playwright evidence. Original workflow grants, prior signed bytes and Phase 6 hold preserved."
+    },
+    {
+      "path": "core/static/miniapp/portal.js",
+      "sha256": "45fbb3f802da2c2d947fe6529fdbf6651408bb661710d5b11c69112c3c663abe",
+      "review_reference": "docs/ui-standard/reviews/2026-11-17-portal-visit-input-camera.md",
+      "reason": "User-requested deposit queue lock, consistent entered names, repayment hierarchy and camera retry. Source-bound signed native Django/PostgreSQL Playwright journeys recorded; existing workflow authority and Phase 6 hold retained."
+    },
+    {
+      "path": "core/static/miniapp/portal_farmer_sheet.js",
+      "sha256": "363cf15331d8c2a37a24c5cc6de8a4d072f3069e4b1bbded55c93ad5eb883bac",
+      "review_reference": "docs/ui-standard/reviews/2026-11-17-portal-visit-input-camera.md",
+      "reason": "User-requested deposit queue lock, consistent entered names, repayment hierarchy and camera retry. Source-bound signed native Django/PostgreSQL Playwright journeys recorded; existing workflow authority and Phase 6 hold retained."
+    },
+    {
+      "path": "core/static/miniapp/portal.css",
+      "sha256": "f969bbedbc6880a58d983b3a3b23d77146446eca1ef4013ebaba08c234e04987",
+      "review_reference": "docs/ui-standard/reviews/2026-11-17-portal-visit-input-camera.md",
+      "reason": "User-requested deposit queue lock, consistent entered names, repayment hierarchy and camera retry. Source-bound signed native Django/PostgreSQL Playwright journeys recorded; existing workflow authority and Phase 6 hold retained."
+    },
+    {
+      "path": "core/templates/portal/portal.html",
+      "sha256": "bf9dbbec96d2849be95229fccd5e89f77f505293da5e63a094d8e794ba016e89",
+      "review_reference": "docs/ui-standard/reviews/2026-11-17-portal-visit-input-camera.md",
+      "reason": "User-requested deposit queue lock, consistent entered names, repayment hierarchy and camera retry. Source-bound signed native Django/PostgreSQL Playwright journeys recorded; existing workflow authority and Phase 6 hold retained."
+    },
+    {
+      "path": "core/templates/portal/partials/farmer_card.html",
+      "sha256": "af928d63c9e89d1ae743c91265b6d103c2be8069494f0b5dfc17c328e6432824",
+      "review_reference": "docs/ui-standard/reviews/2026-11-17-portal-visit-input-camera.md",
+      "reason": "User-requested deposit queue lock, consistent entered names, repayment hierarchy and camera retry. Source-bound signed native Django/PostgreSQL Playwright journeys recorded; existing workflow authority and Phase 6 hold retained."
+    },
+    {
+      "path": "core/templates/base_shell.html",
+      "sha256": "7b4c6d3173efc810588515b28f912de5ca0d804ffb4e4808ff9ed56a6d2cb496",
+      "review_reference": "docs/ui-standard/reviews/2026-11-17-portal-visit-input-camera.md",
+      "reason": "User-requested deposit queue lock, consistent entered names, repayment hierarchy and camera retry. Source-bound signed native Django/PostgreSQL Playwright journeys recorded; existing workflow authority and Phase 6 hold retained."
     }
   ],
   "source_roots": [

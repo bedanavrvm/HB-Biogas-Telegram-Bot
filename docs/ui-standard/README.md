@@ -1,5 +1,9 @@
 # Mini App Design Lab
 
+Portal deposit-pending cards are locked, entered names use consistent case,
+repayment fields match adjacent sections, and camera failures retry in place.
+[Source and native Playwright evidence](reviews/2026-11-17-portal-visit-input-camera.md).
+
 Optional Portal Biogas LAF filling retains primary upload/camera and reuses paired
 fields, date controls and shared signing. [Source and real-shell browser evidence](reviews/2026-11-16-portal-biogas-laf.md).
 

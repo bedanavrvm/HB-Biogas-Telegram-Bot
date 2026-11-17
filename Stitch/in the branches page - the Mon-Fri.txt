@@ -1,0 +1,12 @@
+in the branches page - the Mon-Fri
+8:00 AM - 5:00 PM
+Saturday
+8:00 AM - 1:00 PM
+Sunday are overlapping each other
+
+
+Hide shop and finance
+
+The client success should be a carousel
+
+Move our Our Products section under Who we are section

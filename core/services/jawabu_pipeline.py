@@ -791,7 +791,8 @@ def log_jbl_visit(
     physical_before = last_physical_jbl_visit(farmer)
     if visit_occurred:
         farmer.jbl_visit_date = visit_date
-        farmer.jbl_officer = str(officer or sender or '').strip()
+        from core.services.identifiers import normalize_person_name_case
+        farmer.jbl_officer = normalize_person_name_case(officer or sender)
     farmer.jbl_next_visit_date = date.fromisoformat(str(next_visit_date)) if visit_status == 'Rescheduled' else None
     farmer.jbl_visit_status = visit_status
     farmer.jbl_visit_comment = str(comment or '').strip()
@@ -2547,7 +2548,7 @@ def master_projection_fields(farmer):
 
     pipeline_fields = {
         'unit_number': (candidates('unit_number', 'Unit Number'), farmer.unit_number),
-        'customer_name': (candidates('customer_name', 'Customer Name'), _smart_sheet_label(farmer.customer_name)),
+        'customer_name': (candidates('customer_name', 'Customer Name'), farmer.customer_name),
         'national_id': (candidates('national_id', 'National ID'), farmer.national_id),
         'primary_phone': (candidates('primary_phone', 'Primary Phone'), farmer.primary_phone),
         'secondary_phone': (candidates('secondary_phone', 'Secondary Phone'), farmer.secondary_phone),
@@ -2558,7 +2559,7 @@ def master_projection_fields(farmer):
         ),
         'jbl_visit_date': (candidates('jbl_visit_date'), farmer.jbl_visit_date.strftime('%d-%m-%Y') if farmer.jbl_visit_date else ''),
         'hb_deposit_date': (candidates('hb_deposit_date'), _date_text(farmer.hb_deposit_date)),
-        'jbl_officer': (candidates('jbl_officer'), _smart_sheet_label(farmer.jbl_officer)),
+        'jbl_officer': (candidates('jbl_officer'), farmer.jbl_officer),
         'jbl_visit_status': (candidates('jbl_visit_status'), farmer.jbl_visit_status),
         'current_pipeline_state': (candidates('current_pipeline_state'), _smart_sheet_label(sheet_pipeline_status(farmer))),
         'jbl_visit_comment': (candidates('jbl_visit_comment'), _attributed_sheet_comment(farmer.jbl_visit_comment, farmer.jbl_visit_date, farmer.jbl_officer, 'JBL Officer')),
@@ -2573,7 +2574,7 @@ def master_projection_fields(farmer):
         'hbg_contract_name': (candidates('hbg_contract_name'), farmer.hbg_contract_name),
         'contract_type': (candidates('contract_type'), farmer.contract_type),
         'installation_status': (candidates('installation_status'), farmer.installation_status),
-        'hb_sales_person': (candidates('hb_sales_person'), _smart_sheet_label(farmer.hb_sales_person)),
+        'hb_sales_person': (candidates('hb_sales_person'), farmer.hb_sales_person),
         'actual_receipts_currency': (candidates('actual_receipts_currency'), farmer.actual_receipts_currency),
         'credit_decision': (
             candidates('credit_decision'),
@@ -3082,6 +3083,10 @@ def sync_farmer_to_master_sheet(
 def create_portal_visit_lead(*, national_id, primary_phone, **case_values):
     """Retain the paired canonical identity/intake inside the caller's save."""
     from core.models import JawabuCustomer
+    from core.services.identifiers import normalize_person_name_case
+    for field in ('customer_name', 'lead_name', 'hb_sales_person'):
+        if field in case_values:
+            case_values[field] = normalize_person_name_case(case_values[field])
     if case_values.get('deposit_paid_hbg') is not None:
         from zoneinfo import ZoneInfo
         case_values['hb_deposit_date'] = timezone.localdate(timezone=ZoneInfo('Africa/Nairobi'))
@@ -3185,7 +3190,7 @@ def internal_order_projection_fields(farmer, *, record_id='', now_text=''):
     put(candidates('requisition_date'), _date_text(farmer.requisition_date))
     put(candidates('hbg_visit_date'), _date_text(farmer.hbg_visit_date))
     put(candidates('jbl_visit_date'), _date_text(farmer.jbl_visit_date))
-    put(candidates('customer_name'), _smart_sheet_label(farmer.customer_name))
+    put(candidates('customer_name'), farmer.customer_name)
     put(candidates('branch'), _smart_sheet_label(farmer.branch))
     put(candidates('system_branch'), _smart_sheet_label(farmer.system_branch))
     put(candidates('national_id'), farmer.national_id)
@@ -3199,9 +3204,9 @@ def internal_order_projection_fields(farmer, *, record_id='', now_text=''):
     put(candidates('gps_link'), farmer.gps_link)
     put(candidates('latitude'), farmer.latitude)
     put(candidates('longitude'), farmer.longitude)
-    put(candidates('jbl_officer'), _smart_sheet_label(farmer.jbl_officer))
+    put(candidates('jbl_officer'), farmer.jbl_officer)
     put(candidates('system_loan_officer'), _smart_sheet_label(farmer.system_loan_officer))
-    put(candidates('hb_sales_person'), _smart_sheet_label(farmer.hb_sales_person))
+    put(candidates('hb_sales_person'), farmer.hb_sales_person)
     put(
         candidates('deposit_paid_hbg'),
         _canonical_hbg_deposit_for_sheet(farmer),

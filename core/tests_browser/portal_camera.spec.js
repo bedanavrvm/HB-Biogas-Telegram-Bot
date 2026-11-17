@@ -99,8 +99,10 @@ test('Create lead camera permission errors show feedback instead of silently doi
   await expect(page.locator('#jbl-evidence-details > .jbl-support-card')).toBeVisible();
   await page.evaluate(()=>{navigator.mediaDevices.getUserMedia=async()=>{throw new DOMException('Synthetic permission denial','NotAllowedError');};});
   await page.locator('[data-camera-category="CLIENT_ID"]').click();
-  await expect.poll(()=>page.evaluate(()=>window.cameraToasts.at(-1))).toContain('Camera permission was denied');
-  await expect(page.locator('#jbl-camera-overlay')).not.toHaveClass(/open/);
+  await expect(page.locator('#jbl-camera-status')).toContainText('If you allowed access, tap Retry camera');
+  await expect(page.locator('#jbl-camera-overlay')).toHaveClass(/open/);
+  await expect(page.locator('#jbl-camera-retry')).toBeVisible();
+  await page.locator('#jbl-camera-close').click();
   await page.evaluate(()=>{Object.defineProperty(navigator,'mediaDevices',{value:undefined});});
   await page.locator('[data-camera-category="CLIENT_ID"]').click();
   await expect.poll(()=>page.evaluate(()=>window.cameraToasts.at(-1))).toContain('Use Upload document');
@@ -140,6 +142,79 @@ test('Create lead file picker is wired independently from server draft recovery'
   await page.locator('#jbl-id-media-previews .jbl-media-remove').click();
   await expect(page.locator('#jbl-id-media-name')).toHaveText('No document selected');
   await expect(page.locator('.jbl-document-slot:visible')).toHaveCount(0);
+});
+
+test('granted camera with blocked playback retries in place without reporting denied permission', async ({page}) => {
+  await mountCamera(page);
+  await page.evaluate(() => {
+    let calls = 0;
+    HTMLMediaElement.prototype.play = async function () {
+      if (++calls === 1) throw new DOMException('Synthetic autoplay block', 'NotAllowedError');
+    };
+  });
+  await page.locator('[data-camera-category="CLIENT_ID"]').click();
+  await expect(page.locator('#jbl-camera-overlay')).toHaveClass(/open/);
+  await expect(page.locator('#jbl-camera-status')).toContainText('preview');
+  await expect(page.locator('#jbl-camera-retry')).toBeVisible();
+  expect(await page.evaluate(() => window.cameraToasts.join(' '))).not.toContain('permission was denied');
+  expect((await page.locator('#jbl-camera-retry').boundingBox()).height).toBeLessThanOrEqual(44);
+  await page.locator('#jbl-camera-retry').click();
+  await expect(page.locator('#jbl-camera-shutter')).toBeEnabled();
+  expect(await page.evaluate(() => window.cameraRequests)).toBe(1);
+});
+
+test('double tapping a camera while permission is pending starts only one request', async ({page}) => {
+  await mountCamera(page);
+  await page.evaluate(() => {
+    navigator.mediaDevices.getUserMedia = () => {
+      window.cameraRequests++;
+      return new Promise(resolve => { window.resolveCamera = () => {
+        const stream = new MediaStream(); stream.getTracks = () => [{stop() {window.cameraStops++;}}];
+        resolve(stream);
+      }; });
+    };
+    document.querySelector('[data-camera-category="CLIENT_ID"]').click();
+    document.querySelector('[data-camera-category="CLIENT_ID"]').click();
+  });
+  expect(await page.evaluate(() => window.cameraRequests)).toBe(1);
+  await page.evaluate(() => window.resolveCamera());
+  await expect(page.locator('#jbl-camera-shutter')).toBeEnabled();
+  await page.locator('#jbl-camera-close').click();
+  expect(await page.evaluate(() => window.cameraStops)).toBe(1);
+});
+
+test('camera acquisition recovers on Retry without reopening the Mini App', async ({page}) => {
+  await mountCamera(page);
+  await page.evaluate(() => {
+    const acquire = navigator.mediaDevices.getUserMedia;
+    let first = true;
+    navigator.mediaDevices.getUserMedia = async () => {
+      if (first) { first = false; throw new DOMException('Synthetic permission race', 'NotAllowedError'); }
+      return acquire();
+    };
+  });
+  await page.locator('[data-camera-category="CLIENT_ID"]').click();
+  await expect(page.locator('#jbl-camera-status')).toContainText('If you allowed access');
+  await page.locator('#jbl-camera-retry').click();
+  await expect(page.locator('#jbl-camera-shutter')).toBeEnabled();
+  await expect(page.locator('#jbl-camera-retry')).toBeHidden();
+});
+
+test('closing during camera permission releases a late stream instead of reopening preview', async ({page}) => {
+  await mountCamera(page);
+  await page.evaluate(() => {
+    navigator.mediaDevices.getUserMedia = () => new Promise(resolve => {
+      window.resolveCamera = () => {
+        const stream = new MediaStream();stream.getTracks = () => [{stop() {window.cameraStops++;}}];resolve(stream);
+      };
+    });
+  });
+  await page.locator('[data-camera-category="CLIENT_ID"]').click();
+  await page.locator('#jbl-camera-close').click();
+  await page.evaluate(() => window.resolveCamera());
+  await expect.poll(() => page.evaluate(() => window.cameraStops)).toBe(1);
+  await expect(page.locator('#jbl-camera-overlay')).not.toHaveClass(/open/);
+  await expect(page.locator('#jbl-camera-shutter')).toBeDisabled();
 });
 
 test('LAF repayment entry waits for both camera pages and supports page retakes', async ({page}) => {

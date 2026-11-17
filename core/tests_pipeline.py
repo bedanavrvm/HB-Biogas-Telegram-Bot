@@ -392,7 +392,7 @@ class JblPipelineServiceTestCase(TestCase):
     def test_farmer_card_exposes_hb_visit_date_source(self):
         card = farmer_to_card(self.farmer_stage1)
         self.assertEqual(card['sign_date'], '24-06-2026')
-        self.assertEqual(card['hbg_visit_date_label'], '24-06-2026')
+        self.assertEqual(card['hbg_visit_date_label'], '24/06/2026')
 
     def test_farmer_card_strips_legacy_hb_date_marker(self):
         self.farmer_stage1.sign_date = "'15-May-2026"
@@ -402,7 +402,7 @@ class JblPipelineServiceTestCase(TestCase):
 
         self.assertEqual(card['sign_date'], '15-05-2026')
         self.assertEqual(card['hbg_visit_date'], '2026-05-15')
-        self.assertEqual(card['hbg_visit_date_label'], '15-05-2026')
+        self.assertEqual(card['hbg_visit_date_label'], '15/05/2026')
 
     def test_farmer_card_location_excludes_branch_and_collapses_repeated_places(self):
         self.farmer_stage1.county = 'Kiambu'
@@ -581,7 +581,7 @@ class JblPipelineServiceTestCase(TestCase):
 
         self.assertTrue(sync_farmer_to_master_sheet(self.farmer_stage1))
         self.assertEqual(mock_get_sheets.call_args.kwargs['sheet_name'], 'Eco-conserve')
-        self.assertEqual(sheet.values[4][1], 'FARMER ONE')
+        self.assertEqual(sheet.values[4][1], 'Farmer One')
 
     @patch('core.services.sheets.GoogleSheetsService.get_instance')
     def test_master_and_eco_first_case_starts_on_row_two(self, mock_get_sheets):
@@ -598,7 +598,7 @@ class JblPipelineServiceTestCase(TestCase):
                 mock_get_sheets.return_value = FakeJawabuService(sheet)
                 self.assertTrue(sync_farmer_to_master_sheet(farmer))
                 self.assertEqual(mock_get_sheets.call_args.kwargs['sheet_name'], tab)
-                self.assertEqual(sheet.values[1][1], farmer.customer_name.upper())
+                self.assertEqual(sheet.values[1][1], farmer.customer_name)
                 self.assertFalse(any('BACKEND-OWNED:' in str(value) for value in sheet.values[1]))
 
     @patch('core.services.sheets.GoogleSheetsService.get_instance')
@@ -628,7 +628,7 @@ class JblPipelineServiceTestCase(TestCase):
                 self.assertTrue(sync_farmer_to_master_sheet(second))
                 self.assertEqual(mock_get_sheets.call_args.kwargs['sheet_name'], tab)
                 self.assertEqual(sheet.values[1], row_two)
-                self.assertEqual(sheet.values[2][headers.index('Customer Name')], f'SECOND {tab.upper()}')
+                self.assertEqual(sheet.values[2][headers.index('Customer Name')], second.customer_name)
                 self.assertEqual(sheet.values[2][headers.index('No.')], 2)
 
     def test_master_and_eco_numbering_skips_empty_rows_without_moving_cases(self):
@@ -664,7 +664,7 @@ class JblPipelineServiceTestCase(TestCase):
                 sheet.values=[headers,['1','','EXISTING','22222222'],['','','=IF(1=1,"","")'],[],['2','','KEEP LAST','33333333']]
                 mock_get_sheets.return_value=FakeJawabuService(sheet)
                 self.assertTrue(sync_farmer_to_master_sheet(self.farmer_stage1))
-                self.assertEqual(sheet.values[3][headers.index('Customer Name')],'FARMER ONE')
+                self.assertEqual(sheet.values[3][headers.index('Customer Name')],'Farmer One')
                 self.assertEqual(sheet.values[2],['','','=IF(1=1,"","")'])
                 self.assertEqual(sheet.values[4],['2','','KEEP LAST','33333333'])
 
@@ -777,7 +777,7 @@ class JblPipelineServiceTestCase(TestCase):
             unavailable if sheet_name == 'Eco-conserve' else FakeJawabuService(master)
         )
         self.assertFalse(sync_farmer_to_master_sheet(self.farmer_stage1))
-        self.assertEqual(master.values[4][1], 'FARMER ONE')
+        self.assertEqual(master.values[4][1], 'Farmer One')
 
     @patch('core.services.sheets.GoogleSheetsService.get_instance')
     def test_eco_conserve_unavailable_names_target_in_failure_context(self, mock_get_sheets):
@@ -844,7 +844,7 @@ class JblPipelineServiceTestCase(TestCase):
         self.assertTrue(sync_farmer_to_master_sheet(self.farmer_stage1))
         published_headers = fake_sheet.values[2]
         row = fake_sheet.values[4]
-        self.assertEqual(row[published_headers.index('Customer Name')], 'FARMER ONE')
+        self.assertEqual(row[published_headers.index('Customer Name')], 'Farmer One')
         self.assertEqual(row[published_headers.index('JBL Visit Status')], 'DEFERRED / ON HOLD')
         self.assertEqual(row[published_headers.index('Credit Decision')], 'NOT DONE')
         self.assertIn('Customer asked to wait until Friday.', row[published_headers.index('JBL Visit Comment')])
@@ -868,7 +868,7 @@ class JblPipelineServiceTestCase(TestCase):
         published_headers = fake_sheet.values[2]
         record_id_index = published_headers.index('Master Record ID')
         self.assertEqual(first_row[record_id_index], str(self.farmer_stage1.pk))
-        self.assertEqual(first_row[published_headers.index('Customer Name')], 'FARMER ONE')
+        self.assertEqual(first_row[published_headers.index('Customer Name')], 'Farmer One')
         self.assertEqual(len(fake_sheet.values), 5)
 
         # Mutable matching fields may change, but the same UUID must still

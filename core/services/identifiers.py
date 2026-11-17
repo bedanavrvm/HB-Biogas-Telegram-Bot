@@ -15,6 +15,19 @@ KENYAN_NATIONAL_ID_PATTERN = re.compile(r'^\d{1,9}$')
 _PHONE_VISUAL_SEPARATOR_PATTERN = re.compile(r'[\s()\-]')
 
 
+def normalize_person_name_case(value: Any) -> str:
+    """Standardize entered names without changing punctuation or intentional McDonald-style casing."""
+    text = ' '.join(str(value or '').split())
+
+    def capitalize_part(match):
+        part = match.group(0)
+        if part.upper() in {'HB', 'JBL', 'HBG', 'IMAB'}:
+            return part.upper()
+        return part.capitalize() if part[:1].islower() or part.isupper() else part
+
+    return re.sub(r'[^\W\d_]+', capitalize_part, text, flags=re.UNICODE)
+
+
 def validate_kenyan_national_id(value: Any) -> str:
     """Return an issued Kenyan National ID in entered form.
 

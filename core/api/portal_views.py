@@ -8058,11 +8058,12 @@ def portal_create_and_complete_jbl_lead(request):
     body, request_id = request.POST.dict(), _portal_request_id(request, request.POST.dict())
     if not request_id:
         return JsonResponse({'ok': False, 'error': 'Refresh the app and retry. A secure submission key is required.', 'code': 'request_key_required'}, status=428)
-    name = str(body.get('customer_name') or '').strip()
+    from core.services.identifiers import normalize_person_name_case
+    name = normalize_person_name_case(body.get('customer_name'))
     national_id = validate_kenyan_national_id(body.get('national_id'))
     phone = normalize_kenyan_phone(body.get('primary_phone'))
     county_value = str(body.get('county') or '').strip()
-    hb_sales_person = str(body.get('hb_sales_person') or '').strip()
+    hb_sales_person = normalize_person_name_case(body.get('hb_sales_person'))
     deposit_raw = str(body.get('deposit_paid_hbg') or '').strip().replace(',', '')
     deposit_paid_hbg = None
     errors = {}

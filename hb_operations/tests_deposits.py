@@ -293,10 +293,11 @@ class DepositWorkflowTests(TestCase):
         self.assertEqual(WorkflowRoleCapabilityAuditEvent.objects.count(), count)
         self.assertEqual(WorkflowRoleCapability.objects.get(workflow='jawabu_portal', role='HB_STAFF', capability_key='portal.hb_deposit.write').effect, 'deny')
 
-    def test_server_fragment_allows_held_case_outcome_without_forwarding(self):
+    def test_server_fragment_disables_held_case_until_deposit_is_sufficient(self):
         from django.template.loader import render_to_string
         fragment = render_to_string('portal/partials/farmer_card.html', {'farmer': farmer_to_card(self.farmer, include_detail_metadata=False), 'queue_key': 'jbl'})
-        self.assertNotIn('aria-disabled="true"', fragment)
+        self.assertIn('aria-disabled="true"', fragment)
+        self.assertNotIn('Open to record an outcome', fragment)
         self.assertIn('deposit-held-card', fragment)
         self.assertIn('3000.00', fragment)
         self.assertNotIn('href="tel:', fragment)

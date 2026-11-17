@@ -27,6 +27,8 @@
   let jblCameraSide = null;
   let jblThumbnailQueue = Promise.resolve();
   let jblCameraStream = null;
+  let jblCameraStarting = false;
+  let jblCameraPreviewReady = false;
   let jblCameraCategory = '';
   let jblCameraRequestId = 0;
   let jblCameraReplaceId = '';
@@ -929,6 +931,10 @@
   }
 
   function openFarmerSheet(farmer, mode) {
+    if (mode === 'jbl_visit' && !farmer.is_new_jbl_lead && farmer.deposit?.deposit_hold) {
+      deps.showToast(farmer.deposit.reason || 'Awaiting HB deposit. This case unlocks when KES 5,000 is recorded.', 'error');
+      return;
+    }
     state().selectedFarmer = farmer;
     state().activeMode = mode;
     const isNewLead = Boolean(farmer.is_new_jbl_lead);
@@ -1460,10 +1466,10 @@
         </div>
         </div>
       </section>
-      <section id="jbl-repayment-section" class="jbl-support-card" hidden>
+      <section id="jbl-repayment-section" hidden>
         <p class="jbl-section-label">Repayment Terms</p>
         <div class="form-section form-grid jbl-details-grid">
-          <div class="form-row" data-jbl-field="repayment_date"><label for="jbl-repayment-day">Repayment day <span class="required-marker" aria-hidden="true">*</span></label><input type="number" id="jbl-repayment-day" min="1" max="31" step="1" inputmode="numeric" placeholder="1–31" value="${deps.escapeHtml(farmer.repayment_day || '')}" disabled><small class="jbl-field-error" data-error-message-for="repayment_date"></small></div>
+          <div class="form-row" data-jbl-field="repayment_date"><label for="jbl-repayment-day">Repayment day <span class="required-marker" aria-hidden="true">*</span></label><input type="number" id="jbl-repayment-day" min="1" max="31" step="1" inputmode="numeric" placeholder="5th or 12th" value="${deps.escapeHtml(farmer.repayment_day || '')}" disabled><small class="jbl-field-error" data-error-message-for="repayment_date"></small></div>
           <div class="form-row" data-jbl-field="repayment_tenor"><label for="jbl-repayment-tenor">Period (months) <span class="required-marker" aria-hidden="true">*</span></label><input type="number" id="jbl-repayment-tenor" min="1" max="120" step="1" inputmode="numeric" placeholder="Months" value="${deps.escapeHtml(farmer.repayment_tenor_months || '')}" disabled><small class="jbl-field-error" data-error-message-for="repayment_tenor"></small></div>
         </div>
         <small class="field-help" id="jbl-repayment-help">Enter the agreed terms from the LAF.</small>
@@ -1566,6 +1572,8 @@
 
   function stopJblLiveCamera() {
     jblCameraRequestId += 1;
+    jblCameraStarting = false;
+    jblCameraPreviewReady = false;
     jblCameraStream?.getTracks?.().forEach(track => track.stop());
     jblCameraStream = null;
     jblCameraCategory = '';
@@ -1579,6 +1587,7 @@
     el('jbl-camera-overlay')?.classList.remove('open');
     const shutter = el('jbl-camera-shutter');
     if (shutter) shutter.disabled = true;
+    if (el('jbl-camera-retry')) el('jbl-camera-retry').hidden = true;
   }
 
   function updateJblCameraCaptureState() {
@@ -1601,7 +1610,7 @@
         shutter.setAttribute('aria-label', jblCameraReplaceId ? 'Retake supporting photo' : 'Take supporting photo');
         shutter.innerHTML = '<i data-lucide="camera" aria-hidden="true"></i>';
       }
-      if (shutter && jblCameraStream) shutter.disabled = !jblCameraReplaceId && jblMediaSelections.JBL_VISIT_PHOTO.length >= Number(state().jblVisitMediaMaxFiles || 6);
+      if (shutter && jblCameraPreviewReady) shutter.disabled = !jblCameraReplaceId && jblMediaSelections.JBL_VISIT_PHOTO.length >= Number(state().jblVisitMediaMaxFiles || 6);
     }
     const steps = el('jbl-camera-steps');
     if (window.lucide) window.lucide.createIcons();
@@ -1647,18 +1656,21 @@
       deps.showToast(`A JBL visit can include at most ${Number(state().jblVisitMediaMaxFiles || 6)} supporting photos.`, 'error');
       return;
     }
-    if (jblCameraStream && panel.classList.contains('open')) {
+    if (panel.classList.contains('open') && (jblCameraStarting || jblCameraPreviewReady)) {
       setJblCameraTarget(category, side, replaceId);
       return;
     }
-    if (jblCameraStream) stopJblLiveCamera();
+    if (jblCameraStream && !panel.classList.contains('open')) stopJblLiveCamera();
     const cameraRequestId = ++jblCameraRequestId;
+    jblCameraStarting = true;
+    jblCameraPreviewReady = false;
     setJblCameraTarget(category, side ?? jblMediaSelections[category]?.find(item => item.id === replaceId)?.side ?? null, replaceId);
     panel.classList.add('open');
     if (status) { status.hidden = false; status.textContent = 'Starting camera…'; }
     if (shutter) shutter.disabled = true;
+    if (el('jbl-camera-retry')) el('jbl-camera-retry').hidden = true;
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
+      const stream = jblCameraStream || await navigator.mediaDevices.getUserMedia({
         audio: false,
         video: {
           facingMode: { ideal: 'environment' },
@@ -1672,20 +1684,26 @@
       }
       jblCameraStream = stream;
       video.srcObject = stream;
+      video.muted = true;
+      video.playsInline = true;
       await video.play();
+      if (cameraRequestId !== jblCameraRequestId) return;
+      jblCameraPreviewReady = true;
       if (status) status.hidden = true;
       if (shutter) shutter.disabled = false;
       updateJblCameraCaptureState();
     } catch (error) {
       if (cameraRequestId !== jblCameraRequestId) return;
-      stopJblLiveCamera();
-      const denied = error?.name === 'NotAllowedError' || error?.name === 'PermissionDeniedError';
-      deps.showToast(
-        denied
-          ? 'Camera permission was denied. Enable Camera for Telegram in your phone settings, reopen the Mini App, and retry.'
-          : 'The live camera could not start. Close other camera apps and retry, or use the folder icon.',
-        'error',
-      );
+      const message = jblCameraStream
+        ? 'Camera access is allowed, but the preview paused. Tap Retry camera.'
+        : ['NotAllowedError', 'PermissionDeniedError', 'SecurityError'].includes(error?.name)
+          ? 'Telegram could not open the camera. If you allowed access, tap Retry camera. If access is blocked, enable Camera for Telegram in your settings.'
+          : 'The camera could not start. Close other camera apps and tap Retry camera, or upload the document.';
+      if (status) { status.hidden = false; status.textContent = message; }
+      if (el('jbl-camera-retry')) el('jbl-camera-retry').hidden = false;
+      if (shutter) shutter.disabled = true;
+    } finally {
+      if (cameraRequestId === jblCameraRequestId) jblCameraStarting = false;
     }
   }
 
@@ -3060,7 +3078,7 @@
           <p class="field-help">Repayment day: <strong>${deps.escapeHtml(farmer.repayment_day || 'Not captured')}</strong> · Period: <strong>${farmer.repayment_tenor_months ? deps.escapeHtml(farmer.repayment_tenor_months) + ' months' : 'Not captured'}</strong></p>
           <details id="final-repayment-editor"><summary><i data-lucide="pencil" aria-hidden="true"></i> Edit repayment terms</summary>
             <div class="form-section form-grid">
-              <div class="form-row"><label for="final-repayment-date">Repayment day</label><input type="number" id="final-repayment-date" min="1" max="31" step="1" inputmode="numeric" placeholder="1–31" value="${deps.escapeHtml(farmer.repayment_day || '')}" data-saved-value="${deps.escapeHtml(farmer.repayment_day || '')}" disabled></div>
+              <div class="form-row"><label for="final-repayment-date">Repayment day</label><input type="number" id="final-repayment-date" min="1" max="31" step="1" inputmode="numeric" placeholder="5th or 12th" value="${deps.escapeHtml(farmer.repayment_day || '')}" data-saved-value="${deps.escapeHtml(farmer.repayment_day || '')}" disabled></div>
               <div class="form-row"><label for="final-repayment-tenor">Period (months)</label><input type="number" id="final-repayment-tenor" min="1" max="120" step="1" inputmode="numeric" placeholder="Months" value="${deps.escapeHtml(farmer.repayment_tenor_months || '')}" data-saved-value="${deps.escapeHtml(farmer.repayment_tenor_months || '')}" disabled></div>
             </div>
             <small class="field-help">Corrections save with this final review and appear in Case History.</small>
@@ -3616,6 +3634,7 @@
     el('jbl-camera-close')?.addEventListener('click', stopJblLiveCamera);
     el('jbl-camera-done')?.addEventListener('click', stopJblLiveCamera);
     el('jbl-camera-shutter')?.addEventListener('click', captureJblLivePhoto);
+    el('jbl-camera-retry')?.addEventListener('click', () => startJblLiveCamera(jblCameraCategory, {side: jblCameraSide, replaceId: jblCameraReplaceId}));
     document.addEventListener('keydown', event => {
       if (!el('media-viewer-overlay')?.classList.contains('open')) return;
       if (event.key === 'Escape') { event.preventDefault(); closeMediaViewer(); return; }
@@ -3632,7 +3651,7 @@
       if (cameraStep && el('jbl-camera-overlay')?.classList.contains('open')) {
         setJblCameraTarget(cameraStep.dataset.cameraStepCategory,
           cameraStep.dataset.cameraStepSide !== undefined ? Number(cameraStep.dataset.cameraStepSide) : null);
-        if (jblCameraStream) el('jbl-camera-shutter').disabled =
+        if (jblCameraPreviewReady) el('jbl-camera-shutter').disabled =
           jblCameraCategory === 'JBL_VISIT_PHOTO' && !jblCameraReplaceId
           && jblMediaSelections.JBL_VISIT_PHOTO.length >= Number(state().jblVisitMediaMaxFiles || 6);
         return;

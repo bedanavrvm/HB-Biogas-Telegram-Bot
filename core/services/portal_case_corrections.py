@@ -7,7 +7,7 @@ from decimal import Decimal
 from django.db import transaction
 
 from core.models import JawabuFarmerMaster
-from core.services.identifiers import normalize_kenyan_phone, validate_kenyan_national_id
+from core.services.identifiers import normalize_kenyan_phone, normalize_person_name_case, validate_kenyan_national_id
 from core.services.jawabu_case360 import record_pipeline_event
 from core.services.jawabu_customer_quality import record_field_provenance
 from core.services.jawabu_validation import parse_business_date, parse_money
@@ -55,6 +55,8 @@ def correction_payload(farmer: JawabuFarmerMaster) -> dict:
 
 
 def _clean_value(key: str, raw_value):
+    if key in {'customer_name', 'lead_name', 'hb_sales_person'}:
+        return normalize_person_name_case(raw_value)
     if key in {'national_id', 'lead_national_id'}:
         value = validate_kenyan_national_id(raw_value) if str(raw_value or '').strip() else ''
         if str(raw_value or '').strip() and not value:

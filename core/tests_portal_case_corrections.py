@@ -43,7 +43,7 @@ class PortalCaseCorrectionTests(TestCase):
     def test_correction_is_revision_checked_audited_and_visible_in_timeline(self, _reserve):
         updated = correct_case_fields(
             self.farmer,
-            values={'customer_name': 'Correct Name', 'hbg_visit_date': '16-09-2026'},
+            values={'customer_name': '  CORRECT   NAME  ', 'hbg_visit_date': '16-09-2026'},
             expected_revision=2,
             reason='Corrected against the signed customer record.',
             request_id='case-correction-1',

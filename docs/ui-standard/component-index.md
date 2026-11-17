@@ -1,5 +1,8 @@
 # Component index and migration hold
 
+Portal visits reuse disabled queue cards, external form labels, paired field rows
+and compact camera retry. [Source and native evidence](reviews/2026-11-17-portal-visit-input-camera.md).
+
 Portal Biogas LAF reuses existing form rows, calendar controls, compact state and
 the shared signature appearance. [Source and browser evidence](reviews/2026-11-16-portal-biogas-laf.md).
 

@@ -304,13 +304,18 @@ test('Camera uses one document target and an accessible icon-only capture contro
 });
 
 
-test('Visit repayment terms follow complete LAF selection and preserve their draft',async({page})=>{
+test('Visit repayment terms follow complete LAF selection and preserve their draft',async({page},info)=>{
   await mountReview(page,'jbl_visit');
   await page.selectOption('#jbl-status','Visited, Awaiting Credit Analysis');
   await expect(page.locator('#jbl-repayment-section')).toBeHidden();
   const laf={name:'synthetic-laf.pdf',mimeType:'application/pdf',buffer:Buffer.alloc(5000,65)};
   await page.setInputFiles('#jbl-laf-media-complete',laf);
   await expect(page.locator('#jbl-repayment-section')).toBeVisible();
+  await page.setViewportSize({width:390,height:844});
+  await page.locator('#jbl-repayment-section').scrollIntoViewIfNeeded();
+  await page.screenshot({path:info.outputPath('repayment-terms-390.png')});
+  await expect(page.locator('#jbl-repayment-day')).toHaveAttribute('placeholder','5th or 12th');
+  await expect(page.locator('#jbl-repayment-section')).not.toHaveClass(/jbl-support-card/);
   await expect(page.locator('#jbl-repayment-day')).toHaveAttribute('required','');
   await page.fill('#jbl-repayment-day','17');await page.fill('#jbl-repayment-tenor','18');
   await page.locator('#jbl-laf-media-previews .jbl-media-remove').click();

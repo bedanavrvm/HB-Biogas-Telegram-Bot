@@ -3102,3 +3102,11 @@ python manage.py migrate core 0072_miniapp_drafts
 - Cancel only the deleted versions' archive work and serialize in-flight archives
   with deletion. Keep shared templates, other cases, compliance evidence and Drive
   files. No schema migration or new setting; testing deletion remains default-off.
+
+## 17/11/2026 - Portal visit input and camera corrections
+
+- Block deposit-pending JBL cards in both queue renderers and reject stale held-case visit opens.
+- Standardize entered Portal customer, salesperson and officer names while keeping IDs, punctuation and intentional mixed case. Canonical names feed both Mini App and Sheet projection.
+- Remove the redundant Repayment Terms outer card and use the hint "5th or 12th".
+- Serialize camera permission requests, distinguish preview failure from access failure, retain streams for in-place retry and release late streams after closing.
+- No schema change or production activation. Physical Telegram camera behaviour and live Sheet writes remain unverified.
