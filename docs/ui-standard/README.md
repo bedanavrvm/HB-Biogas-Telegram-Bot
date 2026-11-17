@@ -1,5 +1,8 @@
 # Mini App Design Lab
 
+Portal LAF actions, media gallery navigation, repayment pencils and captured A4
+pages have [native browser and PDF evidence](reviews/2026-11-17-portal-laf-gallery-controls.md).
+
 Portal deposit-pending cards are locked, entered names use consistent case,
 repayment fields match adjacent sections, and camera failures retry in place.
 [Source and native Playwright evidence](reviews/2026-11-17-portal-visit-input-camera.md).

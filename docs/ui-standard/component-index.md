@@ -1,5 +1,8 @@
 # Component index and migration hold
 
+Portal media reuses document icons, inline disclosure pencils and grouped preview
+controls. [Source and native evidence](reviews/2026-11-17-portal-laf-gallery-controls.md).
+
 Portal visits reuse disabled queue cards, external form labels, paired field rows
 and compact camera retry. [Source and native evidence](reviews/2026-11-17-portal-visit-input-camera.md).
 

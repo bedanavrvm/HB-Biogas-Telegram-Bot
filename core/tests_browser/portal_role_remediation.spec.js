@@ -110,6 +110,9 @@ test('Gallery navigates, retries a failed document, and returns to the unchanged
     window.PortalMiniAppFarmerSheet.openDocumentPreview(window.gallery[0],window.gallery);
   });
   await expect(page.locator('#media-viewer-content img')).toBeVisible();
+  await expect(page.locator('.media-viewer-panel > .sheet-header #client-media-gallery-controls')).toHaveCount(1);
+  await expect(page.locator('#client-media-gallery-controls')).toContainText('Document 1 / 3');
+  await expect(page.getByRole('button',{name:'Next page',exact:true})).toBeHidden();
   await expect(page.getByRole('button',{name:'Previous document'})).toBeDisabled();
   await page.getByRole('button',{name:'Next document'}).click();
   await expect(page.locator('#media-viewer-content')).toContainText('Synthetic interrupted download');
@@ -167,21 +170,35 @@ test('Server-rendered PDF previews keep gallery controls inside the mobile viewp
   });
   await expect(page.locator('#media-viewer-content img')).toBeVisible();
   await expect(page.locator('#media-viewer-content iframe')).toHaveCount(0);
+  await expect(page.locator('.secure-media-page-count')).toHaveText('Page 1 / 2');
+  await page.getByRole('button',{name:'Next page',exact:true}).click();
+  await expect(page.locator('.secure-media-page-count')).toHaveText('Page 2 / 2');
+  await expect(page.getByRole('button',{name:'Next page',exact:true})).toBeDisabled();
+  await expect(page.locator('#client-media-gallery-controls')).toContainText('Document 1 / 2');
   await expect(page.getByRole('button',{name:'Next document'})).toBeInViewport({ratio:1});
   await page.getByRole('button',{name:'Next document'}).click();
   await expect(page.locator('#client-media-gallery-controls')).toContainText('2 / 2');
   await expect(page.getByRole('button',{name:'Previous document'})).toBeInViewport({ratio:1});
   await expect(page.locator('#media-viewer-close')).toBeInViewport({ratio:1});
   await page.screenshot({path:info.outputPath('pdf-gallery-320.png'),animations:'disabled'});
+  await page.setViewportSize({width:1280,height:850});
+  const zoomOut=await page.getByRole('button',{name:'Zoom out',exact:true}).boundingBox();
+  const fit=await page.getByRole('button',{name:'Reset zoom',exact:true}).boundingBox();
+  expect(fit.x-zoomOut.x-zoomOut.width).toBeLessThanOrEqual(8);
+  const documents=await page.locator('#client-media-gallery-controls').boundingBox();
+  const previous=await page.getByRole('button',{name:'Previous document',exact:true}).boundingBox();
+  const next=await page.getByRole('button',{name:'Next document',exact:true}).boundingBox();
+  expect(next.x+next.width-previous.x).toBeLessThanOrEqual(230);
+  expect(Math.abs((previous.x+next.x+next.width)/2-(documents.x+documents.width/2))).toBeLessThan(2);
 });
 
 test('Rejected cases stay inspectable without offering stale deferred stage actions',async({page})=>{
   await mountReview(page);
   await page.evaluate(()=>window.PortalMiniAppFarmerSheet.openFarmerSheet({...window.fixtureCase,
     workflow_state:'rejected',deferred_stage:'credit',credit_decision:'Rejected',
-    approvals:{credit:{comment:'Synthetic rejected reason'}}},'deferred'));
+    decision_context:{comment:'Synthetic rejected reason',stage_label:'Credit analysis'}},'deferred'));
   await expect(page.locator('#sheet-header-status')).toHaveText('Rejected');
-  await expect(page.locator('#sheet-form')).toContainText('Rejected case');
+  await expect(page.locator('#sheet-form')).toContainText('Rejected — Credit analysis');
   await expect(page.locator('#sheet-form')).toContainText('Synthetic rejected reason');
   await expect(page.locator('#sheet-form')).not.toContainText('Review due');
   await expect(page.locator('#sheet-footer button')).toHaveCount(0);
@@ -360,6 +377,8 @@ test('Final review submits no repayment changes unless correction is opened',asy
 
 test('Final repayment correction values and editor mode survive reopening',async({page})=>{
   await mountReview(page);
+  await expect(page.locator('#sheet-form')).not.toContainText('Edit repayment terms');
+  await expect(page.locator('#final-repayment-editor summary svg')).toBeVisible();
   await page.locator('#final-repayment-editor summary').click();
   await page.fill('#final-repayment-date','20');await page.fill('#final-repayment-tenor','18');
   await page.locator('#sheet-back').click();
@@ -370,6 +389,55 @@ test('Final repayment correction values and editor mode survive reopening',async
   await page.locator('#btn-submit-final').click();
   const body=await page.evaluate(()=>JSON.parse(requests.find(item=>item.url.includes('/final-review-queue/')).body));
   expect(body.repayment_date).toBe('20');expect(body.repayment_tenor).toBe('18');
+});
+
+test('Repayment pencil collapses corrections and excludes them from submission', async ({page}) => {
+  await mountReview(page);
+  const pencil = page.locator('#final-repayment-editor summary');
+  await pencil.click();
+  await page.fill('#final-repayment-date','20');
+  await pencil.click();
+  await expect(page.locator('#final-repayment-date')).toBeHidden();
+  await expect(page.locator('#final-repayment-date')).toBeDisabled();
+  await page.locator('#btn-submit-final').click();
+  const body=await page.evaluate(()=>JSON.parse(requests.find(item=>item.url.includes('/final-review-queue/')).body));
+  expect(body).not.toHaveProperty('repayment_date');
+});
+
+test('Biogas form action is an icon alongside upload and camera, with the feature gate retained', async ({page}) => {
+  await mountReview(page,'jbl_visit');
+  await page.addStyleTag({path:path.resolve(__dirname,'../../portal_lafs/static/portal_lafs/form.css')});
+  await page.addScriptTag({path:path.resolve(__dirname,'../../portal_lafs/static/portal_lafs/form.js')});
+  await page.evaluate(async () => {
+    window.lafEnabled = true;
+    window.lafCalls = [];
+    window.lafVersion = null;
+    window.mountLaf = () => PortalLaf.mount({farmer:fixtureCase,mode:'jbl_visit',root:document.getElementById('sheet-form'),
+      apiFetch:async (_url,options) => {
+        if (options?.method === 'POST') {
+          lafCalls.push(JSON.parse(options.body));
+          lafVersion = {id:'synthetic-version',revision:1,can_edit:true,schema:{fields:[]},values:{},slots:[],progress:'Draft',archive_status:'Waiting'};
+        }
+        return {ok:true,data:{ok:true,enabled:lafEnabled,available:true,version:lafVersion,active_source:'upload'}};
+      }});
+    await mountLaf();
+  });
+  const actions = page.locator('[data-media-category="LAF"] .jbl-media-source-actions');
+  const fill = actions.getByRole('button',{name:'Fill Biogas LAF',exact:true});
+  await expect(fill).toBeVisible();
+  await expect(fill).toHaveText('');
+  await expect(actions.locator('button')).toHaveCount(3);
+  await fill.click();
+  await expect(page.locator('.portal-laf-dialog')).toBeVisible();
+  expect(await page.evaluate(()=>lafCalls[0].action)).toBe('start');
+  await page.locator('.portal-laf-dialog [data-close]').click();
+  await expect(actions.getByRole('button',{name:'Resume Biogas LAF'})).toBeVisible();
+  await page.evaluate(async () => {
+    lafEnabled=false;
+    document.querySelector('.portal-laf-action').remove();document.querySelector('.portal-laf-panel').remove();
+    await mountLaf();
+  });
+  await expect(page.locator('.portal-laf-action')).toBeHidden();
 });
 
 test('Visit dates keep dd/mm/yyyy under a US browser locale and retain ISO transport', async ({browser}) => {

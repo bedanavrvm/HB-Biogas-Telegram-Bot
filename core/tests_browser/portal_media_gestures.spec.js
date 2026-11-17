@@ -45,6 +45,19 @@ test('closing a selected PDF aborts its render request and cannot replace a late
   await expect(page.locator('#preview')).toHaveText('Later document');
 });
 
+test('existing gallery consumers retain next-document controls for single images', async ({page}) => {
+  await mountPortalShell(page,'<div id="preview"></div>');
+  await page.addScriptTag({path:asset('secure_media_viewer.js')});
+  await page.evaluate(() => {
+    window.nextDocumentCalls=0;
+    SecureMediaViewer.renderBlob(document.getElementById('preview'),new Blob([
+      '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40"><rect width="40" height="40" fill="white"/></svg>'
+    ],{type:'image/svg+xml'}),{onNext:()=>nextDocumentCalls++});
+  });
+  await page.getByRole('button',{name:'Next page',exact:true}).click();
+  expect(await page.evaluate(()=>nextDocumentCalls)).toBe(1);
+});
+
 test('selected PDF preview supplies identity and the required submission key', async ({page}) => {
   await page.setContent('<div id="preview"></div>');
   await page.addScriptTag({path:asset('utils.js')});

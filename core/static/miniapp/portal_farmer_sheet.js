@@ -3075,8 +3075,7 @@
         <div class="form-row"><label>Final Decision <span class="required-marker" aria-hidden="true">*</span><span class="sr-only"> required</span></label><select id="final-decision" aria-required="true"><option value="">- Select -</option>${decisionOptions}</select></div>
         ${decisionReasonMarkup('final', false)}
         <div class="form-row form-row-wide">
-          <p class="field-help">Repayment day: <strong>${deps.escapeHtml(farmer.repayment_day || 'Not captured')}</strong> · Period: <strong>${farmer.repayment_tenor_months ? deps.escapeHtml(farmer.repayment_tenor_months) + ' months' : 'Not captured'}</strong></p>
-          <details id="final-repayment-editor"><summary><i data-lucide="pencil" aria-hidden="true"></i> Edit repayment terms</summary>
+          <details id="final-repayment-editor"><summary title="Edit repayment terms" aria-label="Edit repayment terms"><span class="field-help">Repayment day: <strong>${deps.escapeHtml(farmer.repayment_day || 'Not captured')}</strong> · Period: <strong>${farmer.repayment_tenor_months ? deps.escapeHtml(farmer.repayment_tenor_months) + ' months' : 'Not captured'}</strong></span><span class="final-repayment-toggle"><i data-lucide="pencil" aria-hidden="true"></i></span></summary>
             <div class="form-section form-grid">
               <div class="form-row"><label for="final-repayment-date">Repayment day</label><input type="number" id="final-repayment-date" min="1" max="31" step="1" inputmode="numeric" placeholder="5th or 12th" value="${deps.escapeHtml(farmer.repayment_day || '')}" data-saved-value="${deps.escapeHtml(farmer.repayment_day || '')}" disabled></div>
               <div class="form-row"><label for="final-repayment-tenor">Period (months)</label><input type="number" id="final-repayment-tenor" min="1" max="120" step="1" inputmode="numeric" placeholder="Months" value="${deps.escapeHtml(farmer.repayment_tenor_months || '')}" data-saved-value="${deps.escapeHtml(farmer.repayment_tenor_months || '')}" disabled></div>
@@ -3297,10 +3296,11 @@
     overlay.classList.add('open');
     const controls = document.createElement('nav');
     controls.id = 'client-media-gallery-controls';
-    controls.className = 'jbl-selection-viewer-actions';
+    controls.className = 'client-media-gallery-controls';
     controls.setAttribute('aria-label', 'Case documents');
-    controls.innerHTML = `<button type="button" class="jbl-selection-nav" data-client-media-offset="-1" aria-label="Previous document"${clientMediaIndex === 0 ? ' disabled' : ''}><i data-lucide="chevron-left" aria-hidden="true"></i></button><span role="status">${clientMediaIndex + 1} / ${clientMediaGallery.length}</span><button type="button" class="jbl-selection-nav" data-client-media-offset="1" aria-label="Next document"${clientMediaIndex === clientMediaGallery.length - 1 ? ' disabled' : ''}><i data-lucide="chevron-right" aria-hidden="true"></i></button>`;
-    content.insertAdjacentElement('afterend', controls);
+    controls.hidden = clientMediaGallery.length < 2;
+    controls.innerHTML = `<button type="button" class="miniapp-icon-button" data-client-media-offset="-1" aria-label="Previous document" title="Previous document"${clientMediaIndex === 0 ? ' disabled' : ''}><i data-lucide="chevron-left" aria-hidden="true"></i></button><span role="status">Document ${clientMediaIndex + 1} / ${clientMediaGallery.length}</span><button type="button" class="miniapp-icon-button" data-client-media-offset="1" aria-label="Next document" title="Next document"${clientMediaIndex === clientMediaGallery.length - 1 ? ' disabled' : ''}><i data-lucide="chevron-right" aria-hidden="true"></i></button>`;
+    overlay.querySelector('.media-viewer-panel > .sheet-header').append(controls);
     window.lucide?.createIcons();
     el('media-viewer-close')?.focus();
     try {
@@ -3310,6 +3310,7 @@
       if (previewSequence !== jblPreviewSequence || !overlay.classList.contains('open')) return;
       activeMediaObjectUrl = viewer.renderBlob(content, blob, {
         rotate: true,
+        pageControlsOnly: true,
         mimeType: item.mime_type,
         name: item.name || 'Client media',
         onNext: clientMediaIndex < clientMediaGallery.length - 1 ? () => navigateClientMedia(1) : undefined,

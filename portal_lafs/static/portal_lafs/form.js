@@ -59,7 +59,16 @@
       panel.className = 'portal-laf-panel';
       panel.hidden = true;
       const existing = root.querySelector('[data-media-category="LAF"]');
-      if (existing) existing.after(panel);else root.append(panel);
+      const actions = existing?.querySelector('.jbl-media-source-actions');
+      const action = document.createElement('button');
+      action.type = 'button';
+      action.className = actions ? 'jbl-media-icon-button portal-laf-action' : 'miniapp-icon-button portal-laf-action';
+      action.hidden = true;
+      action.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7M14 2v6h6M8 13h3M8 17h2M16 16l5-5-2-2-5 5-1 3z"/></svg>';
+      if (existing) existing.append(panel);else root.append(panel);
+      if (actions) actions.append(action);else panel.append(action);
+      const status = document.createElement('div');
+      panel.append(status);
       const path = `/cases/${encodeURIComponent(farmer.id)}/laf/`;
       const callApi = async (url, options) => {
         const response = await apiFetch(url, options);
@@ -101,12 +110,17 @@
       };
       const paint = () => {
         if (!panel.isConnected) return;
-        panel.hidden = !data.enabled;
-        if (panel.hidden) return;
+        action.hidden = !data.enabled;
+        panel.hidden = !data.enabled || Boolean(actions && !data.version && !data.message);
+        if (!data.enabled) return;
         const v = data.version;
-        panel.innerHTML = `<button type="button" class="btn btn-secondary" data-open ${!data.available && !v ? 'disabled' : ''}>${v ? 'Resume Biogas LAF' : 'Fill Biogas LAF'}</button>${v ? `<p class="meta">${escape(v.progress)} · Using ${data.active_source === 'form' ? 'Filled LAF' : 'Uploaded LAF'}</p>` : ''}${data.message ? `<p class="field-help">${escape(data.message)}</p>` : ''}`;
-        panel.querySelector('[data-open]').onclick = () => open().catch(err => {
-          panel.insertAdjacentHTML('beforeend', `<p role="alert">${escape(err.message)}</p>`);
+        action.disabled = !data.available && !v;
+        action.setAttribute('aria-label', v ? 'Resume Biogas LAF' : 'Fill Biogas LAF');
+        action.title = action.getAttribute('aria-label');
+        status.innerHTML = `${v ? `<p class="meta">${escape(v.progress)} · Using ${data.active_source === 'form' ? 'Filled LAF' : 'Uploaded LAF'}</p>` : ''}${data.message ? `<p class="field-help">${escape(data.message)}</p>` : ''}`;
+        action.onclick = () => open().catch(err => {
+          panel.hidden = false;
+          status.insertAdjacentHTML('beforeend', `<p role="alert">${escape(err.message)}</p>`);
         });
         notify();
       };
@@ -324,6 +338,7 @@
         data = await callApi(path);
         if (root.isConnected) paint();
       } catch (_) {
+        action.remove();
         panel.remove();
       }
     }

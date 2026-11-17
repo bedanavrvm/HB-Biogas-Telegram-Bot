@@ -7,6 +7,9 @@ Implementation date: 16/11/2026. Production enablement is a separate release act
 Upload/camera is primary. **Fill Biogas LAF** is secondary and opens only the
 published, product-compatible Lipa Mdogo Mdogo Biogas Main LAF. Save and resume
 from the same case. Opening a draft does not change the active upload source.
+The document-with-pencil icon beside the LAF upload/camera controls opens or
+resumes the form. Captured LAF pages are fitted proportionally inside A4 with
+12mm margins; previously retained PDFs keep their original bytes.
 
 Complete missing fields and preview each page. The assigned BRO signs their
 configured slot; a separately configured second BRO must be another authorized

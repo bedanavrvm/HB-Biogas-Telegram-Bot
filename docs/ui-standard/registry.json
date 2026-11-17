@@ -1460,6 +1460,42 @@
       "sha256": "7b4c6d3173efc810588515b28f912de5ca0d804ffb4e4808ff9ed56a6d2cb496",
       "review_reference": "docs/ui-standard/reviews/2026-11-17-portal-visit-input-camera.md",
       "reason": "User-requested deposit queue lock, consistent entered names, repayment hierarchy and camera retry. Source-bound signed native Django/PostgreSQL Playwright journeys recorded; existing workflow authority and Phase 6 hold retained."
+    },
+    {
+      "path": "portal_lafs/static/portal_lafs/form.css",
+      "sha256": "f4fdc8c64c53d51080d0921c358d87b7145c8dbb545c41b70a9b576540a90d68",
+      "review_reference": "docs/ui-standard/reviews/2026-11-17-portal-laf-gallery-controls.md",
+      "reason": "User-requested compact LAF icon, grouped client-media controls and inline repayment pencil. Native signed Django/PostgreSQL Playwright and real PDF evidence recorded; source patterns reused and Phase 6 hold retained."
+    },
+    {
+      "path": "portal_lafs/static/portal_lafs/form.js",
+      "sha256": "af4f23c4c9853ca349c7a347072554f4d84865841370af38913994fdf11da534",
+      "review_reference": "docs/ui-standard/reviews/2026-11-17-portal-laf-gallery-controls.md",
+      "reason": "User-requested compact LAF icon, grouped client-media controls and inline repayment pencil. Native signed Django/PostgreSQL Playwright and real PDF evidence recorded; source patterns reused and Phase 6 hold retained."
+    },
+    {
+      "path": "core/static/miniapp/portal.css",
+      "sha256": "a3d66881c4850e7e455e74e6355a04df460df412e1ace6fa82b849c62e296df3",
+      "review_reference": "docs/ui-standard/reviews/2026-11-17-portal-laf-gallery-controls.md",
+      "reason": "User-requested compact LAF icon, grouped client-media controls and inline repayment pencil. Native signed Django/PostgreSQL Playwright and real PDF evidence recorded; source patterns reused and Phase 6 hold retained."
+    },
+    {
+      "path": "core/static/miniapp/portal_farmer_sheet.js",
+      "sha256": "51bb9344f6e19630c7dcdce76b64c585cae37d6035e9e33a3734cb3be6a3bc32",
+      "review_reference": "docs/ui-standard/reviews/2026-11-17-portal-laf-gallery-controls.md",
+      "reason": "User-requested compact LAF icon, grouped client-media controls and inline repayment pencil. Native signed Django/PostgreSQL Playwright and real PDF evidence recorded; source patterns reused and Phase 6 hold retained."
+    },
+    {
+      "path": "core/static/miniapp/secure_media_viewer.js",
+      "sha256": "97c30f2cd839444f843b11372332b7dcb8062ff87c099a9435db2b64b8237eac",
+      "review_reference": "docs/ui-standard/reviews/2026-11-17-portal-laf-gallery-controls.md",
+      "reason": "User-requested compact LAF icon, grouped client-media controls and inline repayment pencil. Native signed Django/PostgreSQL Playwright and real PDF evidence recorded; source patterns reused and Phase 6 hold retained."
+    },
+    {
+      "path": "core/templates/base_shell.html",
+      "sha256": "97cf2944c6523606ee05bec756c83dddaffa243ce893bae073616c0418962f89",
+      "review_reference": "docs/ui-standard/reviews/2026-11-17-portal-laf-gallery-controls.md",
+      "reason": "User-requested compact LAF icon, grouped client-media controls and inline repayment pencil. Native signed Django/PostgreSQL Playwright and real PDF evidence recorded; source patterns reused and Phase 6 hold retained."
     }
   ],
   "source_roots": [

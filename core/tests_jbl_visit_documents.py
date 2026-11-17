@@ -13,7 +13,7 @@ from pypdf import PdfReader, PdfWriter
 from pypdf.generic import DecodedStreamObject, NameObject
 
 from core.services.jbl_visit_documents import (
-    VisitDocumentError, prepare_visit_documents, validated_image,
+    VisitDocumentError, prepare_visit_documents, render_document, validated_image,
 )
 from core.services.jawabu_pipeline import (
     _validate_jbl_media_files, append_jbl_media_uploads, complete_jbl_visit,
@@ -213,3 +213,26 @@ class VisitDocumentTests(SimpleTestCase):
             result[category][0].seek(0)
             repeated[category][0].seek(0)
             self.assertEqual(result[category][0].read(), repeated[category][0].read())
+
+    def test_laf_photos_fill_a4_printable_area_without_cropping_or_distortion(self):
+        import fitz
+
+        try:
+            import weasyprint  # noqa: F401
+        except OSError:
+            self.skipTest('WeasyPrint native libraries are not installed in this Windows environment.')
+        margin = 12 * 72 / 25.4
+        for size in ((600, 850), (1200, 1700), (850, 600)):
+            with self.subTest(size=size):
+                data = validated_image(photo(size=size), field='laf_page_1')
+                with fitz.open(stream=render_document('LAF', [data]), filetype='pdf') as pdf:
+                    self.assertEqual(len(pdf), 1)
+                    page = pdf[0]
+                    bounds = fitz.Rect(page.get_image_info()[0]['bbox'])
+                    self.assertAlmostEqual(bounds.width / bounds.height, size[0] / size[1], places=3)
+                    self.assertGreaterEqual(bounds.x0, margin - 0.1)
+                    self.assertGreaterEqual(bounds.y0, margin - 0.1)
+                    self.assertLessEqual(bounds.x1, page.rect.width - margin + 0.1)
+                    self.assertLessEqual(bounds.y1, page.rect.height - margin + 0.1)
+                    self.assertLess(min(abs(bounds.width - (page.rect.width - 2 * margin)),
+                                        abs(bounds.height - (page.rect.height - 2 * margin))), 0.1)

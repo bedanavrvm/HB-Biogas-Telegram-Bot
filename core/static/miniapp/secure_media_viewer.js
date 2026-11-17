@@ -118,11 +118,14 @@
     stage.appendChild(img);
     const controls = document.createElement('div');
     controls.className = 'secure-media-controls';
+    controls.setAttribute('role', 'toolbar');
+    controls.setAttribute('aria-label', 'Preview controls');
     if (settings.rotate) controls.classList.add('secure-media-rotatable');
-    function button(label, symbol, handler, parent = controls) {
+    function button(label, path, handler, parent = controls) {
       const node = document.createElement('button');
       node.type = 'button'; node.className = 'miniapp-icon-button';
-      node.setAttribute('aria-label', label); node.title = label; node.textContent = symbol;
+      node.setAttribute('aria-label', label); node.title = label;
+      node.innerHTML = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${path}"/></svg>`;
       node.addEventListener('click', handler); parent.appendChild(node); return node;
     }
     let index = 0;
@@ -131,23 +134,25 @@
       if (index + offset >= 0 && index + offset < pages.length) { index += offset; render(); }
       else if (offset > 0) settings.onNext?.(); else settings.onPrevious?.();
     }
-    const previous = button('Previous page', '‹', () => navigate(-1));
+    const previous = button('Previous page', 'm15 18-6-6 6-6', () => navigate(-1));
     previous.classList.add('secure-media-previous');
     const center = document.createElement('div'); center.className = 'secure-media-zoom-controls'; controls.appendChild(center);
-    const count = document.createElement('span'); count.setAttribute('role', 'status'); center.appendChild(count);
-    button('Zoom out', '−', () => controller.zoom(controller.scale - .5), center);
-    button('Reset zoom', '↺', () => controller.reset(), center);
-    button('Zoom in', '+', () => controller.zoom(controller.scale + .5), center);
-    if (settings.rotate) button('Rotate preview clockwise', '⟳', () => controller.rotate(), center);
-    const next = button('Next page', '›', () => navigate(1));
+    const count = document.createElement('span'); count.className = 'secure-media-page-count'; count.setAttribute('role', 'status'); center.appendChild(count);
+    button('Zoom out', 'M5 12h14', () => controller.zoom(controller.scale - .5), center);
+    button('Reset zoom', 'M8 3H3v5M16 3h5v5M3 16v5h5M21 16v5h-5', () => controller.reset(), center).title = 'Fit to page';
+    button('Zoom in', 'M5 12h14M12 5v14', () => controller.zoom(controller.scale + .5), center);
+    if (settings.rotate) button('Rotate preview clockwise', 'M21 2v6h-6M20 8a9 9 0 1 0 1 8', () => controller.rotate(), center);
+    const next = button('Next page', 'm9 18 6-6-6-6', () => navigate(1));
     next.classList.add('secure-media-next');
+    const previousDocument = !settings.pageControlsOnly && settings.onPrevious;
+    const nextDocument = !settings.pageControlsOnly && settings.onNext;
     function render() {
       controller.reset();
       img.src = pages[index].src; img.alt = pages[index].alt || settings.name || 'Evidence preview';
-      count.textContent = `${index + 1} / ${pages.length}`;
-      previous.disabled = index === 0 && !settings.onPrevious;
-      next.disabled = index === pages.length - 1 && !settings.onNext;
-      previous.hidden = next.hidden = pages.length === 1 && !settings.onNext && !settings.onPrevious;
+      count.textContent = `Page ${index + 1} / ${pages.length}`;
+      previous.disabled = index === 0 && !previousDocument;
+      next.disabled = index === pages.length - 1 && !nextDocument;
+      previous.hidden = next.hidden = pages.length === 1 && !previousDocument && !nextDocument;
       count.hidden = pages.length === 1;
     }
     container.append(stage,controls); render();

@@ -3110,3 +3110,15 @@ python manage.py migrate core 0072_miniapp_drafts
 - Remove the redundant Repayment Terms outer card and use the hint "5th or 12th".
 - Serialize camera permission requests, distinguish preview failure from access failure, retain streams for in-place retry and release late streams after closing.
 - No schema change or production activation. Physical Telegram camera behaviour and live Sheet writes remain unverified.
+
+## 17/11/2026 - Portal document and repayment controls
+
+- Place the Biogas LAF form icon beside upload/camera and its progress below.
+- Separate header document navigation from grouped page, zoom, fit and rotation
+  controls; hide page arrows for single images and keep controls grouped on desktop.
+- Put the repayment correction pencil beside the saved terms; the same disclosure
+  expands/collapses its fields and retains draft/submission behaviour.
+- Scale new captured LAF images to fit A4 inside 12mm margins without cropping,
+  distortion or changes to retained PDFs. Client ID collation stays unchanged.
+- Local native Portal/Playwright and PDF-layout evidence is recorded in the UI
+  review; no migration, new dependency or production activation.

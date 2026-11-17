@@ -73,7 +73,7 @@ def render_document(category: str, images: list[bytes]) -> bytes:
             raise ValueError('Only embedded document images are permitted.')
         return default_url_fetcher(url, *args, **kwargs)
 
-    height = '120mm' if category == 'CLIENT_ID' and len(images) == 2 else '265mm'
+    height = '273mm' if category == 'LAF' else '120mm' if len(images) == 2 else '265mm'
     rows = ''.join(
         f'<section><img src="data:image/jpeg;base64,{base64.b64encode(data).decode("ascii")}"></section>'
         for data in images
@@ -81,7 +81,8 @@ def render_document(category: str, images: list[bytes]) -> bytes:
     html = (f'<html><head><style>@page {{size:A4;margin:12mm}}'
             f'body {{margin:0}} section {{height:{height};text-align:center;break-inside:avoid}}'
             f'img {{max-width:186mm;max-height:{height}}}'
-            + ('section+section {break-before:page}' if category == 'LAF' else '')
+            + ('img {display:block;width:186mm;height:273mm;object-fit:contain} '
+               'section+section {break-before:page}' if category == 'LAF' else '')
             + '</style></head><body>' + rows + '</body></html>')
     return HTML(string=html, url_fetcher=local_images_only).write_pdf()
 
