@@ -27,7 +27,7 @@ for(const width of [320,390,1280])test(`Telegram complaint correction uses paire
  if(width===390){
   const resolved=form.locator('[name="date_resolved"]');
   const original=await resolved.evaluate(input=>input.dataset.originalValue);
-  await form.locator('[name="timestamp"]').fill('2026-11-01T12:30');await form.locator('[name="village"]').fill('Synthetic reviewed landmark '+Date.now());
+  await form.locator('[data-correction-date="timestamp"]').fill('01/11/2026 12:30');await form.locator('[name="village"]').fill('Synthetic reviewed landmark '+Date.now());
   const saved=page.waitForResponse(r=>r.url().endsWith('/correct/'));
   await form.getByRole('button',{name:'Save correction'}).click();const response=await saved;expect(response.status()).toBe(200);
   const body=response.request().postDataJSON();expect(body.timestamp).toBe('2026-11-01T12:30+03:00');expect(body.date_resolved.startsWith(original)).toBe(true);

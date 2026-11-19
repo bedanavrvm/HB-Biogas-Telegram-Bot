@@ -249,7 +249,17 @@ def complaint_cases_location_options(request):
     group_config, actor, error = _context(request, payload)
     if error:
         return error
-    capability_error = _capability_error(actor, 'complaint.case.create', group_config)
+    case = None
+    if payload.get('case_id'):
+        from core.services.complaint_corrections import permitted
+        from core.services.complaint_cases import _case_for_group
+        try:
+            case = _case_for_group(group_config.group_id, payload['case_id'], actor=actor)
+        except ComplaintCaseError as exc:
+            return _complaint_error(request, exc)
+        if not permitted(group_config, actor, case):
+            return JsonResponse({'ok': False, 'error': 'You cannot edit this complaint.'}, status=403)
+    capability_error = _capability_error(actor, 'complaint.case.manage' if case else 'complaint.case.create', group_config, resource=case)
     if capability_error:
         return capability_error
     from core.services.location_catalog import LocationCatalogError, location_options
@@ -1147,7 +1157,8 @@ def complaint_cases_sync_retry(request, case_id: str):
             raise ComplaintCaseError('Complaint not found in this group.')
         if not actor_can_access_case(group_config, actor, 'complaint.case.sync.retry', case_id):
             return JsonResponse({'ok': False, 'error': 'This publication is outside your scope.'}, status=403)
-        request_retry(group_config, actor, case)
+        request_retry(group_config, actor, case, refresh_snapshot=payload.get('refresh_snapshot') is True,
+                      request_id=payload.get('client_request_id', ''))
         detail = case_detail(group_config, case_id, actor)
     except ComplaintCaseError as exc:
         return _complaint_error(request, exc)

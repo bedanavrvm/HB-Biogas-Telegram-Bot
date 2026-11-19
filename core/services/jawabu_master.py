@@ -1385,6 +1385,22 @@ def update_master_sheet_row(
         [index for index in (deposit_indexes or []) if index in changed_indexes],
         headers=headers, header_row=header_row,
     )
+    from core.services.sheet_columns import verify_cells
+    expected = {index: row_values[index] for index in changed_indexes}
+    for index, value in list(expected.items()):
+        if value in (None, ''):
+            expected[index] = ''
+        elif index in (date_indexes or []) or index in (datetime_indexes or []):
+            text = _master_date_value(value, with_time=index in (datetime_indexes or []))
+            try:
+                stamp = datetime.strptime(text, '%d-%b-%Y %H:%M' if index in (datetime_indexes or []) else '%d-%b-%Y')
+            except ValueError:
+                expected[index] = text
+            else:
+                expected[index] = (stamp - datetime(1899, 12, 30)).total_seconds() / 86400
+        elif index in (deposit_indexes or []):
+            expected[index] = _numeric_sheet_money(value, preserve_cents=normalize_header(headers[index]) in {'deposit paid to jbl', 'deposit / jbl'})
+    verify_cells(sheet, row_number, expected)
 
 
 def write_master_typed_cells(

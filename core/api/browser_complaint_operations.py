@@ -329,12 +329,14 @@ def action(request, group, actor, case_key, action):
                'customer_phone', 'customer_id', 'complaint_category', 'latitude', 'longitude',
                'voice_transcription_id', 'creation_request_id'}
     if action == 'correct': allowed.update(CORRECTION_FIELDS)
+    if action == 'retry-publication': allowed.add('refresh_snapshot')
     if set(fields) - allowed:
         raise cases.ComplaintCaseError('Review the complaint action fields.')
     if action == 'retry-publication':
         from complaint_publications.services import request_retry
         source = ParsedMessage.objects.get(message_id=case_id, group_id=group.group_id)
-        request_retry(group, actor, source)
+        request_retry(group, actor, source, refresh_snapshot=fields.get('refresh_snapshot') is True,
+                      request_id=fields.get('client_request_id', ''))
         data = cases.case_detail(group, case_id, actor, paged_history=True)
     elif action == 'finish-created':
         data = cases.finish_created_case(group, actor, case_id,

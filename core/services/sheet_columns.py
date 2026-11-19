@@ -110,6 +110,27 @@ def named_updates(columns: NamedColumns, row: int, values: Mapping[str, Any]) ->
             for name, value in values.items()]
 
 
+def verify_cells(sheet, row: int, expected: Mapping[int, Any]) -> None:
+    """Check zero-based owned cells, including omitted trailing empty cells."""
+    from decimal import Decimal
+    if not expected:
+        return
+    actual = sheet.row_values(row, value_render_option='UNFORMATTED_VALUE')
+    for index, value in expected.items():
+        current = actual[index] if index < len(actual) else ''
+        if value is None:
+            value = ''
+        if isinstance(value, (int, float, Decimal)) and not isinstance(value, bool):
+            try:
+                equal = abs(Decimal(str(current)) - Decimal(str(value))) < Decimal('0.00000001')
+            except Exception:
+                equal = False
+        else:
+            equal = str(current) == str(value)
+        if not equal:
+            raise ValueError('Sheet readback did not match the saved record. Retry publication.')
+
+
 def validate_headers(headers: Sequence[Any], *, sheet_name: str = '') -> list[Any]:
     NamedColumns(headers, sheet_name=sheet_name)
     return list(headers)

@@ -1,0 +1,35 @@
+issues
+Reception - no PC unless you come with your own laptop 
+
+Printer is really old and dated
+
+7 Total computers plus 1 other one for BM - Only 2 work well
+
+7 CPU's:
+2 CPU's are doing fine
+1 CPU needs more memory
+1 CPU needs total replacement 
+
+
+One needs to be fully replacement due to damaged VGA port
+
+
+7 Monitors 
+1 Monitor fried
+1  Monitor is totally damaged elite display 221c
+
+
+no pc at the reception, if another admin comes to the branch and they dont have their laptop, then they are sitting ducks
+
+2 increase in staff without increase in the number of computers causes other people to lack usable computers at that moment(when everyone is in the office)
+
+Majority of the computers are used by the biogas unit team leaving very few for the BRO team to use
+
+There are only 3 good computers without issues - 2 plus the one used by the BM
+
+one of them has a damaged vga port(the purple haze one) - this needs to be fully replaced
+
+003 - farthest from the left-Monitor prodisplay p202 - this monitor is totally fried - new monitor needed
+
+based on the provided sysinfos, only 6 sysinfos were provided but there are 7 in that office(excluding the BM's) - this is because the both the cpu (very old and dated and doesn't work) and the monitor (physically damaged internally - glitches a lot) dont work and definitely need replacement
+

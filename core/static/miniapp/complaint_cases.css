@@ -224,3 +224,7 @@ button{transition:border-color .16s ease,background-color .16s ease,color .16s e
 .cmp-customer-suggestions button[data-customer-choice]{display:grid;gap:2px;text-align:left;width:100%;min-height:48px;padding:7px 9px;border:1px solid var(--line,#dfe1e6);border-radius:6px;background:var(--surface,#f6f7f9);color:var(--text,#172b4d);font:inherit;cursor:pointer;overflow-wrap:anywhere}
 .cmp-customer-suggestions button[data-customer-choice]:focus-visible{outline:2px solid var(--brand,#004fb6);outline-offset:-2px}
 .cmp-customer-warning{color:var(--warning,#974f0c)}
+.complaint-correction-date{position:relative;display:grid;grid-template-columns:minmax(0,1fr) 40px;gap:6px;align-items:center}
+.complaint-correction-date .correction-native-picker{position:absolute;width:1px;height:1px;min-height:0;padding:0;opacity:0;pointer-events:none;bottom:0;right:0}
+.complaint-correction-form .complaint-correction-date button{grid-column:auto;width:40px;min-width:40px;height:40px;padding:0;display:grid;place-items:center}
+.complaint-correction-date button svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2}

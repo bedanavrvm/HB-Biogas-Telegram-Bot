@@ -78,8 +78,8 @@ class ActivityChangesTests(SimpleTestCase):
         locations.return_value.values_list.return_value = [('county', 'KE-21', 'Murang’a'), ('county', 'KE-22', 'Kiambu')]
         update = SimpleNamespace(pk='update', old_status='Open', new_status='Open', resolution_text='',
             updated_by='Training officer', created_at=datetime.now(timezone.utc), gps_link='',
-            source='mini_app_review_completion', client_request_id='request')
-        rows = complaint_history(SimpleNamespace(resolution_details=''), [update])
+            source='mini_app_review_completion', client_request_id='request', evidence=SimpleNamespace(all=lambda: []))
+        rows = complaint_history(SimpleNamespace(resolution_details='', source=''), [update])
         self.assertEqual(rows[0]['action'], 'details_completed')
         self.assertEqual(rows[0]['action_group'], 'operation')
         self.assertEqual(rows[0]['changes'][0]['old_value'], 'KE-21')

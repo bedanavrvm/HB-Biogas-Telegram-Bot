@@ -2323,7 +2323,17 @@ class FakeMasterDataSheet:
 
     def row_values(self, row_number, value_render_option=None):
         if row_number <= len(self.values):
-            return list(self.values[row_number - 1])
+            row = list(self.values[row_number - 1])
+            if value_render_option == 'UNFORMATTED_VALUE':
+                from datetime import datetime
+                for index, value in enumerate(row):
+                    for pattern in ('%d-%b-%Y', '%d-%b-%Y %H:%M'):
+                        try:
+                            row[index] = (datetime.strptime(str(value), pattern) - datetime(1899, 12, 30)).total_seconds() / 86400
+                            break
+                        except ValueError:
+                            pass
+            return row
         return []
 
     def add_cols(self, count):

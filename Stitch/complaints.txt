@@ -1,0 +1,13 @@
+complaints
+Biodata copied from JBL-151. You can edit these fields. this should be: Biodata copied from Master Data. You can edit these fields.
+
+
+i have noted that sheet propagation doesn't work on ommittion of data ie I had filled the constituency/nearest land mark(village) with false info as i didn't have the correct data so after saving the complaint, i went to edit the 2 fields and left them blank - this change did not propagate to the sheet. kindly double check in both complaints and portal miniapps that propagation on the sheet also works in cases of edition/ommition/deletion
+
+also in the edit complaint the county constituency fields are not dropdowns
+
+
+in complaints after the edit it reads:
+Village removed
+Sub-county removed
+in the complaint history but doesn't specify the values removed, like what were the values that were removed

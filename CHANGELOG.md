@@ -1,5 +1,15 @@
 # Changelog
 
+## 17/11/2026 - Cleared complaint fields and Sheet refresh
+
+- Publish edited complaint biodata/locations and explicit blanks; verify changed
+  cells after writes in Complaints and Portal. Preserve unrelated Sheet cells.
+- Use dependent county/constituency choices in complaint corrections and show
+  removed values in history. Show Master Data in the biodata notice.
+- Allow scoped Re-sync to Sheet for saved cases, including earlier successful
+  publications, without another edit. No deployment or production repair.
+- Operator guide: `docs/runbooks/complaint-corrections-and-sheet-refresh.md`.
+
 ## 17/11/2026 - Portal chronology, search and order numbering
 
 - Share seven ordered Portal stages across Case History, progress, reports and

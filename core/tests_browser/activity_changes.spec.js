@@ -89,5 +89,6 @@ test('routine outcomes, removals and notes are concise without losing correction
     {field:'blank',label:'Blank',new_value:null,previous_recorded:false},
   ], {title:'Approved',detail:'Visit confirmed'}));
   await expect(page.locator('.activity-change')).toHaveCount(2);
-  await expect(page.locator('#activity')).toHaveText('County: Kiambu → NakuruSecondary phone removed');
+  await expect(page.locator('#activity')).toContainText('County: Kiambu → Nakuru');
+  await expect(page.locator('#activity')).toContainText('Secondary phone: 0712345678 → Not set');
 });

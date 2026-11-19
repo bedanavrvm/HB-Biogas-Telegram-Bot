@@ -209,6 +209,70 @@ class ComplaintCaseServiceTests(TestCase):
         sequence.refresh_from_db()
         self.assertEqual(sequence.next_number, next_number)
 
+    def test_cleared_corrections_publish_full_snapshot_and_keep_removed_values(self):
+        from core.services.complaint_corrections import correct
+        self.case.county, self.case.sub_county, self.case.village = 'Nakuru County', 'Nakuru East', 'Synthetic old landmark'
+        self.case.save(update_fields=['county', 'sub_county', 'village'])
+        control = ensure_case_control(self.case, self.config)
+        actor = self.actor('400')
+        fields = {'sub_county':'', 'village':'', 'expected_revision':control.revision, 'client_request_id':'synthetic-clear'}
+        first = correct(self.config, actor, self.case.message_id, fields)
+        replay = correct(self.config, actor, self.case.message_id, fields)
+        self.assertEqual(first['revision'], replay['revision'])
+        self.case.refresh_from_db()
+        self.assertEqual((self.case.sub_county, self.case.village), ('', ''))
+        self.assertEqual(self.case.county, 'Nakuru County')
+        changes = next(row['changes'] for row in first['updates'] if row.get('action') == 'fields_corrected')
+        self.assertIn(('Synthetic old landmark', ''), [(c['old_value'], c['new_value']) for c in changes])
+        from unittest.mock import Mock
+        with patch('core.services.complaint_cases.get_sheets_service', return_value=Mock(spec=['update_case_row'])) as gateway:
+            gateway.return_value.update_case_row.return_value = True
+            from core.services.complaint_cases import update_sheet_case
+            self.assertTrue(update_sheet_case(self.config, self.case, {}))
+            snapshot = gateway.return_value.update_case_row.call_args.args[1]
+        self.assertEqual(snapshot['village'], '')
+        self.assertEqual(snapshot['sub_county'], '')
+        self.assertEqual(snapshot['county'], 'Nakuru County')
+        self.assertIn('customer_name', snapshot)
+
+    def test_refresh_synced_complaint_is_scoped_idempotent_and_does_not_edit_case(self):
+        from complaint_publications.services import queue_sheet, request_retry, SHEET_OPERATION
+        from core.models import IntegrationOperation
+        control = ensure_case_control(self.case, self.config)
+        original = queue_sheet(self.config, self.case)
+        original.status = 'succeeded'; original.save(update_fields=['status'])
+        before = control.revision
+        request_retry(self.config, self.actor('400'), self.case, refresh_snapshot=True, request_id='synthetic-refresh')
+        request_retry(self.config, self.actor('400'), self.case, refresh_snapshot=True, request_id='synthetic-refresh')
+        self.assertEqual(IntegrationOperation.objects.filter(operation_type=SHEET_OPERATION, source_id=str(control.pk)).count(), 2)
+        control.refresh_from_db()
+        self.assertEqual(control.revision, before)
+        self.assertEqual(control.sync_status, 'pending')
+        from django.core.exceptions import PermissionDenied
+        with self.assertRaises(PermissionDenied):
+            request_retry(self.config, self.actor('100'), self.case, refresh_snapshot=True, request_id='denied')
+
+    def test_deleted_complaint_does_not_recreate_a_sheet_row(self):
+        from core.services.complaint_publication import publish_case_snapshot
+        from unittest.mock import Mock
+        google = Mock(spec=['update_case_row'])
+        ParsedMessage.objects.filter(pk=self.case.pk).delete()
+        self.assertFalse(publish_case_snapshot(self.config, self.case, google))
+        google.update_case_row.assert_not_called()
+
+    @override_settings(TELEGRAM_BOT_TOKEN='test-bot-token', MINIAPP_ALLOW_INSECURE_DEV_AUTH=False)
+    def test_location_options_allow_case_editor_without_creation_permission_and_deny_non_editor(self):
+        WorkflowRoleCapability.objects.update_or_create(workflow='complaint_cases',role='IT',
+            capability_key='complaint.case.create',defaults={'enabled':False,'effect':'deny'})
+        query = {'group_id':self.group.group_id,'case_id':self.case.message_id,'county':'Nakuru County'}
+        response = self.client.get(reverse('complaint_cases_location_options'), query,
+            HTTP_X_TELEGRAM_INIT_DATA=self.signed_init_data('400'))
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertTrue(response.json()['data']['sub_counties'])
+        denied = self.client.get(reverse('complaint_cases_location_options'), query,
+            HTTP_X_TELEGRAM_INIT_DATA=self.signed_init_data('100'))
+        self.assertEqual(denied.status_code, 403)
+
     @patch('core.services.complaint_cases.update_sheet_case', return_value=True)
     def test_hb_comments_are_append_only_and_preserve_case_timing(self, publish):
         control = ensure_case_control(self.case, self.config)

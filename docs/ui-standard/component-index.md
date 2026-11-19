@@ -1,5 +1,9 @@
 # Component index and migration hold
 
+Complaint corrections reuse paired selects, fixed-format calendars and shared
+history comparisons; both Mini Apps expose scoped Sheet refresh.
+[Source and evidence](reviews/2026-11-17-complaint-cleared-fields.md).
+
 Portal chronology reuses the progress strip and TAT rows; order numbers reuse
 paired fields, fixed-format calendars and inline Retry.
 [Source and native evidence](reviews/2026-11-17-portal-chronology-search-orders.md).

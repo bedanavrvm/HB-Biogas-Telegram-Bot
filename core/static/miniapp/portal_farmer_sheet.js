@@ -761,6 +761,19 @@
     root.hidden = false;
     if (window.lucide) window.lucide.createIcons({ attrs: { 'stroke-width': 2 } });
     wireWithdrawal(root, data, true);
+    if (data.can_resync) {
+      const button = document.createElement('button'); button.type = 'button'; button.className = 'btn btn-secondary'; button.textContent = 'Re-sync to Sheet';
+      root.querySelector('.case360-hero-actions')?.appendChild(button);
+      button.onclick = async () => {
+        button.disabled = true;
+        try {
+          const result = await deps.portalApi.postJson('/publication/attempt/', {farmer_id:data.farmer_id,refresh_snapshot:true}, deps.tg);
+          if (!result.ok || !result.data?.ok) throw new Error(result.data?.error || 'Could not queue the Sheet refresh.');
+          deps.showToast('Sheet refresh queued.', 'success');
+        } catch (error) { deps.showToast(error.message, 'error'); }
+        finally { button.disabled = false; }
+      };
+    }
     root.querySelectorAll('[data-stage-status]').forEach(editor => {
       const status = editor.querySelector('[data-stage-status-value]');
       const fields = editor.querySelector('[data-stage-withdrawal-fields]');

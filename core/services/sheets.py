@@ -30,7 +30,7 @@ COMPLAINT_UPPERCASE_FIELDS = frozenset({
     'village', 'branch_region', 'reported_by', 'complaint_category',
 })
 COMPLAINT_DATE_NUMBER_FORMAT = {
-    'numberFormat': {'type': 'DATE', 'pattern': 'dd-mmm-yyyy'},
+    'numberFormat': {'type': 'DATE', 'pattern': 'dd/mm/yyyy'},
 }
 
 
@@ -717,11 +717,10 @@ class GoogleSheetsService:
 
     def update_case_row(self, record_key: str, updates: dict) -> bool:
         """
-        Update workflow columns for an existing case row.
+        Update allowlisted canonical columns for an existing case row.
 
-        The row is located by the configured Complaint ID header. Only
-        CASE_UPDATE_WRITABLE_COLUMNS can be written; formula and intake columns
-        are ignored even if present in updates.
+        The row is located by the configured Complaint ID header. The schema
+        owns the allowlist; identifiers and unrelated cells survive.
         """
         if not record_key:
             logger.error("Cannot update case row without a Complaint ID")
@@ -801,6 +800,9 @@ class GoogleSheetsService:
             }
             if updated_date_headers:
                 self._format_complaint_date_rows([row_number], only_headers=updated_date_headers)
+
+            from core.services.sheet_columns import verify_cells
+            verify_cells(self._sheet, row_number, {column - 1: value for column, value, _ in columns})
 
             logger.info(
                 f"Updated case row {row_number} in sheet {self._sheet_id}: "

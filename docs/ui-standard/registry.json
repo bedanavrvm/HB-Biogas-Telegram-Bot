@@ -1526,6 +1526,48 @@
       "sha256": "d8a0f61299b4661b799eabe38842f347b82fd23c2006c5403cda400af918828c",
       "review_reference": "docs/ui-standard/reviews/2026-11-17-portal-chronology-search-orders.md",
       "reason": "User-requested chronological Portal timing and selected-group official numbering; reuse existing progress, paired fields, calendar and inline Retry. Native signed Django/PostgreSQL Playwright evidence recorded; Phase 6 hold retained."
+    },
+    {
+      "path": "core/static/miniapp/complaint_cases.js",
+      "sha256": "3bf2d2dd4054bbf35c321648a69719b7ae826ca6bcf1a3e3af41bde3f7cd77b1",
+      "review_reference": "docs/ui-standard/reviews/2026-11-17-complaint-cleared-fields.md",
+      "reason": "User-requested location correction dropdowns, explicit removed-value history, Master Data notice and scoped Sheet refresh; native signed Django/PostgreSQL Playwright evidence, existing source patterns and Phase 6 hold retained."
+    },
+    {
+      "path": "core/static/miniapp/complaint_cases.css",
+      "sha256": "ad2969bb08c303835cadc4fcbab1c3a3556eea146ab21eeb07e3c3806f37db04",
+      "review_reference": "docs/ui-standard/reviews/2026-11-17-complaint-cleared-fields.md",
+      "reason": "User-requested location correction dropdowns, explicit removed-value history, Master Data notice and scoped Sheet refresh; native signed Django/PostgreSQL Playwright evidence, existing source patterns and Phase 6 hold retained."
+    },
+    {
+      "path": "core/static/miniapp/activity_changes.js",
+      "sha256": "a9661ed346b2c8ee5d8da754288b43852feb91657776ee915de055b13b8ae3ef",
+      "review_reference": "docs/ui-standard/reviews/2026-11-17-complaint-cleared-fields.md",
+      "reason": "User-requested location correction dropdowns, explicit removed-value history, Master Data notice and scoped Sheet refresh; native signed Django/PostgreSQL Playwright evidence, existing source patterns and Phase 6 hold retained."
+    },
+    {
+      "path": "core/static/miniapp/portal_farmer_sheet.js",
+      "sha256": "8e688e84872897acaf8edacff58218722517bdc4c1e6e777f13ce5415156eed1",
+      "review_reference": "docs/ui-standard/reviews/2026-11-17-complaint-cleared-fields.md",
+      "reason": "User-requested location correction dropdowns, explicit removed-value history, Master Data notice and scoped Sheet refresh; native signed Django/PostgreSQL Playwright evidence, existing source patterns and Phase 6 hold retained."
+    },
+    {
+      "path": "core/templates/base_shell.html",
+      "sha256": "20cf91c3f4c96fc927e2c8be4a64c7c95767f33c82e3d8027a945e6a148ecefb",
+      "review_reference": "docs/ui-standard/reviews/2026-11-17-complaint-cleared-fields.md",
+      "reason": "User-requested location correction dropdowns, explicit removed-value history, Master Data notice and scoped Sheet refresh; native signed Django/PostgreSQL Playwright evidence, existing source patterns and Phase 6 hold retained."
+    },
+    {
+      "path": "core/templates/complaint_cases/app.html",
+      "sha256": "e7fb87f72ced5b09a3bc301e2ce18fba3a8e9f9b34528defdd2d49b15e319e43",
+      "review_reference": "docs/ui-standard/reviews/2026-11-17-complaint-cleared-fields.md",
+      "reason": "User-requested location correction dropdowns, explicit removed-value history, Master Data notice and scoped Sheet refresh; native signed Django/PostgreSQL Playwright evidence, existing source patterns and Phase 6 hold retained."
+    },
+    {
+      "path": "core/templates/tat_tracker/app.html",
+      "sha256": "73fe16edd238307ac032ab3425e6608b4491f703520b723111d8edd35d9d7770",
+      "review_reference": "docs/ui-standard/reviews/2026-11-17-complaint-cleared-fields.md",
+      "reason": "User-requested location correction dropdowns, explicit removed-value history, Master Data notice and scoped Sheet refresh; native signed Django/PostgreSQL Playwright evidence, existing source patterns and Phase 6 hold retained."
     }
   ],
   "source_roots": [

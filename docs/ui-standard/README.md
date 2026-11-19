@@ -1,5 +1,8 @@
 # Mini App Design Lab
 
+Complaint location corrections, visible removed values and Sheet re-sync have
+[native API and browser evidence](reviews/2026-11-17-complaint-cleared-fields.md).
+
 Portal chronology, word-order-independent name search and consistent order
 numbers have [native API and browser evidence](reviews/2026-11-17-portal-chronology-search-orders.md).
 

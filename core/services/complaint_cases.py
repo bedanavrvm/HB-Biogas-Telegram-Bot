@@ -2249,7 +2249,7 @@ def complaint_history(case: ParsedMessage, updates=None, *, include_legacy_resol
                              'reopened' if update.new_status == 'Reopened' else 'updated')
         labels = history_labels
         if event and event.action == 'fields_corrected':
-            labels = {**history_labels, 'customer_id':'National ID', 'sub_county':'Sub-county',
+            labels = {**history_labels, 'customer_id':'National ID', 'sub_county':'Constituency', 'village':'Village / Landmark',
                 'branch_region':'Branch', 'complaint_category':'Complaint type',
                 'complaint_description':'Description', 'timestamp':'Reported at', 'date_resolved':'Resolved at'}
         row['changes'] = recorded_changes(event.before_values, event.after_values, labels=labels) if event else recorded_changes(
@@ -2341,7 +2341,7 @@ def google_maps_url(latitude, longitude) -> str:
 
 
 def format_datetime(value) -> str:
-    return timezone.localtime(value).strftime('%d %b %Y %H:%M') if value else ''
+    return timezone.localtime(value).strftime('%d/%m/%Y %H:%M') if value else ''
 
 
 def _case_queryset(group_id: str, actor: ComplaintCaseActor | None = None):

@@ -285,7 +285,9 @@ class MasterSheetLayoutTests(TestCase):
         sheet = MagicMock()
         sheet.id = 42
         headers = ['Staff formula', 'Customer Name', 'Visit Date', 'Deposit']
-        sheet.row_values.return_value = headers
+        from datetime import date
+        serial = (date(2026, 5, 12) - date(1899, 12, 30)).days
+        sheet.row_values.side_effect = lambda number, **kwargs: headers if number == 1 else ['=SUM(1,2)', 'Example', serial, 5000]
         update_master_sheet_row(
             sheet, 8, ['=SUM(1,2)', 'Example', '12-05-2026', '5000'],
             headers=headers, header_row=1,

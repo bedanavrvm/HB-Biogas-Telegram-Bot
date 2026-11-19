@@ -584,6 +584,28 @@ class JblPipelineServiceTestCase(TestCase):
         self.assertEqual(sheet.values[4][1], 'Farmer One')
 
     @patch('core.services.sheets.GoogleSheetsService.get_instance')
+    def test_native_correction_clears_optional_values_on_both_registers(self, gateway):
+        from django.contrib.auth import get_user_model
+        from core.tests import FakeMasterDataSheet, FakeJawabuService
+        from core.services.portal_case_corrections import correct_case_fields
+        actor = get_user_model().objects.create_user(username='synthetic-location-corrector')
+        headers = ['No.', 'Customer Name', 'National ID', 'Primary Phone', 'County', 'Constituency', 'Village', 'Secondary Phone']
+        for county, tab in [('Kiambu','Master Data'), ('Nakuru','Eco-conserve')]:
+            farmer = JawabuFarmerMaster.objects.create(customer_name='Synthetic clear '+county,
+                national_id='99998888' if county=='Kiambu' else '99998889', primary_phone='254700000088',
+                county=county, sub_county='Synthetic unchanged constituency', village='Wrong landmark', secondary_phone='254700000089')
+            sheet = FakeMasterDataSheet(headers)
+            gateway.return_value = FakeJawabuService(sheet)
+            self.assertTrue(sync_farmer_to_master_sheet(farmer))
+            with patch('core.services.portal_publication.reserve_farmer_publication', return_value=[]):
+                farmer = correct_case_fields(farmer, values={'village':'', 'secondary_phone':''},
+                    expected_revision=farmer.workflow_revision, reason='Synthetic removal', request_id='clear-'+county, actor=actor)
+            self.assertTrue(sync_farmer_to_master_sheet(farmer))
+            self.assertEqual(gateway.call_args.kwargs['sheet_name'], tab)
+            self.assertEqual(sheet.values[4][6:8], ['', ''])
+            self.assertEqual(farmer.sub_county, 'Synthetic unchanged constituency')
+
+    @patch('core.services.sheets.GoogleSheetsService.get_instance')
     def test_master_and_eco_first_case_starts_on_row_two(self, mock_get_sheets):
         from core.tests import FakeMasterDataSheet, FakeJawabuService
 
@@ -973,7 +995,8 @@ class JblPipelineServiceTestCase(TestCase):
         )
         self.farmer_stage1.deposit_paid_hbg = Decimal('60000.00')
         self.farmer_stage1.system_deposit_paid_jbl = Decimal('13500.50')
-        self.farmer_stage1.save(update_fields=['deposit_paid_hbg', 'system_deposit_paid_jbl', 'updated_at'])
+        self.farmer_stage1.village = 'Synthetic old landmark'
+        self.farmer_stage1.save(update_fields=['deposit_paid_hbg', 'system_deposit_paid_jbl', 'village', 'updated_at'])
 
         headers = [
             'ORDER RECORD ID',
@@ -981,6 +1004,8 @@ class JblPipelineServiceTestCase(TestCase):
             'DEPOSIT / HB',
             'DEPOSIT / JBL',
             'LAST UPDATED AT',
+            'VILLAGE',
+            'National ID',
         ]
         fake_sheet = FakeMasterDataSheet(headers)
         mock_get_sheets.return_value = FakeJawabuService(fake_sheet)
@@ -994,6 +1019,13 @@ class JblPipelineServiceTestCase(TestCase):
         change = LiveSheetRecordChange.objects.get(sheet_id='internal-orders-sheet')
         self.assertEqual(change.changes['DEPOSIT / HB']['after'], 60000)
         self.assertNotIn('DEPOSIT / JBL', change.changes)
+        self.assertEqual(synced_row[5], 'SYNTHETIC OLD LANDMARK')
+        row_count = len(fake_sheet.values)
+        self.farmer_stage1.village = ''
+        self.farmer_stage1.save(update_fields=['village'])
+        self.assertTrue(sync_farmer_to_internal_order_sheet(self.farmer_stage1))
+        self.assertEqual(len(fake_sheet.values), row_count)
+        self.assertEqual(fake_sheet.values[-1][5], '')
 
     def test_forward_visit_requires_missing_evidence_before_drive_upload(self):
         """A missing multipart category must never leave an orphaned upload."""

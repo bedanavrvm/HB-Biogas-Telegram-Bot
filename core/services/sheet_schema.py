@@ -57,6 +57,9 @@ COMPLAINT_REGISTER_BOT_WRITABLE_FIELDS = {
     'days_open',
 }
 COMPLAINT_REGISTER_CASE_UPDATE_FIELDS = {
+    'date_reported', 'customer_name', 'customer_id', 'customer_phone',
+    'secondary_phone', 'county', 'sub_county', 'village', 'branch_region',
+    'complaint_category', 'complaint_description',
     'status',
     'resolution_details',
     'resolution_comments', 'jbl_verification_comments',

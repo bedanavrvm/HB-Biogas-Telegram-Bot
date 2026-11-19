@@ -15,6 +15,7 @@ import math
 import logging
 
 from django.conf import settings
+from django.db import transaction
 from django.db.models import Q, Exists, OuterRef, Value, CharField, Case, When, IntegerField
 from django.db.models.functions import Coalesce, Cast
 from django.db.models.fields.json import KeyTextTransform
@@ -362,6 +363,31 @@ def publication_payload(farmer) -> dict[str, Any]:
             }
         ],
     }
+
+
+@transaction.atomic
+def refresh_farmer_publication(farmer, *, request_id, actor=None, actor_label=''):
+    """Explicit refreshes coalesce with live work and never change the case."""
+    farmer = type(farmer).objects.select_for_update().filter(pk=farmer.pk).first()
+    if farmer is None:
+        return []
+    current = {row.operation_type: row for row in _current_operations(farmer)}
+    operations = []
+    for target in _targets_for_farmer(farmer):
+        row = current.get(target)
+        if row and row.status in {'pending', 'retryable_failure', 'running'}:
+            operations.append(row)
+        else:
+            operations.extend(reserve_farmer_publication(farmer, request_id=request_id,
+                requested_by=actor, requested_by_label=actor_label, required_capability='portal.publication.retry',
+                deduplication_namespace=f'snapshot-refresh:{request_id}', operation_types=[target]))
+    if operations:
+        from core.services.compliance_audit import record_event
+        record_event(workflow='portal', action='portal.publication.refresh_requested', actor=actor,
+            subject_type='jawabu_case', subject_id=str(farmer.pk), request_id=request_id,
+            deduplication_key=f'portal-refresh:{farmer.pk}:{request_id}',
+            metadata={'operations': [str(row.pk) for row in operations]})
+    return operations
 
 
 def requeue_publication_after_review(

@@ -940,6 +940,31 @@
       "sha256": "b7305f0a7d172b477a04e469af75989cc592ced11d79002b2a1f4634d2d8de03",
       "classification": "synthetic_ui_review",
       "purpose": "Synthetic native Portal chronology and numbering evidence; source and capture context in docs/ui-standard/reviews/2026-11-17-portal-chronology-search-orders.md. No customer data or approval of design baselines."
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/complaint-cleared-fields-2026-11-17/editor-390.png": {
+      "sha256": "e52092ec2fd460235850860e492bbf47b93d413d341431c6bfda4606b87c8668",
+      "classification": "synthetic_ui_review",
+      "purpose": "Synthetic native Complaints correction, removed-value history and Sheet refresh evidence. Context: docs/ui-standard/reviews/2026-11-17-complaint-cleared-fields.md. No customer data; not design-baseline acceptance."
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/complaint-cleared-fields-2026-11-17/editor-1280.png": {
+      "sha256": "fc6a3f4e2d908397c377aa061c441e04c25d808b0964ffdb38f48f9399fd1bb5",
+      "classification": "synthetic_ui_review",
+      "purpose": "Synthetic native Complaints correction, removed-value history and Sheet refresh evidence. Context: docs/ui-standard/reviews/2026-11-17-complaint-cleared-fields.md. No customer data; not design-baseline acceptance."
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/complaint-cleared-fields-2026-11-17/history-390.png": {
+      "sha256": "ed8ed9e4ae7bd2fa94cff9bd91bebab2aaf16d45b0ed4327a789bb4b0eeed907",
+      "classification": "synthetic_ui_review",
+      "purpose": "Synthetic native Complaints correction, removed-value history and Sheet refresh evidence. Context: docs/ui-standard/reviews/2026-11-17-complaint-cleared-fields.md. No customer data; not design-baseline acceptance."
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/complaint-cleared-fields-2026-11-17/portal-refresh.png": {
+      "sha256": "d18106d3571ec9321dd863c9fd12b9521285f8a05b696f80471de639783baa81",
+      "classification": "synthetic_ui_review",
+      "purpose": "Synthetic native Complaints correction, removed-value history and Sheet refresh evidence. Context: docs/ui-standard/reviews/2026-11-17-complaint-cleared-fields.md. No customer data; not design-baseline acceptance."
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/complaint-cleared-fields-2026-11-17/biodata-source.png": {
+      "sha256": "92921a188e99bedf04511e41c16ca5333b98003110ad9b510fc50b89d1b37817",
+      "classification": "synthetic_ui_review",
+      "purpose": "Synthetic native Complaints correction, removed-value history and Sheet refresh evidence. Context: docs/ui-standard/reviews/2026-11-17-complaint-cleared-fields.md. No customer data; not design-baseline acceptance."
     }
   }
 }

@@ -103,7 +103,7 @@ class GoogleSheetsValidationTests(TestCase):
         self.assertEqual([item['range'] for item in formats],
                          [f'{column_letter(columns.column(name))}2' for name in ('Date Reported', 'Date Resolved')])
         self.assertTrue(all(
-            item['format']['numberFormat'] == {'type': 'DATE', 'pattern': 'dd-mmm-yyyy'}
+            item['format']['numberFormat'] == {'type': 'DATE', 'pattern': 'dd/mm/yyyy'}
             for item in formats
         ))
 
@@ -140,7 +140,13 @@ class GoogleSheetsValidationTests(TestCase):
         self.assertEqual(short_values[5:11], ['NAKURU COUNTY', 'NAKURU EAST', 'MWARIKI', 'NAKURU', 'OFFICER ONE', 'TECHNICAL SUPPORT'])
         self.assertEqual(short_values[11], 'No Gas at eCitizen URL')
         self.assertEqual(updates['P2:P2'], [['https://maps.example/AaBb']])
-        self.assertEqual(updates['T2:T2'], [[4]])
+        from openpyxl.utils.cell import coordinate_from_string, column_index_from_string
+        cells = {}
+        for call in mock_sheet.update.call_args_list:
+            column, _ = coordinate_from_string(call.args[0].split(':')[0])
+            for offset, value in enumerate(call.args[1][0]):
+                cells[column_index_from_string(column) - 1 + offset] = value
+        self.assertEqual(cells[service.sheet_columns.index('Days Open')], 4)
         text_call = next(call for call in mock_sheet.update.call_args_list if call.args[0] == 'D2:O2')
         self.assertEqual(text_call.kwargs['value_input_option'], 'RAW')
         self.assertTrue(any(
@@ -151,7 +157,11 @@ class GoogleSheetsValidationTests(TestCase):
     def test_strict_complaint_update_normalizes_without_rewriting_narratives(self):
         service = GoogleSheetsService(sheet_schema={'schema_version': 2})
         mock_sheet = Mock()
-        mock_sheet.row_values.return_value = service.sheet_columns
+        from core.tests_correction_publication import Worksheet
+        transport = Worksheet(service.sheet_columns, [''] * len(service.sheet_columns))
+        transport.rows[1][service.sheet_columns.index('Complaint ID')] = 'CMP-12'
+        mock_sheet.row_values.side_effect = transport.row_values
+        mock_sheet.update.side_effect = transport.update
         mock_sheet.col_values.return_value = ['Complaint ID', 'CMP-12']
         service._sheet = mock_sheet
 
@@ -167,17 +177,17 @@ class GoogleSheetsValidationTests(TestCase):
         expected_serial = (date(2026, 5, 6) - date(1899, 12, 30)).days
         self.assertEqual(updates['D2:D2'], [['CLOSED']])
         self.assertEqual(updates['Q2:Q2'], [['Valve replaced by Jane']])
-        self.assertEqual(updates['S2:S2'], [[expected_serial]])
-        self.assertEqual(updates['T2:T2'], [[3]])
+        self.assertEqual(updates['T2:T2'], [[expected_serial]])
+        self.assertEqual(updates['U2:U2'], [[3]])
         date_format_calls = [
             call.args[0]
             for call in mock_sheet.batch_format.call_args_list
-            if any(item['range'] == 'S2' for item in call.args[0])
+            if any(item['range'] == 'T2' for item in call.args[0])
         ]
         self.assertEqual(len(date_format_calls), 1)
         self.assertEqual(
             date_format_calls[0][0]['format']['numberFormat'],
-            {'type': 'DATE', 'pattern': 'dd-mmm-yyyy'},
+            {'type': 'DATE', 'pattern': 'dd/mm/yyyy'},
         )
     
     def test_validate_sheet_structure_wrong_column_count(self):
@@ -469,6 +479,11 @@ class GoogleSheetsValidationTests(TestCase):
         mock_sheet.col_values = Mock(return_value=['message_id', 'MSG_001'])
         mock_sheet.update = Mock(return_value=True)
 
+        from core.tests_correction_publication import Worksheet
+        transport = Worksheet(self.expected_columns, [''] * len(self.expected_columns))
+        mock_sheet.row_values.side_effect = transport.row_values
+        mock_sheet.update.side_effect = transport.update
+
         updates = {
             'Status': 'Closed',
             'Resolution Details': 'Pipe replaced',
@@ -593,6 +608,11 @@ class GoogleSheetsValidationTests(TestCase):
         mock_sheet.row_values = Mock(return_value=schema_config['columns'])
         mock_sheet.col_values = Mock(return_value=['Backend ID', 'MSG_001'])
         mock_sheet.update = Mock(return_value=True)
+
+        from core.tests_correction_publication import Worksheet
+        transport = Worksheet(schema_config['columns'], [''] * len(schema_config['columns']))
+        mock_sheet.row_values.side_effect = transport.row_values
+        mock_sheet.update.side_effect = transport.update
 
         with patch.object(service, 'is_available', return_value=True):
             with patch.object(service, '_sheet', mock_sheet):

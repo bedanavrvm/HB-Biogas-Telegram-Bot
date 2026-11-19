@@ -71,14 +71,18 @@ def publish_case_snapshot(group_config, case: ParsedMessage, service) -> bool:
             if len(comments) > 50000:
                 raise ValueError('Resolution Comments exceeds the Sheet cell limit; all comments remain saved in Django.')
             updates = {
+                **{field: getattr(current, field) or '' for field in (
+                    'customer_name', 'customer_phone', 'secondary_phone', 'customer_id',
+                    'county', 'sub_county', 'village', 'branch_region',
+                    'complaint_category', 'complaint_description',
+                )},
+                'date_reported': timezone.localtime(current.timestamp).strftime('%d/%m/%Y') if current.timestamp else '',
                 'status': 'CLOSED' if current.complaint_status == 'Closed' else (
                     'REOPENED' if current.complaint_status == 'Reopened' else 'OPEN'),
                 'resolution_details': latest_resolution_text(current), 'resolution_comments': comments,
                 'jbl_verification_comments': verification_comments_text(current),
                 'resolution_history': resolution_history_text(current), 'gps_link': current.gps_link or '',
-                'customer_phone': current.customer_phone, 'customer_id': current.customer_id,
-                'complaint_category': current.complaint_category,
-                'date_resolved': timezone.localtime(current.date_resolved).strftime('%d-%m-%y') if current.date_resolved else '',
+                'date_resolved': timezone.localtime(current.date_resolved).strftime('%d/%m/%Y') if current.date_resolved else '',
                 'days_open': days_open if days_open is not None else '',
             }
             for field in ('jbl_verification_comments', 'resolution_history'):

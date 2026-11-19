@@ -602,7 +602,7 @@
       for(const [name,value] of Object.entries(selection.fields))customerForm.elements[name].value=value;
       customerFieldNotes(selection);
       customerForm.elements.sub_county.disabled=!selection.fields.county;
-      customerStatus(`Biodata copied from ${selection.source_label}. You can edit these fields.`);
+      customerStatus('Biodata copied from Master Data. You can edit these fields.');
       selection.warnings.forEach(message=>customerPanel.appendChild(textNode('p',message,'cmp-customer-warning')));
       customerClearButton();
       $('createSaveState').textContent='Not saved';
@@ -749,7 +749,7 @@
           control.value = payload.sub_county || '';
           updateCategoryGuidance();
           if(payload.portal_source_key){
-            customerStatus(`Biodata copied from ${payload.portal_source_label||'Portal'}. Review the restored details before submitting.`);customerClearButton();
+            customerStatus('Biodata copied from Master Data. You can edit these fields.');customerClearButton();
             const key=payload.portal_source_key;
             void json('customers/suggest/',{source_key:key}).then(result=>{
               if(customerForm.elements.portal_source_key.value===key){customerFieldNotes(result.data.selection);result.data.selection.warnings.forEach(message=>customerPanel.appendChild(textNode('p',message,'cmp-customer-warning')));}
@@ -921,16 +921,59 @@
       Object.entries(labels).forEach(([key,title])=>{
         if(!(key in item.correction_values))return;
         const label=document.createElement('label');label.appendChild(textNode('span',title));
-        const input=document.createElement(key==='complaint_description'?'textarea':'input');input.name=key;
+        const input=document.createElement(['county','sub_county'].includes(key)?'select':key==='complaint_description'?'textarea':'input');input.name=key;
         if(['customer_name','complaint_description'].includes(key))label.className='correction-full';
         if(['timestamp','date_resolved'].includes(key)){
           input.type='datetime-local';input.step='1';input.required=key==='timestamp';
           input.value=(item.correction_values[key]||'').slice(0,19);input.dataset.originalValue=input.value;label.className='correction-date';
-        }else{input.value=item.correction_values[key]||'';if(key==='complaint_description')input.rows=3;}
-        label.appendChild(input);formNode.appendChild(label);
+        }else{if(['county','sub_county'].includes(key))input.add(new Option(item.correction_values[key]||'Not set',item.correction_values[key]||''));input.value=item.correction_values[key]||'';if(key==='complaint_description')input.rows=3;}
+        if(['timestamp','date_resolved'].includes(key)){
+          const wrap=document.createElement('div');wrap.className='complaint-correction-date';
+          const display=document.createElement('input');display.type='text';display.placeholder='dd/mm/yyyy HH:mm';display.required=key==='timestamp';display.dataset.correctionDate=key;display.inputMode='numeric';
+          const format=value=>value?value.slice(8,10)+'/'+value.slice(5,7)+'/'+value.slice(0,4)+' '+value.slice(11,16):'';
+          display.value=format(input.value);
+          display.oninput=()=>{
+            const match=display.value.match(/^(\d{2})\/(\d{2})\/(\d{4}) (\d{2}):(\d{2})$/);
+            if(!display.value&&!display.required){input.value='';display.setCustomValidity('');return;}
+            const value=match?`${match[3]}-${match[2]}-${match[1]}T${match[4]}:${match[5]}`:'';
+            const probe=new Date(value+'+03:00');
+            const valid=match&&Number.isFinite(probe.getTime())&&Number(match[4])<24&&Number(match[5])<60&&new Date(Number(match[3]),Number(match[2])-1,Number(match[1])).getDate()===Number(match[1]);
+            display.setCustomValidity(valid?'':'Use dd/mm/yyyy HH:mm.');if(valid)input.value=value;
+          };
+          const calendar=textNode('button','');calendar.type='button';calendar.className='icon-button';calendar.setAttribute('aria-label','Choose '+title.toLowerCase());
+          calendar.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 11h18"/></svg>';
+          calendar.onclick=()=>{try{input.showPicker();}catch{display.focus();}};
+          input.className='correction-native-picker';input.tabIndex=-1;input.setAttribute('aria-hidden','true');input.onchange=()=>{display.value=format(input.value);display.setCustomValidity('');};
+          wrap.append(display,calendar,input);label.appendChild(wrap);
+        }else label.appendChild(input);
+        formNode.appendChild(label);
       });
       const save=textNode('button','Save correction');save.type='submit';formNode.appendChild(save);editor.appendChild(formNode);$('detailCaseId').closest('.case-title').after(editor);
+      const locationHint=textNode('small','');locationHint.setAttribute('role','status');formNode.insertBefore(locationHint,save);
+      let locationRequest=0;
+      async function loadCorrectionLocations(){
+        const request=++locationRequest,county=formNode.elements.county,sub=formNode.elements.sub_county;
+        if(!county||!sub)return;
+        save.disabled=true;
+        const countyValue=county.value,subValue=sub.value;
+        try{
+          const response=await getJson('location-options/',{case_id:item.case_id,branch:formNode.elements.branch_region?.value||'',county:countyValue});
+          if(request!==locationRequest||!formNode.isConnected)return;
+          let historical=false;
+          for(const [control,options,value,label] of [[county,response.data.counties,countyValue,'Not set'],[sub,response.data.sub_counties,subValue,'Not set']]){
+            locationSelectOptions(control,(options||[]).map(location=>({...location,code:location.name})),label);
+            if(value&&![...control.options].some(option=>option.value===value)){control.add(new Option(value+' (historical value)',value));historical=true;}
+            control.value=value;
+          }
+          sub.disabled=!county.value;locationHint.textContent=historical?'Historical location retained. Choose a listed value when correcting it.':'';
+        }catch(error){if(request===locationRequest){locationHint.replaceChildren(document.createTextNode('Location choices unavailable. Your edits are retained. '));const retry=textNode('button','Retry');retry.type='button';retry.onclick=loadCorrectionLocations;locationHint.appendChild(retry);}}
+        finally{if(request===locationRequest)save.disabled=false;}
+      }
+      formNode.elements.county?.addEventListener('change',()=>{formNode.elements.sub_county.value='';loadCorrectionLocations();});
+      formNode.elements.branch_region?.addEventListener('change',loadCorrectionLocations);
+      editor.addEventListener('toggle',()=>{if(editor.open)loadCorrectionLocations();});
       formNode.addEventListener('submit',async event=>{event.preventDefault();save.disabled=true;try{const fields={...Object.fromEntries(new FormData(formNode)),expected_revision:item.revision,client_request_id:pendingWriteId('correct:'+item.case_id,'complaint-correction')};
+        for(const key of ['county','sub_county'])if(formNode.elements[key])fields[key]=formNode.elements[key].value;
         for(const key of ['timestamp','date_resolved']){
           const input=formNode.elements.namedItem(key);if(!input)continue;
           const original=item.correction_values[key]||'';
@@ -958,6 +1001,12 @@
       : (source.type === 'batch' ? `${source.label} · Uploaded by ${source.actor} · ${source.created_at}` : (source.label || ''));
     $('detailSource').hidden = !$('detailSource').textContent;
     $('detailSync').textContent = `Sheet Sync: ${syncLabel(item.sync_status)}`;
+    if(!item.global_read&&can('complaint.case.sync.retry')){
+      const resync=textNode('button','Re-sync to Sheet');resync.type='button';resync.className='secondary';
+      resync.onclick=async()=>{resync.disabled=true;try{const result=await json('cases/'+encodeURIComponent(item.case_id)+'/sync-retry/',{refresh_snapshot:true,client_request_id:pendingWriteId('resync:'+item.case_id,'complaint-resync')},item.group_id||state.groupId);settleWrite('resync:'+item.case_id);renderDetail(result.case);notify('Sheet refresh queued.');}catch(error){settleWrite('resync:'+item.case_id,error);presentError(error);}finally{resync.disabled=false;}};
+      $('detailSync').appendChild(resync);
+    }
+
     renderEvidence(item.evidence || []); renderActivity(item.updates || []);
     $('evidencePanel').hidden = !!item.global_read; $('activityPanel').hidden = false;
     const actions = item.global_read ? (item.actions || {}) : {

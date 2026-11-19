@@ -225,12 +225,12 @@ def defer_sheet(group, case):
     return True
 
 
-def queue_sheet(group, case, *, evidence=None):
+def queue_sheet(group, case, *, evidence=None, refresh_key=''):
     if not cases.complaint_sheet_projection_enabled(group):
         return None
     control = cases.ensure_case_control(case, group)
     job, _ = reserve_operation(integration='google_sheets', operation_type=SHEET_OPERATION,
-        deduplication_key=f'complaint-browser-sheet:{control.pk}:{control.revision}' + (f':evidence:{evidence.pk}' if evidence else ''),
+        deduplication_key=f'complaint-browser-sheet:{control.pk}:{control.revision}' + (f':refresh:{refresh_key}' if refresh_key else f':evidence:{evidence.pk}' if evidence else ''),
         source_model='ComplaintCaseControl', source_id=str(control.pk), max_attempts=8,
         metadata={'group_id': group.group_id, 'revision': control.revision})
     if job.status not in {'succeeded', 'dead_letter'}:
@@ -371,13 +371,26 @@ def recovery_cases(group, actor):
 
 
 @transaction.atomic
-def request_retry(group, actor, case):
+def request_retry(group, actor, case, *, refresh_snapshot=False, request_id=''):
     if not cases.actor_can_access_case(group, actor, 'complaint.case.sync.retry', case.message_id):
         raise PermissionDenied
     if not cases.complaint_sheet_projection_enabled(group):
         raise cases.ComplaintCaseError('Enable this group’s Sheet projection before retrying.')
     control = cases.ensure_case_control(case, group)
     ComplaintCaseControl.objects.select_for_update().get(pk=control.pk)
+    if refresh_snapshot:
+        key = cases.create_request_id(request_id)
+        active = IntegrationOperation.objects.filter(operation_type=SHEET_OPERATION, source_id=str(control.pk),
+            metadata__revision=control.revision, status__in=['pending', 'retryable_failure', 'running']).exists()
+        if not active:
+            job = queue_sheet(group, case, refresh_key=key)
+            from core.services.compliance_audit import record_event
+            record_event(workflow='complaint_cases', action='complaint.publication.refresh_requested', actor=actor.user,
+                subject_type='complaint_case', subject_id=str(case.pk), request_id=key,
+                deduplication_key=f'complaint-refresh:{job.pk}', metadata={'operation': str(job.pk)})
+        else:
+            ComplaintCaseControl.objects.filter(pk=control.pk).update(sync_status='pending', sync_error='')
+        return case_state(group, actor, case)
     retry_case(group, actor, case)
     sheet = IntegrationOperation.objects.filter(operation_type=SHEET_OPERATION, source_id=str(control.pk)).order_by('-created_at', '-pk').first()
     if sheet is None:

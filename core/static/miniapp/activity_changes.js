@@ -10,7 +10,7 @@
     if (labels[text]) return labels[text];
     if (/^\d{4}-\d{2}-\d{2}(?:T.*)?$/.test(text)) {
       const date = new Date(text.length === 10 ? `${text}T00:00:00+03:00` : text);
-      if (!Number.isNaN(date.getTime())) return new Intl.DateTimeFormat('en-GB', {timeZone:'Africa/Nairobi',day:'2-digit',month:'short',year:'numeric',...(text.length > 10 ? {hour:'2-digit',minute:'2-digit',hour12:false} : {})}).format(date);
+      if (!Number.isNaN(date.getTime())) return new Intl.DateTimeFormat('en-GB', {timeZone:'Africa/Nairobi',day:'2-digit',month:'2-digit',year:'numeric',...(text.length > 10 ? {hour:'2-digit',minute:'2-digit',hour12:false} : {})}).format(date).replace(',', '');
     }
     return text;
   }
@@ -26,7 +26,7 @@
     const next = valueText(change.new_display ?? change.new_value);
     const label = change.label || 'Value';
     const previous = change.previous_recorded !== false && !blank(change.old_value);
-    if (blank(change.new_value)) return previous ? `<div class="activity-change">${escape(label)} removed</div>` : '';
+    if (blank(change.new_value)) return previous ? `<div class="activity-change"><span class="activity-change-label">${escape(label)}:</span> ${textHtml(old)} <span aria-label="changed to">→</span> Not set</div>` : '';
     // A status transition is the outcome of an action, not a correction.
     const outcome = /^(status|decision|installation_status|commissioning_status)$/.test(change.field || '') ||
       (change.field === 'value' && labels[String(change.new_value)]);

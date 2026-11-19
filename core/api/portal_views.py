@@ -4314,6 +4314,19 @@ def portal_publication_attempt(request):
     )
 
     body = _portal_request_data(request)
+    if (body or {}).get('refresh_snapshot') is True:
+        from core.services.portal_publication import refresh_farmer_publication
+        try:
+            farmer = JawabuFarmerMaster.objects.get(pk=(body or {}).get('farmer_id'))
+        except (JawabuFarmerMaster.DoesNotExist, ValueError, ValidationError):
+            return JsonResponse({'ok': False, 'error': 'Case not found.'}, status=404)
+        if error := _portal_capability_error(request, 'portal.publication.retry', farmer):
+            return error
+        operations = refresh_farmer_publication(farmer, request_id=_portal_request_id(request, body),
+            actor=getattr(request, 'portal_user', None), actor_label=_portal_sender_from_request(request))
+        if not operations:
+            return JsonResponse({'ok': False, 'error': 'Sheet publication is unavailable for this case.'}, status=400)
+        return JsonResponse({'ok': True, 'publication': publication_payload(farmer), 'message': 'Sheet refresh queued.'}, status=202)
     operation_id = str((body or {}).get('operation_id') or '').strip()
     if not operation_id:
         return JsonResponse({'ok': False, 'error': 'operation_id is required.'}, status=400)
@@ -5597,6 +5610,9 @@ def portal_farmer_detail(request, farmer_id: str):
         from core.services.portal_case_corrections import correction_payload
         case360['correction'] = correction_payload(farmer)
     case360['can_correct'] = can_correct_case
+    from core.services.portal_permissions import portal_access_decision
+    case360['can_resync'] = bool(actor and portal_access_decision(actor, 'portal.publication.retry',
+        access=getattr(request, 'portal_access', None), resource=farmer).allowed)
     logger.info(
         'Portal Case History serialized farmer_id=%s request_id=%s duration_ms=%s',
         farmer.id, request_id or '-', int((time.monotonic() - started_at) * 1000),
@@ -5641,6 +5657,9 @@ def portal_farmer_case_correction(request, farmer_id: str):
     case360['decision_context'] = decision_context(farmer, approval_payload(farmer))
     case360['legacy'] = case_payload(farmer)
     case360['can_correct'] = True
+    from core.services.portal_permissions import portal_access_decision
+    case360['can_resync'] = portal_access_decision(getattr(request, 'portal_user', None), 'portal.publication.retry',
+        access=getattr(request, 'portal_access', None), resource=farmer).allowed
     case360['correction'] = correction_payload(farmer)
     return JsonResponse({'ok': True, 'case360': case360})
 
