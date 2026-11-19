@@ -920,6 +920,26 @@
       "sha256": "4dc37a8a9f155936f25c37f0f3ed3fc4311cfb9ae1dd7ed19457069de10fc57f",
       "classification": "synthetic_ui_review",
       "purpose": "User-requested synthetic Portal Before/A/B review evidence; proposed options only, no design-baseline acceptance. Source and capture context: docs/ui-standard/reviews/portal-ux-options-2026-10-29/manifest.json"
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/portal-chronology-2026-11-17/tat-390.png": {
+      "sha256": "7b5489dd6143076a87d84fe8767f73b531c61c0359553e2b3fb90caba6e00154",
+      "classification": "synthetic_ui_review",
+      "purpose": "Synthetic native Portal chronology and numbering evidence; source and capture context in docs/ui-standard/reviews/2026-11-17-portal-chronology-search-orders.md. No customer data or approval of design baselines."
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/portal-chronology-2026-11-17/tat-1280.png": {
+      "sha256": "0fe09d2ebfda4d35f4215e6046553223dac8fbc8e3e07b5f0776fd54b3b5feb7",
+      "classification": "synthetic_ui_review",
+      "purpose": "Synthetic native Portal chronology and numbering evidence; source and capture context in docs/ui-standard/reviews/2026-11-17-portal-chronology-search-orders.md. No customer data or approval of design baselines."
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/portal-chronology-2026-11-17/order-390.png": {
+      "sha256": "9cd7eda6ff04a63f25ebb06dca079c9ca15c76cb74a63ad7f7cc0dbc2b94e10f",
+      "classification": "synthetic_ui_review",
+      "purpose": "Synthetic native Portal chronology and numbering evidence; source and capture context in docs/ui-standard/reviews/2026-11-17-portal-chronology-search-orders.md. No customer data or approval of design baselines."
+    },
+    "docs/ui-standard/reviews/portal-ux-options-2026-10-29/assets/portal-chronology-2026-11-17/order-1280.png": {
+      "sha256": "b7305f0a7d172b477a04e469af75989cc592ced11d79002b2a1f4634d2d8de03",
+      "classification": "synthetic_ui_review",
+      "purpose": "Synthetic native Portal chronology and numbering evidence; source and capture context in docs/ui-standard/reviews/2026-11-17-portal-chronology-search-orders.md. No customer data or approval of design baselines."
     }
   }
 }

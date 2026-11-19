@@ -1,5 +1,20 @@
 # Changelog
 
+## 17/11/2026 - Portal chronology, search and order numbering
+
+- Share seven ordered Portal stages across Case History, progress, reports and
+  TAT settings. Run one current-stage clock; preserve unknown historical timing,
+  holds, rework and approval invalidation. Signed HB handover ends the order
+  stage; commissioning ends delivery timing.
+- Match all entered name words in any order while retaining scope and identifier
+  searches before paging.
+- Fix the shadowed order-number lookup route. Resolve numbers from selected
+  group/partner, honor explicit settings over older released slots, and keep
+  later cancellations reusable. Show lookup failures outside the number field
+  with Retry; display the order date as `dd/mm/yyyy`.
+- No migration, permission or dependency change. See
+  `docs/runbooks/portal-timing-search-order-numbers.md`. Not deployed by this change.
+
 ## 10 November 2026 - Historical identity and additional-unit review
 
 - Allow explicitly reviewed initial-import rows with missing IDs to retain a

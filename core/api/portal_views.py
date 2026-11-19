@@ -10,6 +10,8 @@ branch, product, and group grants.
 """
 from __future__ import annotations
 
+from core.services.portal_search import case_search
+
 import json
 import hashlib
 import logging
@@ -470,16 +472,9 @@ def _apply_portal_search(qs, *, params):
     search = str(params.get('search') or '').strip()
     if not search:
         return qs
-    return qs.filter(
-        Q(customer_name__icontains=search)
-        | Q(national_id__icontains=search)
-        | Q(primary_phone__icontains=search)
-        | Q(customer_no__icontains=search)
-        | Q(county__icontains=search)
-        | Q(branch__icontains=search)
-        | Q(order_number__icontains=search)
-        | Q(invoice_number__icontains=search)
-    )
+    return qs.filter(case_search(search, fields=(
+        'national_id', 'primary_phone', 'customer_no', 'county', 'branch', 'order_number', 'invoice_number',
+    )))
 
 
 def _apply_portal_ordering(qs, *, params):
@@ -5669,6 +5664,7 @@ def portal_requisition_numbering(request):
     if access_error:
         return access_error
     from core.models import GroupSheetConfiguration, RequisitionBatch
+    from requisitions.services import proposed_number
     from requisitions.models import OrderSequenceEvent, OrderSequenceState
     if request.method == 'GET':
         from core.services.requisition_partners import PARTNER_CHOICES, order_number_for_partner
@@ -5692,7 +5688,7 @@ def portal_requisition_numbering(request):
                     'group_name': group.display_name or group.group_id,
                     'partner': partner,
                     'next_number': next_number,
-                    'next_order_number': order_number_for_partner(partner, next_number),
+                    'next_order_number': order_number_for_partner(partner, proposed_number(row) if row else next_number),
                     'revision': row.revision if row else 0,
                     'initialized': bool(row),
                 })
@@ -5765,8 +5761,11 @@ def portal_requisition_numbering(request):
     return JsonResponse({'ok': True, 'group_id': group.group_id, 'partner': row.partner, 'next_number': row.next_number, 'revision': row.revision})
 
 
-def _active_requisition_sequence(request, partner: str):
-    rows = list(_requisition_sequence_queryset(request, partner)[:2])
+def _active_requisition_sequence(request, partner: str, group_id=None):
+    query = _requisition_sequence_queryset(request, partner)
+    if group_id is not None:
+        query = query.filter(group_configuration_id=group_id)
+    rows = list(query[:2])
     if not rows:
         if getattr(request, 'portal_access', None) is None:
             # Authentication-disabled local/test mode has no governed staff or
@@ -6311,7 +6310,13 @@ def portal_requisition_preview(request):
         partner = require_single_fulfillment_partner(preview_farmers)
     except (json.JSONDecodeError, TypeError, ValueError) as exc:
         return JsonResponse({'ok': False, 'code': 'order_partner_invalid', 'error': str(exc) or 'Select at least one customer.'}, status=400)
-    sequence, sequence_error = _active_requisition_sequence(request, partner)
+    access_error = _portal_farmers_scope_error(request, preview_farmers, capability='portal.requisition.finalize')
+    if access_error:
+        return access_error
+    groups = {farmer.group_configuration_id for farmer in preview_farmers}
+    if len(groups) > 1:
+        return JsonResponse({'ok': False, 'error': 'Select cases from one group for this order.'}, status=400)
+    sequence, sequence_error = _active_requisition_sequence(request, partner, next(iter(groups)))
     if sequence_error:
         return sequence_error
     from requisitions.services import proposed_number, unsigned_daily_orders
@@ -7910,7 +7915,7 @@ def portal_invoice_pool(request):
     if search:
         invoices = invoices.filter(
             Q(invoice_no__icontains=search)
-            | Q(customer_name__icontains=search)
+            | case_search(search, name_fields=('customer_name',))
             | Q(customer_id__icontains=search)
             | Q(customer_phone__icontains=search)
             | Q(matched_order_number__icontains=search)
@@ -8035,10 +8040,28 @@ def portal_requisition_options(request):
         partner = normalize_partner_value(request.GET.get('partner') or 'HB')
         if partner not in dict(PARTNER_CHOICES):
             raise ValueError('Choose HB or Eco-conserve.')
-        sequence, error = _active_requisition_sequence(request, partner)
+        group_id = None
+        ids = request.GET.getlist('farmer_ids')
+        if ids:
+            from core.models import JawabuFarmerMaster
+            from core.services.requisition_partners import require_single_fulfillment_partner
+            ids = list(dict.fromkeys(str(uuid.UUID(value)) for value in ids))
+            farmers = list(JawabuFarmerMaster.objects.filter(pk__in=ids))
+            if len(farmers) != len(ids):
+                raise ValueError('A selected case is unavailable. Refresh and select again.')
+            if error := _portal_farmers_scope_error(request, farmers, capability='portal.requisition.finalize'):
+                return error
+            groups = {farmer.group_configuration_id for farmer in farmers}
+            if len(groups) != 1:
+                raise ValueError('Select cases from one group for this order.')
+            group_id = next(iter(groups))
+            partner = require_single_fulfillment_partner(farmers)
+        sequence, error = _active_requisition_sequence(request, partner, group_id)
         if error:
             return error
-        return JsonResponse({'ok': True, 'order_number': order_number_for_partner(partner, proposed_number(sequence))})
+        return JsonResponse({'ok': True, 'order_number': order_number_for_partner(partner, proposed_number(sequence)),
+                             'fulfillment_partner': partner, 'group_id': sequence.group_configuration.group_id,
+                             'sequence_revision': sequence.revision})
     except ValueError as exc:
         return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
 
@@ -8315,7 +8338,7 @@ def portal_invoice_farmer_candidates(request):
     query = Q()
     if search:
         query |= (
-            Q(customer_name__icontains=search)
+            case_search(search)
             | Q(national_id__icontains=search)
             | Q(primary_phone__icontains=search)
             | Q(order_number__icontains=search)
@@ -8860,7 +8883,7 @@ def portal_invoice_name_change_replacement_candidates(request, item_id: str):
     ).exclude(pk=item.original_invoice_id).exclude(status__in=['deleted', 'superseded']), request)
     if search:
         invoices = invoices.filter(
-            Q(invoice_no__icontains=search) | Q(customer_name__icontains=search)
+            Q(invoice_no__icontains=search) | case_search(search, name_fields=('customer_name',))
             | Q(customer_id__icontains=search) | Q(customer_phone__icontains=search)
         )
     expected_id = normalize_national_id(item.farmer.national_id)
@@ -9447,7 +9470,7 @@ def portal_payment_candidates(request):
     )
     if search:
         queryset = queryset.filter(
-            Q(customer_name__icontains=search)
+            case_search(search)
             | Q(national_id__icontains=search)
             | Q(primary_phone__icontains=search)
             | Q(order_number__icontains=search)

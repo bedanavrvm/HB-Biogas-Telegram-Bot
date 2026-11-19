@@ -4705,10 +4705,10 @@ class JawabuCase360Tests(TestCase):
 
         tat = calculate_case_tat(farmer, now=start + timedelta(minutes=180))
 
-        self.assertEqual(tat['stages'][0]['minutes'], '60.00')
-        self.assertEqual(tat['stages'][0]['elapsed_seconds'], 3600)
-        self.assertFalse(tat['stages'][0]['running'])
-        self.assertEqual(tat['stages'][0]['excluded_deferred_minutes'], '60.00')
+        self.assertEqual(tat['stages'][1]['minutes'], '60.00')
+        self.assertEqual(tat['stages'][1]['elapsed_seconds'], 3600)
+        self.assertFalse(tat['stages'][1]['running'])
+        self.assertEqual(tat['stages'][1]['excluded_deferred_minutes'], '60.00')
 
     def test_new_unit_application_starts_a_fresh_tat_cycle(self):
         from core.services.jawabu_case360 import calculate_case_tat, record_pipeline_event
@@ -4723,10 +4723,10 @@ class JawabuCase360Tests(TestCase):
         tat = calculate_case_tat(farmer, now=new_start + timedelta(hours=2))
 
         self.assertEqual(tat['previous_cycle_count'], 1)
-        self.assertEqual(tat['stages'][0]['completed_at'], None)
-        self.assertEqual(tat['stages'][0]['minutes'], '120.00')
-        self.assertEqual(tat['stages'][0]['elapsed_seconds'], 7200)
-        self.assertTrue(tat['stages'][0]['running'])
+        self.assertEqual(tat['stages'][1]['completed_at'], None)
+        self.assertEqual(tat['stages'][1]['minutes'], '120.00')
+        self.assertEqual(tat['stages'][1]['elapsed_seconds'], 7200)
+        self.assertTrue(tat['stages'][1]['running'])
         self.assertEqual(tat['elapsed_seconds'], 7200)
 
     def test_case360_exposes_business_sections_without_raw_payload(self):

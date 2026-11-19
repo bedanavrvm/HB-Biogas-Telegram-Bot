@@ -394,6 +394,10 @@ def _validate_installation(action: HomeBiogasAction, payload: dict, *, correctio
         raise HomeBiogasActionError('Choose the actual installation date.')
     if installation_date and installation_date > timezone.localdate():
         raise HomeBiogasActionError('The actual installation date cannot be in the future.')
+    order_date = action.source_requisition_batch.requisition_date if action.source_requisition_batch_id else None
+    if (installation_date and order_date and installation_date < order_date
+            and not action.legacy_origin_id and installation_date != action.installation_date):
+        raise HomeBiogasActionError('The actual installation date cannot be earlier than the order date.')
     if report and report not in dict(HomeBiogasAction.REPORT_CHOICES):
         raise HomeBiogasActionError('Choose a valid installation report status.')
     values = {

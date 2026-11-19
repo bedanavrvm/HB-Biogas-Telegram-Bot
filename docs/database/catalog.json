@@ -1474,6 +1474,7 @@
         "report_delivery/tests_one_off.py",
         "report_delivery/tests_settings.py",
         "requisitions/tests.py",
+        "requisitions/tests_number_concurrency.py",
         "requisitions/tests_operations_api.py",
         "staff_auth/tests_complaints_transport.py",
         "staff_auth/tests_production_transport.py",
@@ -1581,6 +1582,7 @@
         "requisitions/management/commands/audit_finance_order_links.py",
         "requisitions/models.py",
         "requisitions/tests.py",
+        "requisitions/tests_number_concurrency.py",
         "requisitions/tests_operations_api.py",
         "staff_auth/tests_complaints_transport.py",
         "staff_auth/tests_production_transport.py",
@@ -2063,10 +2065,12 @@
       "table": "core_jawabuapprovalrecord",
       "used_by": [
         "core/services/jawabu_approvals.py",
+        "core/services/jawabu_case360.py",
         "core/services/jawabu_pipeline.py",
         "core/services/miniapp_deletion_registry.py",
         "core/services/payment_documents.py",
         "core/services/portal_full_reset.py",
+        "core/services/portal_report_insights.py",
         "requisitions/tests.py"
       ]
     },
@@ -6597,6 +6601,7 @@
         "origination/tests_phone_identity.py",
         "portal_lafs/tests.py",
         "portal_legacy/tests.py",
+        "requisitions/tests_operations_api.py",
         "staff_auth/tests_initial_setup.py"
       ],
       "django_model": "core.UserProfile",
@@ -6621,6 +6626,7 @@
         "origination/tests_phone_identity.py",
         "portal_lafs/tests.py",
         "portal_legacy/tests.py",
+        "requisitions/tests_operations_api.py",
         "staff_auth/tests_initial_setup.py"
       ]
     },
@@ -7439,7 +7445,6 @@
         "core/services/jawabu_pipeline.py",
         "core/services/portal_full_reset.py",
         "hb_operations/services.py",
-        "hb_operations/tests.py",
         "portal_legacy/fence.py",
         "portal_legacy/services.py",
         "portal_legacy/tests_updates.py"
@@ -8753,7 +8758,8 @@
       ],
       "direct_orm_writers": [
         "core/services/portal_full_reset.py",
-        "requisitions/services.py"
+        "requisitions/services.py",
+        "requisitions/tests_operations_api.py"
       ],
       "django_model": "requisitions.OrderNumberClaim",
       "domain": "requisitions",
@@ -8779,7 +8785,8 @@
         "requisitions/migrations/0004_bind_order_workspaces.py",
         "requisitions/models.py",
         "requisitions/services.py",
-        "requisitions/tests.py"
+        "requisitions/tests.py",
+        "requisitions/tests_operations_api.py"
       ]
     },
     {
@@ -8792,7 +8799,8 @@
       ],
       "direct_orm_writers": [
         "core/services/portal_full_reset.py",
-        "requisitions/services.py"
+        "requisitions/services.py",
+        "requisitions/tests_operations_api.py"
       ],
       "django_model": "requisitions.OrderSequenceEvent",
       "domain": "requisitions",
@@ -8814,7 +8822,8 @@
         "portal_legacy/tests_updates.py",
         "requisitions/migrations/0001_initial.py",
         "requisitions/models.py",
-        "requisitions/services.py"
+        "requisitions/services.py",
+        "requisitions/tests_operations_api.py"
       ]
     },
     {
@@ -8831,6 +8840,7 @@
       ],
       "direct_orm_writers": [
         "requisitions/tests.py",
+        "requisitions/tests_number_concurrency.py",
         "requisitions/tests_operations_api.py"
       ],
       "django_model": "requisitions.OrderSequenceState",
@@ -8856,6 +8866,7 @@
         "requisitions/models.py",
         "requisitions/services.py",
         "requisitions/tests.py",
+        "requisitions/tests_number_concurrency.py",
         "requisitions/tests_operations_api.py"
       ]
     },

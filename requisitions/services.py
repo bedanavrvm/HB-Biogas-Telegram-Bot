@@ -61,7 +61,21 @@ def order_for_farmer(farmer, *, lock=False):
 
 
 def proposed_number(sequence, *, excluding_batch=None):
-    released = sequence.number_claims.filter(batch__isnull=True, retired=False).order_by('number').first()
+    released_slots = sequence.number_claims.filter(batch__isnull=True, retired=False)
+    adjustment = sequence.events.filter(action='adjusted').order_by('-created_at', '-pk').first()
+    if adjustment:
+        # Only a later cancellation may override IT's explicitly selected slot.
+        from django.db.models import Q
+        from core.services.requisition_partners import order_number_for_partner
+        prefix = order_number_for_partner(sequence.partner, 1).rsplit('-', 1)[0] + '-'
+        recent = OrderWorkspaceEvent.objects.filter(
+            batch__group_configuration_id=sequence.group_configuration_id,
+            batch__fulfillment_partner=sequence.partner, action='cancelled', created_at__gt=adjustment.created_at,
+        ).values_list('metadata__order_number', flat=True)
+        numbers = [int(value[len(prefix):]) for value in recent
+                   if isinstance(value, str) and value.startswith(prefix) and value[len(prefix):].isdigit()]
+        released_slots = released_slots.filter(Q(number=sequence.next_number) | Q(number__in=numbers))
+    released = released_slots.order_by('number').first()
     if released:
         return released.number
     # An IT sequence adjustment may place the counter on an occupied slot.

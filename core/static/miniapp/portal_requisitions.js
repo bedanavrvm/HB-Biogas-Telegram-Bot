@@ -44,6 +44,8 @@
   }
 
   function persistSelection() {
+    const dateDisplay = el('batch-req-date-display');
+    if (dateDisplay) dateDisplay.textContent = el('batch-req-date')?.value ? deps.fmtDate(el('batch-req-date').value) : 'dd/mm/yyyy';
     if (!selectionRestored || !selectionStorageKey) return;
     if (el('batch-req-date')) selectedDate = el('batch-req-date').value;
     try {
@@ -473,10 +475,9 @@
     if (!panel) return;
     const count = state().selectedRequisitions.size;
     if (count > 0) {
-      const opening = panel.style.display !== 'block' || el('batch-prepare-fields')?.hidden;
       panel.style.display = 'block';
       if (el('batch-prepare-fields')) el('batch-prepare-fields').hidden = false;
-      if (opening) updateProposedNumber();
+      updateProposedNumber();
       const badge = el('batch-selected-count');
       const visibleIds = new Set([...document.querySelectorAll('#req-list .farmer-card-checkbox')].map(node => node.dataset.id));
       const hiddenCount = [...state().selectedRequisitions].filter(id => !visibleIds.has(id)).length;
@@ -493,14 +494,34 @@
     const field = el('batch-order-num');
     if (!field || !state().capabilities?.has('portal.requisition.finalize')) return;
     field.value = '';
-    field.placeholder = 'Loading order number…';
+    field.placeholder = 'Loading...';
+    let status = el('batch-order-number-status');
+    if (!status) {
+      status = document.createElement('small');
+      status.id = 'batch-order-number-status';
+      status.className = 'field-help';
+      status.setAttribute('role', 'status');
+      field.closest('.order-selection-fields').insertAdjacentElement('afterend', status);
+      field.setAttribute('aria-describedby', status.id);
+    }
+    status.replaceChildren();
     try {
-      const result = await deps.apiFetch(`/requisition-queue/options/?partner=${encodeURIComponent(state().requisitionPartner || 'HB')}`);
+      const params = new URLSearchParams({partner: state().requisitionPartner || 'HB'});
+      for (const id of state().selectedRequisitions) params.append('farmer_ids', id);
+      const result = await deps.apiFetch(`/requisition-queue/options/?${params}`);
       if (request !== numberRequest) return;
-      if (result.ok && result.data?.ok) field.value = result.data.order_number;
-      else field.placeholder = result.data?.error || 'Preview to check the number';
-    } catch (_) {
-      if (request === numberRequest) field.placeholder = 'Preview to check the number';
+      if (!result.ok || !result.data?.ok) throw new Error(result.data?.error || 'Could not load the order number. Retry.');
+      field.value = result.data.order_number;
+      field.placeholder = '';
+      status.replaceChildren();
+    } catch (error) {
+      if (request !== numberRequest) return;
+      field.placeholder = 'Unavailable';
+      status.textContent = error.message + ' ';
+      const retry = document.createElement('button');
+      retry.type = 'button'; retry.className = 'btn btn-secondary'; retry.textContent = 'Retry';
+      retry.addEventListener('click', updateProposedNumber);
+      status.append(retry);
     }
   }
 
@@ -508,18 +529,32 @@
     if (!state().capabilities?.has('portal.requisition.sequence.manage') || !el('requisition-sequence-panel')) return;
     const response = await deps.apiFetch('/requisition-numbering/');
     sequencePartner = String(el('requisition-sequence-partner')?.value || sequencePartner || 'HB');
-    const row = (response.data?.sequences || []).find(item => item.partner === sequencePartner);
+    const rows = response.data?.sequences || [];
+    const groups = [...new Map(rows.map(row => [row.group_id, row])).values()];
+    let groupSelect = el('requisition-sequence-group');
+    if (groups.length > 1 && !groupSelect) {
+      const label = document.createElement('label'); label.textContent = 'Group';
+      groupSelect = document.createElement('select'); groupSelect.id = 'requisition-sequence-group';
+      for (const group of groups) {
+        const option = document.createElement('option'); option.value = group.group_id; option.textContent = group.group_name;
+        groupSelect.append(option);
+      }
+      label.append(groupSelect); el('requisition-sequence-panel').prepend(label);
+      groupSelect.addEventListener('change', loadOrderSequence);
+    }
+    sequenceGroupId = groupSelect?.value || sequenceGroupId || groups[0]?.group_id || '';
+    const row = rows.find(item => item.partner === sequencePartner && item.group_id === sequenceGroupId);
     const status = el('requisition-sequence-status');
     if (!response.ok || !response.data?.ok) {
       if (status) status.textContent = response.data?.error || 'Could not load the official sequence.';
       return;
     }
     sequenceRevision = Number(row?.revision || 0);
-    if (el('requisition-sequence-panel-summary')) el('requisition-sequence-panel-summary').textContent = (response.data?.sequences || []).map(item => `${item.partner === 'ECOCONSERVE' ? 'Eco' : 'HB'}: ${item.next_number}`).join(' · ') || 'Not initialized';
+    if (el('requisition-sequence-panel-summary')) el('requisition-sequence-panel-summary').textContent = (response.data?.sequences || []).map(item => `${item.partner === 'ECOCONSERVE' ? 'Eco' : 'HB'}: ${item.next_order_number}`).join(' · ') || 'Not initialized';
     sequenceGroupId = String(row?.group_id || '');
     if (el('requisition-sequence-next')) el('requisition-sequence-next').value = row?.next_number || '';
     if (status) status.textContent = row
-      ? `Last finalized: ${row.last_finalized_number || 'none'} · next: ${row.next_number}`
+      ? `Next available: ${row.next_order_number}`
       : 'Not initialized. Enter the next number shown on the official paperwork.';
   }
 
@@ -854,6 +889,8 @@
         preview_token: data.preview_token,
         finalize_request_id: requisitionRequestId(),
       };
+      numberRequest += 1;
+      el('batch-order-number-status')?.replaceChildren();
       if (el('batch-order-num')) el('batch-order-num').value = data.order_number;
       openRequisitionPreview(data, { readOnly: false });
     } catch (err) {

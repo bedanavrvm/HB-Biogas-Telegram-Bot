@@ -1496,6 +1496,36 @@
       "sha256": "97cf2944c6523606ee05bec756c83dddaffa243ce893bae073616c0418962f89",
       "review_reference": "docs/ui-standard/reviews/2026-11-17-portal-laf-gallery-controls.md",
       "reason": "User-requested compact LAF icon, grouped client-media controls and inline repayment pencil. Native signed Django/PostgreSQL Playwright and real PDF evidence recorded; source patterns reused and Phase 6 hold retained."
+    },
+    {
+      "path": "core/static/miniapp/portal_farmer_sheet.js",
+      "sha256": "b5809ed6843415dc4a74da24ce7c7f0f6cbc32dc65579ac8845faff34065584a",
+      "review_reference": "docs/ui-standard/reviews/2026-11-17-portal-chronology-search-orders.md",
+      "reason": "User-requested chronological Portal timing and selected-group official numbering; reuse existing progress, paired fields, calendar and inline Retry. Native signed Django/PostgreSQL Playwright evidence recorded; Phase 6 hold retained."
+    },
+    {
+      "path": "core/static/miniapp/portal_requisitions.js",
+      "sha256": "b8e7c25452f27b524562cd85ff94d0357b26b8dbe0c454bf4fa4030c2a1090be",
+      "review_reference": "docs/ui-standard/reviews/2026-11-17-portal-chronology-search-orders.md",
+      "reason": "User-requested chronological Portal timing and selected-group official numbering; reuse existing progress, paired fields, calendar and inline Retry. Native signed Django/PostgreSQL Playwright evidence recorded; Phase 6 hold retained."
+    },
+    {
+      "path": "core/static/miniapp/portal.css",
+      "sha256": "38f40da4fe5bb7fd0df9f6a58d17aa2963dfe72e3102ae80a3d207d9aec36c34",
+      "review_reference": "docs/ui-standard/reviews/2026-11-17-portal-chronology-search-orders.md",
+      "reason": "User-requested chronological Portal timing and selected-group official numbering; reuse existing progress, paired fields, calendar and inline Retry. Native signed Django/PostgreSQL Playwright evidence recorded; Phase 6 hold retained."
+    },
+    {
+      "path": "core/templates/base_shell.html",
+      "sha256": "7fc5961f5d68a90dbe1d2a4dae3b29068eeb2cc010673e6713a7932b351ebbe6",
+      "review_reference": "docs/ui-standard/reviews/2026-11-17-portal-chronology-search-orders.md",
+      "reason": "User-requested chronological Portal timing and selected-group official numbering; reuse existing progress, paired fields, calendar and inline Retry. Native signed Django/PostgreSQL Playwright evidence recorded; Phase 6 hold retained."
+    },
+    {
+      "path": "core/templates/portal/portal.html",
+      "sha256": "d8a0f61299b4661b799eabe38842f347b82fd23c2006c5403cda400af918828c",
+      "review_reference": "docs/ui-standard/reviews/2026-11-17-portal-chronology-search-orders.md",
+      "reason": "User-requested chronological Portal timing and selected-group official numbering; reuse existing progress, paired fields, calendar and inline Retry. Native signed Django/PostgreSQL Playwright evidence recorded; Phase 6 hold retained."
     }
   ],
   "source_roots": [

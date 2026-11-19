@@ -108,7 +108,8 @@ def prepare(preset, supplied, queryset):
             queryset = queryset.filter(selection)
     if filters.get('search'):
         term = filters['search'][:120]
-        match = Q(customer_name__icontains=term)
+        from core.services.portal_search import case_search
+        match = case_search(term)
         reference = term.upper().removeprefix('JBL-')
         if reference.isdigit() and len(reference) <= 19 and int(reference) <= 9223372036854775807:
             match |= Q(case_reference_number=int(reference))
@@ -190,7 +191,12 @@ def insights(preset, queryset, filters, period):
         if not batch:
             break
         hb = defaultdict(list)
+        approvals = defaultdict(list)
         if preset != 'finance':
+            from core.models import JawabuApprovalRecord
+            for approval in JawabuApprovalRecord.objects.filter(farmer_id__in=[r.pk for r in batch],
+                    payment_document__isnull=True, gate__in=['credit', 'final_review']).order_by('-decided_at', '-created_at'):
+                approvals[approval.farmer_id].append(approval)
             for event in HomeBiogasActionEvent.objects.filter(
                 action__farmer_id__in=[r.pk for r in batch],
                 event_type__in=['order.released_to_hb', 'installation.progressed', 'commissioning.completed'],
@@ -202,7 +208,7 @@ def insights(preset, queryset, filters, period):
             if preset == 'pipeline' and (period and received_at is None or received_at is not None and not within(received_at) or filters.get('stage') and state not in filters['stage']):
                 continue
             from core.services.portal_report_timing import report_timing
-            timing = report_timing(record, now=now, events=record._report_events, hb_events=hb[record.pk], targets=targets, holidays=holidays) if preset != 'finance' else {}
+            timing = report_timing(record, now=now, events=record._report_events, hb_events=hb[record.pk], targets=targets, holidays=holidays, approvals=approvals[record.pk]) if preset != 'finance' else {}
             completed = [s for s in timing.get('stages', []) if s.get('completed_at') and within(s['completed_at'])]
             from core.services.jawabu_pipeline import last_physical_jbl_visit
             from core.services.jawabu_validation import parse_business_date

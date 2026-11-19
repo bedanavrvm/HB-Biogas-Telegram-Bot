@@ -2,7 +2,7 @@
 const path = require('node:path');
 const fs = require('node:fs');
 const { test, expect } = require('playwright/test');
-const { mountPortalShell } = require('./fixtures/portal_shell');
+const { mountPortalShell, addOfflineStyle } = require('./fixtures/portal_shell');
 const asset = name => path.resolve(__dirname, '../static/miniapp', name);
 const portalTemplate = fs.readFileSync(path.resolve(__dirname, '../templates/portal/portal.html'), 'utf8');
 const orderPanel = portalTemplate.slice(portalTemplate.indexOf('    <div id="requisition-batch-panel"'), portalTemplate.indexOf('    <div id="req-list"'));
@@ -97,7 +97,7 @@ for (const serverCards of [false,true]) for (const width of [320,768]) {
     await boot(page,'requisition',serverCards);
     await page.setViewportSize({width,height:850});
     await page.evaluate(() => document.body.classList.add('portal-app','workflow-standard'));
-    for (const name of ['base.css','components.css','portal.css','workflow_standard.css','theme.css']) await page.addStyleTag({path:asset(name)});
+    for (const name of ['base.css','components.css','portal.css','workflow_standard.css','theme.css']) await addOfflineStyle(page,name);
     await page.addScriptTag({path:asset('vendor-lucide-1.44.0.min.js')});
     await page.evaluate(() => window.lucide.createIcons());
     await expect(page.locator('#requisition-batch-panel')).toBeHidden();
@@ -105,7 +105,7 @@ for (const serverCards of [false,true]) for (const width of [320,768]) {
     await expect(page.locator('#batch-prepare-fields')).toBeVisible();
     await expect(page.locator('#batch-prepare-order')).toHaveCount(0);
     await expect(page.locator('#batch-order-num')).toHaveValue('HB-104');
-    const [numberBox, dateBox] = await page.evaluate(() => ['batch-order-num','batch-req-date'].map(id => {const box = document.getElementById(id).getBoundingClientRect(); return {x:box.x,y:box.y,width:box.width};}));
+    const [numberBox, dateBox] = await page.evaluate(() => ['batch-order-num','batch-req-date'].map(id => {const node = document.getElementById(id); const box = (node.closest('.portal-filter-date-control') || node).getBoundingClientRect(); return {x:box.x,y:box.y,width:box.width};}));
     expect(dateBox.y).toBeCloseTo(numberBox.y, 0);
     expect(dateBox.x).toBeGreaterThan(numberBox.x + numberBox.width);
     expect((await page.locator('#requisition-batch-panel').boundingBox()).height).toBeLessThan(180);
@@ -113,6 +113,16 @@ for (const serverCards of [false,true]) for (const width of [320,768]) {
     await expect(page.locator('#batch-clear-selection svg')).toBeVisible();
     expect((await page.locator('#batch-clear-selection').boundingBox()).width).toBe(44);
     await page.locator('#batch-req-date').fill('2026-10-07');
+    await page.locator('#batch-req-date').dispatchEvent('change');
+    await expect(page.locator('#batch-req-date-display')).toHaveText('07/10/2026');
+    await page.locator('#batch-req-date').fill('2026-11-23');
+    await page.locator('#batch-req-date').dispatchEvent('change');
+    await expect(page.locator('#batch-req-date-display')).toHaveText('23/11/2026');
+    await page.locator('#batch-req-date').fill('2026-12-01');
+    await page.locator('#batch-req-date').dispatchEvent('change');
+    await expect(page.locator('#batch-req-date-display')).toHaveText('01/12/2026');
+    await page.locator('#batch-req-date').fill('2026-10-07');
+    await page.locator('#batch-req-date').dispatchEvent('change');
     for (const theme of ['light','dark']) {
       await page.evaluate(theme => {
         const root=document.documentElement;root.dataset.miniappColorScheme=theme;
@@ -155,10 +165,39 @@ test('order number lookup failure leaves the date and preview usable', async ({p
     };
   });
   await page.locator('.farmer-card-checkbox').check();
-  await expect(page.locator('#batch-order-num')).toHaveAttribute('placeholder','Preview to check the number');
+  await expect(page.locator('#batch-order-num')).toHaveAttribute('placeholder','Unavailable');
+  await expect(page.locator('#batch-order-number-status')).toContainText('Synthetic offline lookup');
+  await expect(page.locator('#batch-order-num')).toHaveValue('');
+  await page.evaluate(() => {
+    const original=PortalMiniAppApi.apiFetch;
+    PortalMiniAppApi.apiFetch=async (...args) => args[0].startsWith('/requisition-queue/options/')
+      ? {ok:true,data:{ok:true,order_number:'HB-104'}} : original(...args);
+  });
+  await page.locator('#batch-order-number-status button').click();
+  await expect(page.locator('#batch-order-num')).toHaveValue('HB-104');
+  await expect(page.locator('#batch-order-number-status')).toBeEmpty();
   await expect(page.locator('#batch-req-date')).toBeVisible();
   await expect(page.locator('#btn-generate-requisition')).toBeEnabled();
   expect(errors).toEqual([]);
+});
+
+test('case progress and TAT use one chronological stage and show unknown timing without a zero timer', async ({page}) => {
+  await boot(page,'all');
+  await page.evaluate(() => {
+    const labels = ['Intake','JBL Visit','Credit Decision','Final Decision','Order Assigned/Sent to HB','HB Installation','HB Commissioning'];
+    const target = document.createElement('section'); target.id='synthetic-tat'; document.body.append(target);
+    PortalMiniAppFarmerSheet.renderCase360({sections:{identity:{customer_name:'Synthetic case'}}, workflow_state:'order', tat:{
+      historical_timestamps_available:true, elapsed_seconds:7200, running:true,
+      stages:labels.map((label,index)=>({label,stage_state:index<3?'completed':index===3?'in_progress':'pending',
+        started_at:'2026-11-17T06:00:00Z',elapsed_seconds:index===3?3600:null,running:index===3})),
+    }},target);
+  });
+  await page.locator('#synthetic-tat [data-case360-tab="tat"]').click();
+  await expect(page.locator('#synthetic-tat .case360-tat-row')).toHaveCount(7);
+  await expect(page.locator('#synthetic-tat .case360-tat-row [data-running="true"]')).toHaveCount(1);
+  await expect(page.locator('#synthetic-tat .case360-tat-row').nth(1).locator('[data-server-counter]')).toHaveCount(0);
+  await expect(page.locator('#synthetic-tat .case360-flow .current')).toHaveText('Final Decision');
+  await expect(page.locator('#synthetic-tat .case360-flow .complete')).toHaveCount(3);
 });
 
 test('notification focus survives a fragment refresh without scrolling twice', async ({ page }) => {
@@ -183,7 +222,7 @@ test('Portal bootstrap does not reload a route already activated by the navigati
 test('Case History uses one compact mobile back control', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 568 });
   await page.setContent(`<body class="workflow-standard portal-app"><main id="content"><div id="portal-screen" data-screen="case_history"><section id="page-case_history" class="page active"><header class="case-history-page-header"><a class="case-history-back" href="/portal/s/jbl/" aria-label="Back to JBL Visit"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 19-7-7 7-7"></path><path d="M19 12H5"></path></svg><span class="sr-only">Back to JBL Visit</span></a><div><h1>Complete Case History</h1><p class="meta">Full customer record, workflow timeline, TAT, documents, and data quality</p></div></header></section></div></main></body>`);
-  for (const name of ['base.css', 'workflow_standard.css', 'portal.css']) await page.addStyleTag({ path: asset(name) });
+  for (const name of ['base.css', 'workflow_standard.css', 'portal.css']) await addOfflineStyle(page,name);
   const back = page.locator('.case-history-back');
   await expect(back).toHaveCount(1);
   await expect(page.locator('.case-history-action')).toHaveCount(0);
@@ -269,10 +308,10 @@ test('Portal case inspection denial leaves original screen and selection intact'
 test('Portal deferred review gates the existing stage action and blocks expired cases', async ({ page }) => {
   await boot(page, 'deferred', false, ['portal.deferred.view', 'portal.case.read']);
   await page.locator('.farmer-card').click();
-  await expect(page.locator('#sheet-form')).toContainText('Deferred case');
+  await expect(page.locator('#sheet-form')).toContainText('Deferred');
   await expect(page.locator('#sheet-overlay')).toHaveClass(/operational-detail-sheet/);
   await expect(page.locator('#sheet-navigation')).toBeVisible();
-  await expect(page.locator('#sheet-back')).toContainText('Deferred');
+  await expect(page.locator('#sheet-back')).toContainText('Revisit Cases');
   await expect(page.locator('#sheet-header-state')).toHaveText('Paused');
   await expect(page.locator('.deferred-summary')).toBeVisible();
   await expect(page.locator('#sheet-footer button')).toHaveCount(0);
@@ -280,7 +319,7 @@ test('Portal deferred review gates the existing stage action and blocks expired 
     window.__state.capabilities.add('portal.credit.write');
     window.PortalMiniAppFarmerSheet.openFarmerSheet({ id: 'case-1', deferred_stage: 'credit', deferred_until: '2026-09-01', reappraisal_required: true }, 'deferred');
   });
-  await expect(page.locator('#sheet-form')).toContainText('Reappraisal required');
+  await expect(page.locator('#sheet-form')).toContainText('fresh FarmUp appraisal');
   await expect(page.locator('#sheet-footer button')).toHaveCount(0);
   await page.evaluate(() => window.PortalMiniAppFarmerSheet.openFarmerSheet({ id: 'case-1', deferred_stage: 'credit', deferred_until: '2026-12-01' }, 'deferred'));
   await page.locator('#sheet-footer button').click();

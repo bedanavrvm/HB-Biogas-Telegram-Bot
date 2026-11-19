@@ -515,12 +515,12 @@ urlpatterns = [
     path('portal/requisition-numbering/', portal_auth_required(portal_requisition_numbering), name='portal_requisition_numbering'),
     path('portal/requisition-queue/preview-workbook/', portal_auth_required(portal_requisition_workbook_preview), name='portal_requisition_workbook_preview'),
     path('portal/requisition-queue/generate/', portal_auth_required(portal_requisition_generate), name='portal_requisition_generate'),
+    path('portal/requisition-queue/options/', portal_auth_required(portal_requisition_options), name='portal_requisition_options'),
     # Signed, short-lived link: Telegram opens this in the system browser,
     # where the Mini App initData header is not available.
     path('portal/requisition-download/<str:token>/', portal_requisition_download, name='portal_requisition_download'),
     path('portal/requisition-queue/<str:farmer_id>/', portal_auth_required(portal_assign_order), name='portal_assign_order'),
     path('portal/requisition-batches/', portal_auth_required(portal_requisition_batches), name='portal_requisition_batches'),
-    path('portal/requisition-queue/options/', portal_auth_required(portal_requisition_options), name='portal_requisition_options'),
     path('portal/requisition-batches/fragment/', portal_auth_required(portal_requisition_batches_fragment), name='portal_requisition_batches_fragment'),
     path('portal/requisition-batches/upload-invoices/', portal_auth_required(portal_upload_batch_invoices), name='portal_upload_batch_invoices'),
     path('portal/requisition-batches/<str:order_number>/download/', portal_auth_required(portal_requisition_batch_download), name='portal_requisition_batch_download'),

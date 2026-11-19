@@ -26,15 +26,13 @@ from core.services.workflow_timeline import jawabu_case_timeline
 
 
 MILESTONES = (
-    ('application_imported', 'Intake completed'),
-    ('jbl_visit_completed', 'JBL visit completed'),
-    ('jbl_outcome_recorded', 'JBL outcome recorded without a visit'),
-    ('credit_decision_recorded', 'Credit decision recorded'),
-    ('final_decision_recorded', 'Final decision recorded'),
-    ('order_assigned', 'Order assigned'),
-    ('hb_order_released', 'Released to HomeBiogas'),
-    ('installation_completed', 'Installation completed'),
-    ('commissioning_completed', 'Commissioning completed'),
+    ('application_imported', 'Intake'),
+    ('jbl_visit_completed', 'JBL Visit'),
+    ('credit_decision_recorded', 'Credit Decision'),
+    ('final_decision_recorded', 'Final Decision'),
+    ('hb_order_released', 'Order Assigned/Sent to HB'),
+    ('installation_completed', 'HB Installation'),
+    ('commissioning_completed', 'HB Commissioning'),
 )
 
 # The target is frozen at the point a stage starts.  Changing Settings is
@@ -270,7 +268,7 @@ def _tat_targets() -> dict[str, Any]:
 
 def _portal_tat_stage_definitions() -> list[dict[str, str]]:
     return [
-        {'key': f'{start}_to_{end}', 'label': f'{start_label} to {end_label}'}
+        {'key': f'{start}_to_{end}', 'label': end_label}
         for (start, start_label), (end, end_label) in zip(MILESTONES, MILESTONES[1:])
     ]
 
@@ -393,161 +391,185 @@ def _sla_status(minutes: Decimal | None, target: Any) -> str:
     return 'within'
 
 
-def calculate_case_tat(farmer: JawabuFarmerMaster, *, now=None, events=None, hb_events=None, targets=None, holidays=None) -> dict[str, Any]:
+def calculate_case_tat(farmer: JawabuFarmerMaster, *, now=None, events=None, hb_events=None, targets=None, holidays=None, approvals=None) -> dict[str, Any]:
+    """Seven ordered stages, one active clock, immutable source events."""
     now = now or timezone.now()
-    events = list(farmer.pipeline_events.order_by('occurred_at', 'created_at')) if events is None else list(events)
-    # A new-unit application starts a fresh TAT cycle. Older events remain in the
-    # timeline for audit, but must not be paired with milestones in the new cycle.
-    application_events = [event for event in events if event.action == 'application_imported']
-    current_events = events
-    if application_events:
-        current_cycle_started_at = application_events[-1].occurred_at
-        current_events = [event for event in events if event.occurred_at >= current_cycle_started_at]
+    events = sorted(list(farmer.pipeline_events.all()) if events is None else list(events), key=lambda e: e.occurred_at)
+    applications = [e for e in events if e.action == 'application_imported' and e.occurred_at <= now]
+    cycle_start = applications[-1].occurred_at if applications else None
+    current = [e for e in events if (not cycle_start or e.occurred_at >= cycle_start) and e.occurred_at <= now]
     targets = _tat_targets() if targets is None else targets
-    milestone_events = {}
-    for event in current_events:
-        if event.action in dict(MILESTONES):
-            milestone_events[event.action] = event
-    # HB events are maintained in their bounded post-order domain.  Project
-    # them into this read-only Portal TAT view without duplicating their state.
-    from hb_operations.models import HomeBiogasActionEvent
-    hb_events = hb_events if hb_events is not None else HomeBiogasActionEvent.objects.filter(
-        action__farmer=farmer,
-        event_type__in=['order.released_to_hb', 'installation.progressed', 'commissioning.completed'],
-    ).order_by('created_at', 'pk')
-    hb_milestones = {
-        'order.released_to_hb': 'hb_order_released',
-        'installation.progressed': 'installation_completed',
-        'commissioning.completed': 'commissioning_completed',
-    }
-    for event in hb_events:
-        action = hb_milestones[event.event_type]
-        values = event.new_values or {}
-        if action == 'installation_completed' and values.get('installation_status') != 'installed':
-            continue
-        if action == 'commissioning_completed' and values.get('commissioning_status') != 'commissioned':
-            continue
-        milestone_events[action] = SimpleNamespace(
-            occurred_at=event.created_at,
-            new_values=values,
-            metadata={'tat_target_snapshot': values.get('tat_target_snapshot')},
-        )
+    actions = [key for key, _ in MILESTONES]
+    milestones, restarts = {}, {}
     terminal_at = None
-    for event in current_events:
+    held = False
+    for event in current:
         values = event.new_values or {}
-        if (
-            event.action == 'credit_decision_recorded' and values.get('decision') in {'Rejected'}
-            or event.action == 'final_decision_recorded' and values.get('decision') in {'Rejected'}
-            or event.action in {'jbl_visit_completed', 'jbl_outcome_recorded'} and values.get('status') in {'Rejected by JBL', 'Cancelled', 'Client Withdrew', 'Opted for Cash'}
-            or event.action == 'payment_finalized'
-        ):
+        action = event.action
+        if action in {'deferral_started', 'deferred', 'case_withdrawn'}:
+            held = True
+        elif action in {'deferral_ended', 'reappraisal_restarted', 'withdrawal_resumed'}:
+            held = False
+            terminal_at = None
+        if action == 'returned_for_rework':
+            index = {'jbl_visit': 1, 'credit': 2, 'final_review': 3}.get(values.get('returned_to'))
+            if index:
+                for key in actions[index:]:
+                    milestones.pop(key, None)
+                restarts[index] = event
+                terminal_at = None
+        if action == 'order_cancelled':
+            for key in actions[4:]:
+                milestones.pop(key, None)
+            restarts[4] = event
+        if action in actions:
+            # Rescheduling/holds are outcomes within JBL Visit, not advancement.
+            if action == 'jbl_visit_completed' and values.get('status') not in (None, '', 'Visited, Awaiting Credit Analysis', 'Approved'):
+                continue_milestone = False
+            elif action in {'credit_decision_recorded', 'final_decision_recorded'} and values.get('decision') not in (None, '', 'Approved'):
+                continue_milestone = False
+            else:
+                continue_milestone = True
+            if continue_milestone:
+                milestones[action] = event
+        if (action in {'credit_decision_recorded', 'final_decision_recorded'} and values.get('decision') == 'Rejected'
+                or action in {'jbl_visit_completed', 'jbl_outcome_recorded'} and values.get('status') in {'Rejected by JBL', 'Cancelled', 'Client Withdrew', 'Opted for Cash', 'Opted for Other Partner'}
+                or action == 'case_withdrawn'):
             terminal_at = event.occurred_at
-
-    from core.services.report_provenance import external_timing
-    external_fields, external_position = external_timing(current_events)
-    stages = []
-    total_minutes = Decimal('0')
-    total_elapsed_seconds = 0
-    total_business_minutes = Decimal('0')
-    total_sla_minutes = Decimal('0')
-    complete_stage_count = 0
-    for index in range(len(MILESTONES) - 1):
-        start_action, start_label = MILESTONES[index]
-        end_action, end_label = MILESTONES[index + 1]
-        start_event = milestone_events.get(start_action)
-        end_event = milestone_events.get(end_action)
-        if end_event is None and ((external_position is not None and start_event is not None
-                and start_event.occurred_at <= external_position.occurred_at)
-                or index == 0 and 'jbl_visit_date' in external_fields):
-            start_event = None
-        minutes = None
-        excluded = Decimal('0')
-        if start_event:
-            if not end_event and terminal_at and start_event.occurred_at >= terminal_at:
-                stages.append({
-                    'key': f'{start_action}_to_{end_action}', 'label': f'{start_label} to {end_label}',
-                    'started_at': start_event.occurred_at.isoformat(), 'completed_at': None,
-                    'minutes': None, 'wall_clock_minutes': None,
-                    'elapsed_seconds': None, 'calculated_at': now.isoformat(), 'running': False,
-                    'business_minutes': None, 'sla_minutes': None,
-                    'excluded_deferred_minutes': '0', 'excluded_business_minutes': '0',
-                    'target_minutes': None, 'target_seconds': None, 'status': '',
-                })
-                continue
-            end_at = end_event.occurred_at if end_event else (terminal_at or now)
-            intervals = _deferral_intervals(current_events, start_event.occurred_at, end_at)
-            excluded_seconds = _excluded_deferral_seconds(current_events, start_event.occurred_at, end_at)
-            raw_wall_clock_minutes = wall_clock_minutes_between(start_event.occurred_at, end_at) or Decimal('0')
-            raw_business_minutes = business_minutes_between(start_event.occurred_at, end_at, holidays=holidays) or Decimal('0')
-            excluded_business_minutes = sum(
-                (business_minutes_between(interval_start, interval_end, holidays=holidays) or Decimal('0') for interval_start, interval_end in intervals),
-                Decimal('0'),
-            )
-            minutes = max(Decimal('0'), raw_wall_clock_minutes - (excluded_seconds / Decimal('60'))).quantize(Decimal('0.01'))
-            elapsed_seconds = max(
-                0,
-                int((end_at - start_event.occurred_at).total_seconds() - float(excluded_seconds)),
-            )
-            total_elapsed_seconds += elapsed_seconds
-            business_minutes = raw_business_minutes.quantize(Decimal('0.01'))
-            sla_minutes = max(Decimal('0'), business_minutes - excluded_business_minutes).quantize(Decimal('0.01'))
-            excluded = (excluded_seconds / Decimal('60')).quantize(Decimal('0.01'))
-            total_minutes += minutes
-            total_business_minutes += business_minutes
-            total_sla_minutes += sla_minutes
-            if end_event:
-                complete_stage_count += 1
+    from hb_operations.models import HomeBiogasActionEvent
+    hb_events = list(HomeBiogasActionEvent.objects.filter(action__farmer=farmer,
+        event_type__in=['order.released_to_hb', 'installation.progressed', 'commissioning.completed'])
+        .order_by('created_at', 'pk')) if hb_events is None else list(hb_events)
+    hb_actions = {'order.released_to_hb': 'hb_order_released', 'installation.progressed': 'installation_completed',
+                  'commissioning.completed': 'commissioning_completed'}
+    for event in sorted(hb_events, key=lambda e: e.created_at):
+        if event.created_at > now or cycle_start and event.created_at < cycle_start:
+            continue
+        action = hb_actions.get(event.event_type)
+        values = event.new_values or {}
+        if not action or action == 'installation_completed' and values.get('installation_status') != 'installed' or action == 'commissioning_completed' and values.get('commissioning_status') != 'commissioned':
+            continue
+        milestones[action] = SimpleNamespace(occurred_at=event.created_at, new_values=values,
+            metadata={'tat_target_snapshot': values.get('tat_target_snapshot')})
+    hb_action = getattr(farmer, 'homebiogas_action', None)
+    known_completion = -1
+    if hb_action:
+        if hb_action.commissioning_status == 'commissioned':
+            known_completion = 6
         else:
-            elapsed_seconds = None
-            business_minutes = None
-            sla_minutes = None
-            excluded_business_minutes = Decimal('0')
-        stage_key = f'{start_action}_to_{end_action}'
-        target = _frozen_target(start_event, stage_key, (targets.get('stages') or {}).get(stage_key)) if start_event else (targets.get('stages') or {}).get(stage_key)
-        stages.append({
-            'key': stage_key,
-            'label': f'{start_label} to {end_label}',
-            'started_at': start_event.occurred_at.isoformat() if start_event else None,
-            'completed_at': end_event.occurred_at.isoformat() if end_event else None,
-            # ``minutes`` is the historical wall-clock-compatible value.
-            # Wall-clock time is the official TAT. Business-hours time remains
-            # available as an optional diagnostic view.
-            'minutes': str(minutes) if minutes is not None else None,
-            'wall_clock_minutes': str(minutes) if minutes is not None else None,
-            'elapsed_seconds': elapsed_seconds,
-            'calculated_at': now.isoformat(),
-            'running': bool(start_event and not end_event and terminal_at is None and farmer.workflow_state != 'withdrawn'),
-            'business_minutes': str(business_minutes) if business_minutes is not None else None,
-            'sla_minutes': str(minutes) if minutes is not None else None,
-            'excluded_deferred_minutes': str(excluded),
-            'excluded_business_minutes': str(excluded_business_minutes),
-            'target_minutes': str(target) if target not in (None, '') else None,
-            'target_seconds': int(Decimal(str(target)) * Decimal('60')) if target not in (None, '') else None,
-            'status': _sla_status(minutes, target),
-        })
-    application_event = milestone_events.get('application_imported')
-    overall_snapshot = ((getattr(application_event, 'metadata', None) or {}).get('tat_overall_target_snapshot') or {})
-    overall_target = overall_snapshot.get('target_minutes', targets.get('overall'))
-    return {
-        'tracking_started_at': next((e.occurred_at.isoformat() for e in events if e.action == 'tracking_started'), None),
-        'current_cycle_started_at': application_events[-1].occurred_at.isoformat() if application_events else None,
-        'previous_cycle_count': max(0, len(application_events) - 1),
-        'historical_timestamps_available': bool(milestone_events.get('application_imported')),
-        'total_minutes': str(total_minutes) if milestone_events else None,
-        'wall_clock_minutes': str(total_minutes) if milestone_events else None,
-        'elapsed_seconds': total_elapsed_seconds if milestone_events else None,
-        'calculated_at': now.isoformat(),
-        'running': any(stage['running'] for stage in stages),
-        'business_minutes': str(total_business_minutes) if milestone_events else None,
-        'sla_minutes': str(total_minutes) if milestone_events else None,
-        'excluded_deferred_minutes': str(sum(Decimal(stage['excluded_deferred_minutes']) for stage in stages)),
-        'excluded_business_minutes': str(sum(Decimal(stage['excluded_business_minutes']) for stage in stages)),
-        'target_minutes': str(overall_target) if overall_target not in (None, '') else None,
-        'target_seconds': int(Decimal(str(overall_target)) * Decimal('60')) if overall_target not in (None, '') else None,
-        'status': _sla_status(total_minutes if milestone_events else None, overall_target),
-        'completed_stage_count': complete_stage_count,
-        'stages': stages,
-    }
+            milestones.pop('commissioning_completed', None)
+        if hb_action.installation_status == 'installed':
+            known_completion = max(known_completion, 5)
+        else:
+            milestones.pop('installation_completed', None)
+    state = farmer.workflow_state
+    canonical = {'jbl_visit': 1, 'credit': 2, 'final_review': 3, 'order': 4}.get(state)
+    if state == 'deferred':
+        canonical = {'jbl_visit': 1, 'credit': 2, 'final': 3}.get(farmer.deferred_stage)
+    if approvals is None:
+        from core.models import JawabuApprovalRecord
+        approvals = list(JawabuApprovalRecord.objects.filter(farmer=farmer, payment_document__isnull=True,
+            gate__in=['credit', 'final_review']).order_by('-decided_at', '-created_at')) if getattr(farmer, 'pk', None) else []
+    seen_gates = set()
+    if not getattr(farmer, 'order_number', ''):
+        for approval in approvals:
+            if approval.gate in seen_gates:
+                continue
+            seen_gates.add(approval.gate)
+            if approval.status in {'invalidated', 'expired', 'conditions_pending'} or approval.expires_at and approval.expires_at <= now:
+                index = {'credit': 2, 'final_review': 3}[approval.gate]
+                canonical = min(canonical, index) if canonical is not None else index
+                at = approval.invalidated_at or approval.expires_at
+                if at:
+                    restarts[index] = SimpleNamespace(occurred_at=at, metadata={})
+    if canonical is not None:
+        for key in actions[canonical:]:
+            milestones.pop(key, None)
+    highest = max((actions.index(key) for key in milestones), default=-1)
+    highest = max(highest, known_completion)
+    active = canonical if canonical is not None else max(1, highest + 1)
+    if state == 'ordered':
+        active = max(4, highest + 1)
+    if state == 'legacy_review':
+        active = len(actions)
+    paused = held or state in {'deferred', 'withdrawn'}
+    stopped = terminal_at is not None or state in {'rejected', 'withdrawn'} or highest == 6
+    from core.services.report_provenance import external_timing
+    external_fields, external_position = external_timing(current)
+    invalid = set()
+    previous_at = None
+    for action in actions:
+        event = milestones.get(action)
+        if event:
+            if previous_at and event.occurred_at < previous_at:
+                invalid.add(action)
+            previous_at = max(previous_at, event.occurred_at) if previous_at else event.occurred_at
+
+    def timing(start, end):
+        empty = dict(minutes=None, wall_clock_minutes=None, elapsed_seconds=None, business_minutes=None,
+            sla_minutes=None, excluded_deferred_minutes='0', excluded_business_minutes='0')
+        if not start or not end or start > end or end > now:
+            return empty
+        excluded = _excluded_deferral_seconds(current, start, end)
+        seconds = max(Decimal('0'), Decimal(str((end - start).total_seconds())) - excluded)
+        minutes = (seconds / 60).quantize(Decimal('0.01'))
+        business = business_minutes_between(start, end, holidays=holidays) or Decimal('0')
+        excluded_business = sum((business_minutes_between(a, b, holidays=holidays) or Decimal('0')
+            for a, b in _deferral_intervals(current, start, end)), Decimal('0'))
+        return dict(minutes=str(minutes), wall_clock_minutes=str(minutes), elapsed_seconds=int(seconds),
+            business_minutes=str(business.quantize(Decimal('0.01'))), sla_minutes=str(minutes),
+            excluded_deferred_minutes=str((excluded / 60).quantize(Decimal('0.01'))),
+            excluded_business_minutes=str(excluded_business.quantize(Decimal('0.01'))))
+
+    stages = []
+    for index, (action, label) in enumerate(MILESTONES):
+        end_event = milestones.get(action)
+        start_event = (restarts.get(index) or milestones.get(actions[index - 1])) if index else None
+        start = start_event.occurred_at if start_event else None
+        end = end_event.occurred_at if end_event else None
+        key = f'{actions[index - 1]}_to_{action}' if index else 'intake'
+        completed = (index < active if state != 'legacy_review' else index <= highest) or end_event is not None
+        stage_state = 'completed' if completed else 'pending'
+        if index == active and not stopped:
+            stage_state = 'paused' if paused else 'in_progress'
+        elif index == active and stopped:
+            stage_state = 'stopped'
+        boundary = bool(external_position and not end and start and start <= external_position.occurred_at)
+        measure_end = end if completed else terminal_at or now if index == active else None
+        if index == active and (state in {'rejected', 'withdrawn'} and not terminal_at or paused and not held):
+            measure_end = None
+        valid_pair = index and action not in invalid and actions[index - 1] not in invalid
+        values = timing(start, measure_end) if valid_pair and not boundary else timing(None, None)
+        if index == 1 and external_fields & {'hbg_visit_date', 'jbl_visit_date'}:
+            values = timing(None, None)
+        running = bool(stage_state == 'in_progress' and values['elapsed_seconds'] is not None)
+        if values['minutes'] is None and stage_state == 'in_progress':
+            stage_state = 'timing_unavailable'
+        target = _frozen_target(start_event, key, (targets.get('stages') or {}).get(key)) if start_event else None
+        snapshot = (getattr(start_event, 'metadata', None) or {}).get('tat_target_snapshot') or {}
+        stages.append(dict(key=key, label=label, stage_state=stage_state, started_at=start.isoformat() if start else None,
+            completed_at=end.isoformat() if end else None, calculated_at=now.isoformat(), running=running,
+            target_minutes=str(target) if target not in (None, '') else None,
+            target_seconds=int(Decimal(str(target)) * 60) if target not in (None, '') else None,
+            status=_sla_status(Decimal(values['minutes']), target) if values['minutes'] is not None else '',
+            target_basis='captured' if snapshot.get('stage_key') == key else 'current_target_estimate' if target else 'unavailable',
+            timing_note='Timing unavailable' if index and values['minutes'] is None and stage_state != 'pending' else '', **values))
+    application = milestones.get('application_imported')
+    finish = milestones.get('commissioning_completed')
+    overall_end = finish.occurred_at if finish else terminal_at or now
+    overall = timing(application.occurred_at if application else None,
+                     None if state in {'rejected', 'withdrawn'} and not terminal_at or paused and not held or highest == 6 and not finish else overall_end)
+    snapshot = (getattr(application, 'metadata', None) or {}).get('tat_overall_target_snapshot') or {}
+    overall_target = snapshot.get('target_minutes', targets.get('overall'))
+    return dict(tracking_started_at=next((e.occurred_at.isoformat() for e in events if e.action == 'tracking_started'), None),
+        current_cycle_started_at=cycle_start.isoformat() if cycle_start else None,
+        previous_cycle_count=max(0, len(applications) - 1), historical_timestamps_available=bool(application),
+        total_minutes=overall['minutes'], **overall, calculated_at=now.isoformat(),
+        running=any(row['running'] for row in stages), active_stage_key=stages[active]['key'] if active < len(stages) else None,
+        target_minutes=str(overall_target) if overall_target else None,
+        target_seconds=int(Decimal(str(overall_target)) * 60) if overall_target else None,
+        status=_sla_status(Decimal(overall['minutes']), overall_target) if overall['minutes'] is not None else '',
+        completed_stage_count=sum(row['stage_state'] == 'completed' for row in stages), stages=stages)
 
 
 def serialize_case360(farmer: JawabuFarmerMaster) -> dict[str, Any]:

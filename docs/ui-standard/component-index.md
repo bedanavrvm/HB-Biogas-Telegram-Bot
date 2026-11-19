@@ -1,5 +1,9 @@
 # Component index and migration hold
 
+Portal chronology reuses the progress strip and TAT rows; order numbers reuse
+paired fields, fixed-format calendars and inline Retry.
+[Source and native evidence](reviews/2026-11-17-portal-chronology-search-orders.md).
+
 Portal media reuses document icons, inline disclosure pencils and grouped preview
 controls. [Source and native evidence](reviews/2026-11-17-portal-laf-gallery-controls.md).
 

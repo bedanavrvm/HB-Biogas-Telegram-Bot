@@ -415,7 +415,7 @@
     ).join('')}</div>`;
   }
 
-  function caseStageFlow(sections, workflowState = '', pausedStage = '') {
+  function caseStageFlow(sections, workflowState = '', pausedStage = '', stages = []) {
     const hb = sections.homebiogas || {};
     const steps = [
       ['Intake', Boolean(sections.identity?.customer_name || sections.intake?.hbg_visit_date)],
@@ -439,8 +439,10 @@
     else if (hb.installation_status === 'installed') current = 6;
     else if (hb.released_at) current = 5;
     if (current < 0) current = steps.length - 1;
-    return `<ol class="case360-flow" aria-label="Case progress">${steps.map(([label, complete], index) => {
-      const status = index < current ? 'complete' : index === current ? 'current' : 'pending';
+    const displaySteps = stages.length ? stages.map(stage => [stage.label, stage.stage_state === 'completed']) : steps;
+    return `<ol class="case360-flow" aria-label="Case progress">${displaySteps.map(([label, complete], index) => {
+      const status = stages.length ? (complete ? 'complete' : ['in_progress', 'paused', 'timing_unavailable'].includes(stages[index].stage_state) ? 'current' : 'pending')
+        : index < current ? 'complete' : index === current ? 'current' : 'pending';
       // A historical value can remain populated after a case is returned to
       // JBL. Render from canonical step status, not the stale value itself.
       const icon = status === 'complete'
@@ -452,7 +454,7 @@
     }).join('')}</ol>`;
   }
 
-  function caseHeader(sections, workflowState = '', currentPipelineState = '', canCorrect = false, caseReference = '', pausedStage = '', isLegacy = false) {
+  function caseHeader(sections, workflowState = '', currentPipelineState = '', canCorrect = false, caseReference = '', pausedStage = '', isLegacy = false, stages = []) {
     const identity = sections.identity || {};
     const intake = sections.intake || {};
     const systemName = identity.system_name && identity.system_name !== identity.customer_name
@@ -464,7 +466,7 @@
     return `<header class="case360-hero">
       <div class="case360-identity"><span class="case360-eyebrow">${deps.escapeHtml(caseReference || 'Customer case')}</span>${isLegacy ? '<span class="case360-legacy-badge" title="Imported historical data">Legacy</span>' : ''}<h2>${deps.escapeHtml(displayName(identity.customer_name || 'Unnamed Customer'))}</h2><div class="case360-bio">${systemName ? `<span>${deps.escapeHtml(systemName)}</span>` : ''}${identity.national_id ? `<span>ID ${deps.escapeHtml(identity.national_id)}</span>` : ''}${identity.primary_phone ? `<a class="portal-phone-link" href="tel:${deps.escapeHtml(String(identity.primary_phone).replace(/[^+0-9]/g, ''))}">${deps.escapeHtml(identity.primary_phone)}</a>` : ''}${intake.branch ? `<span>${deps.escapeHtml(String(intake.branch).toUpperCase())}</span>` : ''}</div></div>
       <div class="case360-hero-actions"><span class="case360-status">${deps.escapeHtml(status)}</span>${canCorrect ? '<button type="button" class="case360-edit-toggle" aria-label="Edit case fields" title="Edit case fields"><i data-lucide="pencil" aria-hidden="true"></i><span class="sr-only">Edit case fields</span></button>' : ''}</div>
-    </header>${caseStageFlow(sections, workflowState, pausedStage)}`;
+    </header>${caseStageFlow(sections, workflowState, pausedStage, stages)}`;
   }
 
   function caseCorrectionMarkup(correction) {
@@ -484,6 +486,7 @@
   }
 
   function caseTatCounter(record, key) {
+    if (record?.elapsed_seconds == null || record.elapsed_seconds === '') return '-';
     const elapsed = Number(record?.elapsed_seconds);
     if (!Number.isFinite(elapsed)) return '-';
     const label = window.MiniAppRuntime?.formatElapsedSeconds?.(elapsed) || formatTatMinutes(elapsed / 60);
@@ -708,7 +711,7 @@
     const invoiceNameChanges = data.invoice_name_changes || [];
     const documents = data.documents || {};
     const validation = data.validation || [];
-    const stageRows = (tat.stages || []).map((stage, index) => `<article class="case360-tat-row"><span class="case360-stage-number">${index + 1}</span><div><strong>${deps.escapeHtml(stage.label)}</strong><small>${stage.completed_at ? 'Completed' : stage.started_at ? 'In progress' : 'Not tracked'}</small></div><div><strong>${caseTatCounter(stage, `stage-${index}`)}</strong><span class="case360-sla ${deps.escapeHtml(stage.status || '')}">${deps.escapeHtml(humanLabel(stage.status || ''))}</span></div></article>`).join('');
+    const stageRows = (tat.stages || []).map((stage, index) => `<article class="case360-tat-row"><span class="case360-stage-number">${index + 1}</span><div><strong>${deps.escapeHtml(stage.label)}</strong><small>${deps.escapeHtml(humanLabel(stage.stage_state || (stage.completed_at ? 'completed' : stage.running ? 'in_progress' : 'timing_unavailable')))}${stage.timing_note && stage.stage_state !== 'timing_unavailable' ? ' - ' + deps.escapeHtml(stage.timing_note) : ''}</small></div><div><strong>${caseTatCounter(stage, `stage-${index}`)}</strong><span class="case360-sla ${deps.escapeHtml(stage.status || '')}">${deps.escapeHtml(humanLabel(stage.status || ''))}</span></div></article>`).join('');
     const docLinks = Array.isArray(documents.items) ? documents.items : [
       documents.requisition,
       documents.invoice,
@@ -739,7 +742,7 @@
     const notices = [decisionSummary(data.decision_context), data.legacy ? `<section class="batch-warning"><strong>Legacy record</strong><p>${data.legacy.publication_ready ? 'Register publication enabled after review.' : 'Register publication held until live row bindings are reviewed.'}</p><p>${deps.escapeHtml(data.legacy.source_sheet)} &#183; source row ${deps.escapeHtml(data.legacy.source_row)}</p><p>${deps.escapeHtml(data.legacy.comment || '')}</p>${Object.entries(data.legacy.reported_references || {}).map(([label, value]) => `<p>Reported ${deps.escapeHtml(label)}: ${deps.escapeHtml(value)}</p>`).join('')}${Object.entries(data.legacy.reported_receipts || {}).map(([label, value]) => `<p>${deps.escapeHtml(label)}: KES ${deps.escapeHtml(value)}</p>`).join('')}${data.legacy.receipt_issue ? `<p role="alert">${deps.escapeHtml(data.legacy.receipt_issue)}</p>` : ''}${Object.entries(data.legacy.historical_fields || {}).map(([label,value]) => `<p><strong>Historical ${deps.escapeHtml(label)}:</strong> ${deps.escapeHtml(value)}</p>`).join('')}${Object.entries(data.legacy.historical_contacts || {}).map(([label,value]) => `<p role="status">&#9888; ${deps.escapeHtml(label)}: ${deps.escapeHtml(value)} — incomplete legacy phone</p>`).join('')}${Object.entries(data.legacy.source_notes || {}).map(([label, note]) => `<p><strong>${deps.escapeHtml(label)}:</strong> ${deps.escapeHtml(note)}</p>`).join('')}<p>${deps.escapeHtml((data.legacy.issues || []).join('; '))}</p><p>Not recorded in source: ${deps.escapeHtml((data.legacy.missing_fields || []).join(', ') || 'None of the tracked fields')}</p></section>` : '', escalationAlert].filter(Boolean);
     const caseNotices = notices.length ? `<div data-case-notices>${caseNotice(`Case Notices (${notices.length})`, notices.join(''))}</div>` : '';
     root.innerHTML = `
-      ${caseHeader(sections, data.workflow_state || '', data.current_pipeline_state || '', Boolean(data.can_correct), data.case_reference || '', data.withdrawn_stage || '', Boolean(data.legacy))}
+      ${caseHeader(sections, data.workflow_state || '', data.current_pipeline_state || '', Boolean(data.can_correct), data.case_reference || '', data.withdrawn_stage || '', Boolean(data.legacy), tat.stages || [])}
       <div class="case360-tabs" role="tablist">
         ${tabs.map(([key, label, count], index) => `<button type="button" role="tab" aria-selected="${index ? 'false' : 'true'}" data-case360-tab="${key}" class="${index ? '' : 'active'}"><span>${label}</span>${count !== '' ? `<b>${count}</b>` : ''}</button>`).join('')}
       </div>

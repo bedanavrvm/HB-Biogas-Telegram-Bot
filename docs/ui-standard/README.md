@@ -1,5 +1,8 @@
 # Mini App Design Lab
 
+Portal chronology, word-order-independent name search and consistent order
+numbers have [native API and browser evidence](reviews/2026-11-17-portal-chronology-search-orders.md).
+
 Portal LAF actions, media gallery navigation, repayment pencils and captured A4
 pages have [native browser and PDF evidence](reviews/2026-11-17-portal-laf-gallery-controls.md).
 

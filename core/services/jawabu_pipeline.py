@@ -14,6 +14,8 @@ Stage overview:
 """
 from __future__ import annotations
 
+from core.services.portal_search import case_search
+
 import logging
 import uuid
 from datetime import date, datetime, timedelta
@@ -412,7 +414,7 @@ def jbl_visit_queue(search: str = '', *, status=None):
     search = str(search or '').strip()
     if search:
         qs = qs.filter(
-            Q(customer_name__icontains=search)
+            case_search(search)
             | Q(national_id__icontains=search)
             | Q(primary_phone__icontains=search)
             | Q(customer_no__icontains=search)
@@ -575,7 +577,7 @@ def all_cases(search: str = '', county: str = '', branch: str = '', status: str 
         qs = qs.filter(condition)
     if search:
         qs = qs.filter(
-            Q(customer_name__icontains=search) |
+            case_search(search) |
             Q(primary_phone__icontains=search) |
             Q(national_id__icontains=search)
         )
@@ -1301,6 +1303,8 @@ def set_credit_decision(
                      'customer_no': farmer.customer_no}
     if not credit_recheck and not _is_actionable_at_stage(farmer, JawabuWorkflowState.CREDIT, deferred_stage='credit'):
         return False, _wrong_stage_message(farmer, JawabuWorkflowState.CREDIT)
+    if farmer.jbl_visit_date and farmer.jbl_visit_date > timezone.localdate():
+        return False, 'Credit decision cannot precede the recorded JBL visit date. Correct that date first.'
     if is_reappraisal_required(farmer):
         return False, 'This deferral has expired. Fresh preappraisal and visit records are required.'
     prior_state = current_workflow_state(farmer)
@@ -1474,6 +1478,8 @@ def set_final_decision(
     )
     if not final_recheck and not _is_actionable_at_stage(farmer, JawabuWorkflowState.FINAL_REVIEW, deferred_stage='final'):
         return False, _wrong_stage_message(farmer, JawabuWorkflowState.FINAL_REVIEW)
+    if farmer.credit_decided_at and farmer.credit_decided_at > timezone.now():
+        return False, 'Final decision cannot precede the recorded credit decision. Correct that date first.'
     if is_reappraisal_required(farmer):
         return False, 'This deferral has expired. Fresh preappraisal and visit records are required.'
     prior_state = current_workflow_state(farmer)

@@ -60,6 +60,19 @@ class HomeBiogasActionServiceTests(TestCase):
         release_requisition_signoff(self.signoff, actor=self.user)
         return HomeBiogasAction.objects.get(farmer=self.farmer)
 
+    def test_installation_cannot_predate_its_order_but_same_day_is_allowed(self):
+        self.batch.requisition_date = timezone.localdate()
+        self.batch.save(update_fields=['requisition_date'])
+        action = self.release()
+        payload = {'workstream':'installation', 'installation_status':'installed',
+            'installation_date':(timezone.localdate() - timedelta(days=1)).isoformat()}
+        with self.assertRaisesMessage(HomeBiogasActionError, 'earlier than the order date'):
+            transition_action(action.pk, actor=self.user, request_id='synthetic-before-order', expected_revision=1, payload=payload)
+        self.assertFalse(action.events.filter(request_id='synthetic-before-order').exists())
+        payload['installation_date'] = timezone.localdate().isoformat()
+        updated, _, _ = transition_action(action.pk, actor=self.user, request_id='synthetic-same-day-order', expected_revision=1, payload=payload)
+        self.assertEqual(updated.installation_status, 'installed')
+
     def test_accepted_invoice_owns_serial_and_manual_installation_cannot_replace_it(self):
         from core.services.invoice_parser import _apply_invoice_to_farmer
         action = self.release()

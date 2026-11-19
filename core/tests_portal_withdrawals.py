@@ -99,11 +99,11 @@ class PortalWithdrawalTests(LegacyHTTPMixin, TestCase):
         events = [event('application_imported', 4), event('case_withdrawn', 3)]
         paused = calculate_case_tat(farmer, now=now, events=events, hb_events=[], targets={}, holidays=[])
         self.assertFalse(paused['running'])
-        self.assertEqual(paused['stages'][0]['elapsed_seconds'], 86400)
+        self.assertEqual(paused['stages'][1]['elapsed_seconds'], 86400)
         events.extend([event('withdrawal_resumed', 1), event('jbl_visit_completed', 0)])
         farmer.workflow_state = 'credit'
         resumed = calculate_case_tat(farmer, now=now, events=events, hb_events=[], targets={}, holidays=[])
-        self.assertEqual(resumed['stages'][0]['elapsed_seconds'], 172800)
+        self.assertEqual(resumed['stages'][1]['elapsed_seconds'], 172800)
 
     def test_existing_rejected_and_deferred_summaries_keep_their_stage(self):
         from core.services.portal_decisions import decision_context

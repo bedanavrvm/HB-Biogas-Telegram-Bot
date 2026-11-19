@@ -2640,7 +2640,7 @@ button[aria-busy="true"] .spinner-inline, .btn[aria-busy="true"] .spinner-inline
 @media (max-width: 460px) {
   .case360-flow { grid-template-columns:repeat(4,minmax(0,1fr)); row-gap:12px; padding:12px 8px; }
   .case360-flow li:not(:last-child)::after { display:none; }
-  .case360-flow small { display:-webkit-box; overflow:hidden; min-height:22px; font-size:10px; line-height:1.1; text-overflow:clip; white-space:normal; -webkit-box-orient:vertical; -webkit-line-clamp:2; }
+  .case360-flow small { display:-webkit-box; overflow:hidden; min-height:22px; font-size:10px; line-height:1.1; text-overflow:clip; white-space:normal; -webkit-box-orient:vertical; -webkit-line-clamp:3; }
 }
 .case360-tabs { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; margin-bottom: 12px; border: 1px solid var(--border-color); border-radius: 11px; background: var(--bg-muted); padding: 4px; }
 .case360-tabs button { display: flex; min-width: 0; min-height: 38px; align-items: center; justify-content: center; gap: 5px; border: 0; border-radius: 8px; background: transparent; color: var(--text-muted); padding: 5px 6px; font-size: 10px; font-weight: 700; }
@@ -5181,6 +5181,8 @@ body.portal-app .history-document-header.miniapp-panel-heading{gap:6px;padding:0
 .portal-app .order-selection-fields .field-group { min-width:0; gap:3px; }
 .portal-app .order-selection-fields .field-group label { font-size:12px; text-transform:none; }
 .portal-app .order-selection-fields .field-group input { box-sizing:border-box; width:100%; min-width:0; min-height:44px; padding:6px 8px; }
+.portal-app .order-selection-fields .portal-filter-date-control { height:40px; min-height:40px; box-sizing:border-box; }
+.portal-app .order-selection-fields .portal-filter-date-control input[type=date] { min-height:0; margin:0; padding:0; }
 .portal-app .order-selection-fields .batch-generate-button { min-height:44px; margin:0; }
 @media(max-width:500px) {
  .portal-app .order-selection-fields { grid-template-columns:repeat(2,minmax(0,1fr)); }

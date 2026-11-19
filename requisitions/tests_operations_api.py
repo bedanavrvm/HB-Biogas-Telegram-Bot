@@ -67,6 +67,72 @@ class OperationsApiTests(TestCase):
         self.assertEqual((self.sequence.next_number, eco.next_number), (10, 3))
         self.assertEqual(views.portal_requisition_options(self.request('GET', query='?partner=unknown')).status_code, 400)
 
+    def test_options_url_reaches_the_number_lookup_with_native_authentication(self):
+        from django.urls import reverse
+        from core.models import UserProfile
+        from core.tests_telegram_authentication import BOT_TOKEN, signed_init_data
+        UserProfile.objects.create(user=self.actor, telegram_id='997798')
+        farmer = self.farmer(1)
+        with override_settings(TELEGRAM_BOT_TOKEN=BOT_TOKEN, PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=True):
+            response = self.client.get(reverse('portal_requisition_options'), {'farmer_ids': str(farmer.pk)},
+                HTTP_X_TELEGRAM_INIT_DATA=signed_init_data(user={'id': 997798}))
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()['order_number'], 'HB-10')
+
+    def test_settings_adjustment_supersedes_old_released_claims_in_options_and_preview(self):
+        from requisitions.models import OrderNumberClaim
+        OrderNumberClaim.objects.create(sequence=self.sequence, number=2)
+        OrderNumberClaim.objects.create(sequence=self.sequence, number=40)
+        response = views.portal_requisition_numbering(self.request('POST', {
+            'group_id': self.group.group_id, 'partner':'HB', 'next_number':40,
+            'expected_revision':self.sequence.revision, 'reason':'Synthetic sequence correction',
+        }))
+        self.assertEqual(response.status_code, 200, response.content)
+        farmer = self.farmer(1)
+        result = views.portal_requisition_options(self.request('GET', query=f'?farmer_ids={farmer.pk}'))
+        self.assertEqual(result.status_code, 200, result.content)
+        self.assertEqual(json.loads(result.content)['order_number'], 'HB-40')
+        self.assertEqual(self.preview(farmer)['order_number'], 'HB-40')
+        self.assertIsNone(OrderNumberClaim.objects.get(sequence=self.sequence, number=2).batch_id)
+
+    def test_selected_cases_resolve_one_group_and_partner_not_the_queue_filter(self):
+        other = GroupSheetConfiguration.objects.create(group_id='synthetic-second-order-group', enabled=True, workflow={'type':'jawabu'})
+        OrderSequenceState.objects.create(group_configuration=other, partner='HB', next_number=71)
+        farmer = self.farmer(1)
+        result = views.portal_requisition_options(self.request('GET', query=f'?partner=ECOCONSERVE&farmer_ids={farmer.pk}'))
+        self.assertEqual(result.status_code, 200, result.content)
+        self.assertEqual(json.loads(result.content)['order_number'], 'HB-10')
+        self.assertEqual(self.preview(farmer)['order_number'], 'HB-10')
+
+    def test_options_rechecks_case_scope_even_for_an_explicit_selection(self):
+        from core.models import AccessGrant
+        from core.services.access_grant_governance import governed_access_grant_mutation
+        from core.services.telegram_identity import user_access
+        actor = get_user_model().objects.create_user(username='synthetic-scoped-order-user')
+        with governed_access_grant_mutation('Synthetic order scope fixture'):
+            AccessGrant.objects.create(user=actor, workflow='jawabu_portal', role='IT',
+                branch='Limuru', group_configuration=self.group)
+        farmer = self.farmer(1)
+        farmer.branch = 'Outside branch'
+        farmer.save(update_fields=['branch'])
+        request = self.request('GET', query=f'?farmer_ids={farmer.pk}')
+        request.portal_user = actor
+        request.portal_access = user_access(actor, 'jawabu_portal')
+        response = views.portal_requisition_options(request)
+        self.assertEqual(response.status_code, 403)
+
+    def test_cancellation_after_adjustment_is_still_reusable(self):
+        from requisitions.models import OrderSequenceEvent
+        from requisitions.services import cancel_order, proposed_number
+        OrderSequenceEvent.objects.create(sequence=self.sequence, action='adjusted', number_before=10,
+            number_after=10, revision_after=1, actor=self.actor, reason='Synthetic setting')
+        farmer = self.farmer(1)
+        generated = self.generate(self.preview(farmer), 'synthetic-after-adjustment')
+        batch = RequisitionBatch.objects.get(pk=generated['batch']['id'])
+        cancel_order(batch.pk, expected_version=batch.version, actor=self.actor, request_id='synthetic-cancel-later')
+        self.sequence.refresh_from_db()
+        self.assertEqual(proposed_number(self.sequence), 10)
+
     def test_explicit_append_retains_versions_and_replays_after_later_amendment(self):
         first, second = self.farmer(1), self.farmer(2)
         initial_preview = self.preview(first)
