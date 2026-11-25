@@ -18,7 +18,7 @@
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-community-36.1.0.min.css' %}">
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-quartz-font-36.1.0.min.css' %}">
   <link rel="stylesheet" href="{% static 'miniapp/vendor-ag-grid-theme-quartz-36.1.0.min.css' %}">
-  <link rel="stylesheet" href="{% static 'miniapp/complaint_cases.css' %}?v=52">
+  <link rel="stylesheet" href="{% static 'miniapp/complaint_cases.css' %}?v=53">
 </head>
 <body class="complaint-cases-app" data-group-id="{{ group_id|escape }}">
   {% include "complaint_cases/lucide_icons.html" %}
@@ -93,7 +93,7 @@
           <input type="hidden" name="portal_source_key"><input type="hidden" name="portal_source_label">
         <div class="panel-heading complaint-create-heading"><div><p class="eyebrow">Complaint Details</p><h2>Record a New Complaint</h2></div><div class="complaint-create-save"><span id="createSaveState" class="muted" role="status">Not saved</span></div></div>
         <div class="form-grid">
-          <label class="full">Customer name<input name="client_name" maxlength="255" autocomplete="off" autocapitalize="words" placeholder="Enter customer full name" required></label>
+          <div class="full customer-name-field"><div class="label-line"><label for="complaintCustomerName">Customer name</label><button id="clearPortalSelection" class="miniapp-compact-icon customer-selection-clear" type="button" aria-label="Clear Master Data selection" title="Clear Master Data selection" hidden><svg class="lucide" aria-hidden="true"><use href="#lucide-x"></use></svg></button></div><input id="complaintCustomerName" name="client_name" maxlength="255" autocomplete="off" autocapitalize="words" placeholder="Enter customer full name" required></div>
           <label>Primary Mobile Number<input name="customer_phone" type="tel" maxlength="20" inputmode="tel" autocomplete="tel" placeholder="e.g. 0712 345 678" required></label>
           <label>Secondary Mobile Number<input name="secondary_phone" type="tel" maxlength="20" inputmode="tel" autocomplete="tel" placeholder="Optional"></label>
           <label class="full">National ID<input name="customer_id" type="text" maxlength="9" inputmode="numeric" pattern="[0-9]{1,9}" autocomplete="off" placeholder="1 to 9 digits" required></label>
@@ -161,6 +161,6 @@
   <script src="{% static 'miniapp/report_email_export.js' %}?v=2"></script>
   <link rel="stylesheet" href="{% static 'miniapp/miniapp_recovery.css' %}?v=1">
   <script src="{% static 'miniapp/miniapp_recovery.js' %}?v=1"></script>
-  <script src="{% static 'miniapp/complaint_cases.js' %}?v=82"></script>
+  <script src="{% static 'miniapp/complaint_cases.js' %}?v=83"></script>
 </body>
 </html>

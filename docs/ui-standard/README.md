@@ -1,5 +1,8 @@
 # Mini App Design Lab
 
+Complaints mobile creation reuses aligned suggestion rows, an inline clear icon
+and full-width evidence actions. [Source and browser evidence](reviews/2026-11-25-complaints-mobile-create.md).
+
 Complaint location corrections, visible removed values and Sheet re-sync have
 [native API and browser evidence](reviews/2026-11-17-complaint-cleared-fields.md).
 

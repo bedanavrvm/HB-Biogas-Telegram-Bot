@@ -556,16 +556,23 @@
     customerForm.querySelectorAll('[data-portal-field-note]').forEach(node=>node.remove());
     for(const [field,message] of Object.entries(selection.field_issues||{})){
       const control=customerForm.elements[field];if(control&&control.value===selection.fields[field]){
-        const note=textNode('small',message,'cmp-customer-warning');note.dataset.portalFieldNote='';control.closest('label')?.appendChild(note);
+        const note=textNode('small',message,'cmp-customer-warning');note.dataset.portalFieldNote='';(control.closest('label')||control.closest('.customer-name-field'))?.appendChild(note);
       }
     }
   }
   function customerClearButton(){
-    const button=textNode('button','Clear Portal selection');button.type='button';button.onclick=()=>{
+    const button=$('clearPortalSelection');button.hidden=false;button.onclick=()=>{
       ++customerSequence;clearTimeout(customerTimer);customerForm.elements.portal_source_key.value='';customerForm.elements.portal_source_label.value='';customerPanel.hidden=true;
+      button.hidden=true;
       customerForm.querySelectorAll('[data-portal-field-note]').forEach(node=>node.remove());
       $('createSaveState').textContent='Not saved';customerForm.dispatchEvent(new Event('input',{bubbles:true}));
-    };customerPanel.appendChild(button);
+      customerForm.elements.client_name.focus();
+    };
+  }
+  function customerSelectionWarnings(selection){
+    customerPanel.replaceChildren();
+    selection.warnings.forEach(message=>customerPanel.appendChild(textNode('p',message,'cmp-customer-warning')));
+    customerPanel.hidden=!customerPanel.childElementCount;
   }
   async function searchPortalCustomers(sequence){
     if(sequence!==customerSequence||state.submitting)return;
@@ -602,8 +609,7 @@
       for(const [name,value] of Object.entries(selection.fields))customerForm.elements[name].value=value;
       customerFieldNotes(selection);
       customerForm.elements.sub_county.disabled=!selection.fields.county;
-      customerStatus('Biodata copied from Master Data. You can edit these fields.');
-      selection.warnings.forEach(message=>customerPanel.appendChild(textNode('p',message,'cmp-customer-warning')));
+      customerSelectionWarnings(selection);
       customerClearButton();
       $('createSaveState').textContent='Not saved';
       customerForm.dispatchEvent(new Event('input',{bubbles:true}));
@@ -616,6 +622,7 @@
     });
     customerForm.elements[name].addEventListener('input',()=>{
       const sequence=++customerSequence;clearTimeout(customerTimer);customerPanel.hidden=true;
+      $('clearPortalSelection').hidden=true;
       customerForm.elements.portal_source_key.value='';customerForm.elements.portal_source_label.value='';
       if(state.submitting)return;
       const fields=customerForm.elements;
@@ -623,7 +630,7 @@
       customerTimer=setTimeout(()=>searchPortalCustomers(sequence),300);
     });
   });
-  customerForm.addEventListener('reset',()=>{++customerSequence;clearTimeout(customerTimer);customerPanel.hidden=true;});
+  customerForm.addEventListener('reset',()=>{++customerSequence;clearTimeout(customerTimer);customerPanel.hidden=true;$('clearPortalSelection').hidden=true;});
   customerPanel.addEventListener('keydown',event=>{
     if(event.key==='Escape'){customerPanel.hidden=true;++customerSequence;clearTimeout(customerTimer);return;}
     if(!['ArrowDown','ArrowUp'].includes(event.key))return;
@@ -749,11 +756,11 @@
           control.value = payload.sub_county || '';
           updateCategoryGuidance();
           if(payload.portal_source_key){
-            customerStatus('Biodata copied from Master Data. You can edit these fields.');customerClearButton();
+            customerPanel.replaceChildren();customerPanel.hidden=true;customerClearButton();
             const key=payload.portal_source_key;
             void json('customers/suggest/',{source_key:key}).then(result=>{
-              if(customerForm.elements.portal_source_key.value===key){customerFieldNotes(result.data.selection);result.data.selection.warnings.forEach(message=>customerPanel.appendChild(textNode('p',message,'cmp-customer-warning')));}
-            }).catch(()=>{if(customerForm.elements.portal_source_key.value===key)customerPanel.appendChild(textNode('p','Portal source unavailable. Clear the selection to use the entered details manually.'));});
+              if(customerForm.elements.portal_source_key.value===key){customerFieldNotes(result.data.selection);customerSelectionWarnings(result.data.selection);}
+            }).catch(()=>{if(customerForm.elements.portal_source_key.value===key)customerStatus('Portal source unavailable. Clear the selection to use the entered details manually.');});
           }
           if (payload.sub_county && !control.value) return 'Draft restored. Choose the constituency again; its availability changed. Reselect any files.';
         },

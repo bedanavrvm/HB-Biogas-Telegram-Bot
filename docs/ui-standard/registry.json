@@ -1568,6 +1568,24 @@
       "sha256": "73fe16edd238307ac032ab3425e6608b4491f703520b723111d8edd35d9d7770",
       "review_reference": "docs/ui-standard/reviews/2026-11-17-complaint-cleared-fields.md",
       "reason": "User-requested location correction dropdowns, explicit removed-value history, Master Data notice and scoped Sheet refresh; native signed Django/PostgreSQL Playwright evidence, existing source patterns and Phase 6 hold retained."
+    },
+    {
+      "path": "core/static/miniapp/complaint_cases.css",
+      "sha256": "fc71507c4afe4fea4f1654e25f1098e60fb6630dbc1d0c1282665d197177dd65",
+      "review_reference": "docs/ui-standard/reviews/2026-11-25-complaints-mobile-create.md",
+      "reason": "User-requested aligned mobile suggestions, inline Master Data selection-clear icon and full-width evidence actions; existing template/control patterns with synthetic Playwright interaction and visual evidence. No Phase 6 migration or access changes."
+    },
+    {
+      "path": "core/static/miniapp/complaint_cases.js",
+      "sha256": "f244b7e0f3e8816a980aa578097ecc16b373a61ec830eaa4e28da859f25316a6",
+      "review_reference": "docs/ui-standard/reviews/2026-11-25-complaints-mobile-create.md",
+      "reason": "User-requested aligned mobile suggestions, inline Master Data selection-clear icon and full-width evidence actions; existing template/control patterns with synthetic Playwright interaction and visual evidence. No Phase 6 migration or access changes."
+    },
+    {
+      "path": "core/templates/complaint_cases/app.html",
+      "sha256": "59fcba12a9ac477915d02dc21dbd9e94af198813faf35ed65ee9a25c55489f28",
+      "review_reference": "docs/ui-standard/reviews/2026-11-25-complaints-mobile-create.md",
+      "reason": "User-requested aligned mobile suggestions, inline Master Data selection-clear icon and full-width evidence actions; existing template/control patterns with synthetic Playwright interaction and visual evidence. No Phase 6 migration or access changes."
     }
   ],
   "source_roots": [

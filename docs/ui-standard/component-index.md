@@ -1,5 +1,8 @@
 # Component index and migration hold
 
+Complaints creation reuses full-width grid rows, label-line/compact-icon controls
+and paired evidence actions. [Source and browser evidence](reviews/2026-11-25-complaints-mobile-create.md).
+
 Complaint corrections reuse paired selects, fixed-format calendars and shared
 history comparisons; both Mini Apps expose scoped Sheet refresh.
 [Source and evidence](reviews/2026-11-17-complaint-cleared-fields.md).

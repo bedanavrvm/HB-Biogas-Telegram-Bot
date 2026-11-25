@@ -33,3 +33,7 @@ one of them has a damaged vga port(the purple haze one) - this needs to be fully
 
 based on the provided sysinfos, only 6 sysinfos were provided but there are 7 in that office(excluding the BM's) - this is because the both the cpu (very old and dated and doesn't work) and the monitor (physically damaged internally - glitches a lot) dont work and definitely need replacement
 
+
+
+since we cannot replace all of them at once we need to isolate and replace those that are unusable/defects/damage while the rest we could maybe see if we could swap their hdd's with ssd's and upgrade their memory(temporary fix)
+

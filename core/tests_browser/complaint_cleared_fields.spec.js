@@ -62,7 +62,8 @@ test('native corrections retain cleared-value history and re-sync both Mini Apps
  await p.locator('#newCaseBtn').click();
  await p.locator('#createCaseForm [name=customer_id]').fill('99998887');
  await p.locator('[data-customer-choice]').first().click();
- await expect(p.locator('#portalCustomerSuggestions [role=status]')).toHaveText('Biodata copied from Master Data. You can edit these fields.');
+ await expect(p.locator('#portalCustomerSuggestions')).toBeHidden();
+ await expect(p.getByRole('button',{name:'Clear Master Data selection',exact:true})).toBeVisible();
  assert((await p.locator('#createCaseForm [name=portal_source_label]').inputValue()).startsWith('JBL-'));
  await p.screenshot({path:info.outputPath('biodata-source.png')});
 
