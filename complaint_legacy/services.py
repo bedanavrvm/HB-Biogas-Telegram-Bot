@@ -249,14 +249,24 @@ def publish_step(upload,group):
 
 
 def historical_notes(case, field):
-    if case.source!='complaint_legacy': return ''
-    row=case.complaint_legacy_rows.filter(committed_at__isnull=False).order_by('committed_at','pk').first()
-    if not row: return ''
+    row=(case.complaint_legacy_rows.filter(committed_at__isnull=False).order_by('committed_at','pk').first()
+         if case.source=='complaint_legacy' else None)
     keys={'resolution_comments':('resolution_comments','historical_hb_comments','historical_hb_reconfirmation'),
           'jbl_verification_comments':('jbl_verification_comments',),
           'resolution_history':('resolution_history','historical_jbl_feedback','historical_jbl_comments')}[field]
     labels=COMPLAINT_LABELS
-    return '\n'.join(f'[Historical source: {labels.get(k,k)}; author/time not recorded]\n{row.values[k]}' for k in keys if row.values.get(k))
+    versions = [row.values if row else {}, *ComplaintCaseEvent.objects.filter(
+        case__parsed_message=case, action='legacy_reconciled').order_by('created_at', 'pk')
+        .values_list('after_values__historical_notes', flat=True)]
+    entries = []; seen = set()
+    for version in versions:
+        for key in keys:
+            value = (version or {}).get(key, '')
+            identity = (key, ' '.join(str(value).casefold().split()))
+            if value and identity not in seen:
+                seen.add(identity)
+                entries.append(f'[Historical source: {labels.get(key,key)}; author/time not recorded]\n{value}')
+    return '\n'.join(entries)
 
 
 COMPLAINT_LABELS={'resolution_comments':'Resolution Comments','historical_hb_comments':'HB Comments',

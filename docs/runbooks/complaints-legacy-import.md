@@ -128,6 +128,34 @@ based on customer identity, since one customer may have several real complaints.
 Identical facts repeated within a worksheet are held for review rather than
 silently treated as separate cases.
 
+### Reviewed updates to committed complaints
+
+The maintenance boundary `complaint_legacy.reconciliation.apply_row` accepts an
+approved, uncommitted row from a retained new source version, an exact canonical
+case UUID, its reviewed control revision, a reason and a stable request key.
+Whole-workspace Complaints IT import authority and case-management scope are
+both required. It does not expose a new HTTP endpoint or change staff grants.
+
+Historical cases may receive reviewed status, closure-date and resolution-detail
+amendments. A closed historical case may retain an unknown closure date; no
+current date or historical HB actor is invented. App-created cases accept only
+historical source notes through this boundary; their status remains governed by
+the live workflow. Biodata corrections continue through the normal IT service.
+
+Notes must exactly match retained source cells. Original committed source values
+remain unchanged. Append-only `legacy_reconciled` case events retain the accepted
+changes, and the historical-note reader combines their notes with the original
+source. No live `CaseUpdate` closure, reopening or HB response is generated.
+Each accepted amendment increments the control revision and reserves normal
+durable Sheet publication. An identical request replays; a changed payload or
+stale case revision is rejected.
+
+For reconciliation, compare reported dates in Africa/Nairobi, corroborate source
+row pointers with customer and complaint facts, and keep different incidents
+separate. Prefer the newest open version of a proven duplicate. A later incident
+must not disappear merely because the customer has an older closed complaint.
+Uncertain matches and conflicting live-app decisions remain held for review.
+
 Reuploading identical bytes resumes the same upload. A corrected workbook may
 reuse already imported rows with identical original facts. Changing facts of an
 already imported row is blocked: use the normal audited case correction flow.

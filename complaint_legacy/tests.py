@@ -301,5 +301,5 @@ class ComplaintLegacyTests(ImportFixture,TestCase):
             publish(job);publish(job)
         job.refresh_from_db();self.assertEqual(job.status,'succeeded');self.assertEqual(len(sheet.rows),1)
         row=next(iter(sheet.rows.values()));self.assertEqual(len(row),22);self.assertTrue(row[1].startswith('CMP-'))
-        self.assertEqual(row[2],'24-05-25');self.assertEqual(row[3],'CLOSED');self.assertEqual(row[19:21],['',''])
+        self.assertEqual(row[2],'24/05/2025');self.assertEqual(row[3],'CLOSED');self.assertEqual(row[19:21],['',''])
         self.assertIn('HB NOTE',row[17]);self.assertNotIn('JBL CHECK',row[17]);self.assertIn('JBL CHECK',row[18])
